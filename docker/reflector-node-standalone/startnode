@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+# Check if the SECRET environment variable is set
+if [ -z "$SECRET" ]; then
+    echo "ERROR: SECRET is not set!"
+    exit 1
+fi
+
+set -e
+
+MOUNT_DIR="/reflector-node/app/home"
+
+# Check if the MOUNT_DIR directory is a mount point
+if ! mountpoint -q "$MOUNT_DIR"; then
+    echo "ERROR: $MOUNT_DIR is not mounted!"
+    exit 1
+fi
+
+SUPERVISORD_CONFIG="/etc/supervisor/conf.d/supervisord.conf"
+
+# Start the services using the supervisord configuration
+exec /usr/bin/supervisord -c $SUPERVISORD_CONFIG

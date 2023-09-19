@@ -1,0 +1,13 @@
+/node_modules
+/package-lock.json
+/tests/configs
+/tests/logs
+/logs
+/app.config.json
+/.vscode/
+/tests/stellarVolumes/
+/nonce
+/dist
+/src/home
+/src/tests/configs
+/src/tests/clusterData

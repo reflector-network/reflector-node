@@ -1,0 +1,76 @@
+name: Build, Package and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build_and_docker:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18.x'
+
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Run Build Script
+      run: npm run build
+
+    - name: Build and push Docker image
+      run: |
+        docker login -u reflectornet --password-stdin <<< ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+        docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone:latest .
+        docker tag reflector-node-standalone:latest reflectornet/reflector-node-standalone:${{ github.ref_name }}
+        docker push reflectornet/reflector-node-standalone:${{ github.ref_name }}
+
+        docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core:latest .
+        docker tag reflector-node-stellar-core:latest reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
+        docker push reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
+
+    - name: Archive dist directory into tar.gz
+      run: |
+        tar -czvf dist.tar.gz -C dist .
+
+    - name: Archive dist directory into zip
+      run: |
+        zip -r dist.zip dist/
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload dist.tar.gz to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist.tar.gz
+        asset_name: dist.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload dist.zip to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist.zip
+        asset_name: dist.zip
+        asset_content_type: application/zip
