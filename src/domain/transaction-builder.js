@@ -24,12 +24,18 @@ async function buildUpdateTransaction(update, account, txOptions, orcaleClient, 
     switch (update.type) {
         case UpdateType.ASSETS:
         {
-            const tx = await orcaleClient.addAssets(
-                account,
-                update.assets,
-                txOptions
-            )
-            return new AssetsPendingTransaction(tx, update.timestamp, update.assets)
+            try {
+                const tx = await orcaleClient.addAssets(
+                    account,
+                    update.assets,
+                    txOptions
+                )
+                return new AssetsPendingTransaction(tx, update.timestamp, update.assets)
+            } catch (e) {
+                console.error('Error on building adding assets transaction')
+                console.error(e)
+                return null
+            }
         }
         case UpdateType.NODES:
         {
