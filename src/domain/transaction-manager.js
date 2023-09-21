@@ -293,7 +293,6 @@ class TransactionsManager {
             this.__setPendingTransaction(new PriceUpdatePendingTransaction(tx, timestamp, aggregatedTrades.prices))
         } catch (e) {
             logger.error(e)
-            container.app.shutdown()
         } finally {
             const nextTimestamp = timestamp + this.__reflector.timeframe
             const timeout = nextTimestamp + this.__dbSyncDelay - Date.now()

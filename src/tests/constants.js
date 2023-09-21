@@ -1,5 +1,5 @@
-const rpcUrl = 'https://rpc-futurenet.stellar.org:443'
-const network = 'Test SDF Future Network ; October 2022'
+const rpcUrl = 'https://soroban-testnet.stellar.org'//'https://rpc-futurenet.stellar.org'
+const network = 'Test SDF Network ; September 2015'//'Test SDF Future Network ; October 2022'
 const assets = [
     {type: 1, code: 'A:G...W'},
     {type: 1, code: 'B:G...W'},

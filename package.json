@@ -1,6 +1,6 @@
 {
   "name": "reflector-node",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -20,8 +20,7 @@
   },
   "dependencies": {
     "@reflector-network/oracle-client": "https://github.com/reflector-network/oracle-client#v2.2.0",
-    "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v0.9.0",
-    "awilix": "^8.0.1",
+    "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v0.9.1",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",

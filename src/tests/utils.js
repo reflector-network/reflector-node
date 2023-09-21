@@ -36,7 +36,8 @@ async function buildContract() {
 }
 
 async function deployContract(admin) {
-    const command = `soroban contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}"`
+    const command = `soroban contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 100000000`
+    console.log(command)
     return await runCommand(command)
 }
 
@@ -75,9 +76,13 @@ function generateSingleConfig(admin, oracleId, nodes, wsStartPort, hasConnection
  *@param {string} admin
  */
 async function createAccount(server, admin) {
-    return await server.requestAirdrop(admin, 'https://friendbot-futurenet.stellar.org')
+    return await server.requestAirdrop(admin, 'https://friendbot.stellar.org')
 }
 
+/**
+ *@param {Server} server
+ *@param {Keypair} admin
+ */
 async function getAccountInfo(server, publicKey) {
     const account = await server.getAccount(publicKey)
     return account
@@ -93,7 +98,7 @@ async function updateAdminToMultiSigAccount(server, admin, nodesPublicKeys) {
     const account = await getAccountInfo(server, admin.publicKey())
 
     const majorityCount = getMajority(nodesPublicKeys.length)
-    let txBuilder = new TransactionBuilder(account, {fee: 100, networkPassphrase: constants.network})
+    let txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.network})
     txBuilder = txBuilder
         .setTimeout(30000)
         .addOperation(

@@ -39,7 +39,7 @@ async function closeEndRemoveIfExist(name) {
  */
 async function generateNewCluster(nodeConfigs) {
     await buildContract()
-    const server = new Server(constants.rpcUrl, {networkPassphrase: constants.network})
+    const server = new Server(constants.rpcUrl)
     const admin = Keypair.random()
     await createAccount(server, admin.publicKey())
     const contractId = await deployContract(admin.secret())
@@ -89,7 +89,7 @@ async function startNodes(nodesCount) {
         let startCommand = null
         if (fs.existsSync(stellarFolderName)) {
             const horizonPort = 8100 + (i * 100)
-            startCommand = `docker run -d -p ${horizonPort}:8000 -p ${port}:30347 -p ${wsPort}:30348 -e SECRET=${secret} -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" -v "${stellarFolderName}:/opt/stellar" --restart=unless-stopped --name=${nodeName} reflector-node-stellar-core:latest --futurenet --enable-soroban-rpc`
+            startCommand = `docker run -d -p ${horizonPort}:8000 -p ${port}:30347 -p ${wsPort}:30348 -e SECRET=${secret} -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" -v "${stellarFolderName}:/opt/stellar" --restart=unless-stopped --name=${nodeName} reflector-node-stellar-core:latest --testnet --enable-soroban-rpc`
         } else
             startCommand = `docker run -d -p ${port}:30347 -p ${wsPort}:30348 -e SECRET=${secret} -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-standalone:latest`
 
