@@ -62,7 +62,7 @@ It can take some time to sync Stellar database. You can expose Horizon port as w
 2. Choose "Add SAC asset" for adding Stellar Classic asset or "Add generic asset" for adding any external symbol to tracked assets.
 3. Set asset **code** and **issuer** for SAC asset.  
    ![Add new asset](assets-new-screen.jpg)  
-4. Schedule the update by setting the timestamp.
+4. Schedule the update by setting the timestamp.  
    **_Note:_** Minimum allowed timestamp is the current UTC date plus 30 minutes, maximum is current date plus 10 days.
    The timestamp will be normalized to avoid concurrency conflicts with price updates.
 5. Confirm the action. You will see the update link. Copy it and share with other cluster nodes to coordinate the quorum update.
@@ -73,7 +73,7 @@ It can take some time to sync Stellar database. You can expose Horizon port as w
 1. Navigate to "Retention period" section.
 2. Set history retention period in milliseconds and timestamp. That's the period during which price records will be retained on the ledger.
    ![Retention Period](retention-screen.jpg)  
-3. Schedule the update by setting the timestamp.
+3. Schedule the update by setting the timestamp.  
    **_Note:_** Minimum allowed timestamp is the current UTC date plus 30 minutes, maximum is current date plus 10 days.
    The timestamp will be normalized to avoid concurrency conflicts with price updates.
 4. Confirm the action. You will see the update link. Copy it and share with other cluster nodes to coordinate the quorum update.
@@ -86,5 +86,5 @@ It can take some time to sync Stellar database. You can expose Horizon port as w
 
 1. Navigate to `Share config`
    ![Share config](share-config.jpg)  
-2. Copy config, and share it with the node operator you want to invite to the quorum set. 
+2. Copy config, and share it with the node operator you want to invite to the quorum set.  
    **_Note:_** If you're sharing the config with a new node, you need to wait for the pending nodes update to complete to avoid collisions.
