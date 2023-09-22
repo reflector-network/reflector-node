@@ -1,10 +1,10 @@
 # @reflector/reflector-node
 
-> Reflector node server
+> Node server for Reflector, decentralized Stellar price feed oracle
 
 ## Installation
 
-```bash
+```
 npm i
 ```
 
@@ -12,12 +12,14 @@ npm i
 
 ### Prerequisites:
 
-1. Begin by building and deploying the [Reflector Oracle contract](https://github.com/reflector-network/reflector-contract).
-2. Next, create a multisig account which will serve as the administrative account for the contract. Ensure that each signer corresponds to a node.
+1. Build and deploy [Reflector Oracle contract](https://github.com/reflector-network/reflector-contract).
+2. Create a multisig account to protect the contract. Ensure that each signer corresponds to a distinct Reflector cluster node and 
+   master weight is set to 0.
 
-### Configuration
+### Initial cluster configuration
 
-Create app.config.json file in the root folder
+Create `app.config.json` file in the root `reflector-node` directory.
+
 ```json
 {
   "secret": "S...7", //current node secret key
@@ -70,104 +72,84 @@ Create app.config.json file in the root folder
 }
 ```
 
-### Start node
+### Start Reflector node
 
-```bash
+```
 npm run start
 ```
 
-## API
+## Admin HTTP API
 
-## Authentication
+### Authentication
 
-We use payload signing with the private key of the node as authentication. The signature must be added to the Authentication header. 
+For authentication Reflector utilizes ED25519 payload signing with the private key of the node.
+Hex-encoded payload signature must be provided in the `Authorization` request header. 
 
-### Authentication Process
+#### Authorization Process
 
-1. **Generate Payload**: Create a JSON payload containing the necessary data for the request.
-
-2. **Sign Payload**: Use node's private key to sign the payload. Use [Albedo](https://albedo.link/) for signing, or follow next format:
-
-```js
-
-const shajs = require('sha.js')
-
-const messageToSign = `${node_public_key}:${JSON.stringify(data_to_sign)}`
-const messageBuffer = shajs('sha256').update(messageToSign).digest()
-const signature = node_key_pair.sign(message).toString('hex')
-
-```
-
-3. **Include Signature in Header**: Add the generated signature to the Authentication header in the API request.
-
-Example: 
-```bash
-curl -X GET "https://reflector.node.com/updateAssets" \
--H "Content-Type: application/json" \
--H "Authentication: Signature YOUR_HEX_SIGNATURE"
-...
-```
+1. **Generate Payload**: Create a JSON payload containing request data.
+2. **Sign Payload**: Use node's private key to sign the payload. Use [Albedo](https://albedo.link/) for signing, or utilize format:
+    ```js
+    
+    const shajs = require('sha.js')
+    
+    const messageToSign = `${node_public_key}:${JSON.stringify(data_to_sign)}`
+    const rawMessage = shajs('sha256').update(messageToSign).digest()
+    const signature = node_key_pair.sign(rawMessage).toString('hex')
+    
+    ```
+3. **Set Header**: Add the generated signature to the `Authorization` header in the API request.
+    ```
+    Authorization=Signature da07c682...
+    ```
 
 ## Endpoints
 
-#### Update assets
-
-Creates pending assets update
+#### Add new assets to quote
 
 - Endpoint: `/assets`
-- AllowAnonymous: false
-- Method: `post`
-- Post data:
+- Method: `POST`
+- Request format:
 ```json
 {
     "assets": [{"type": 1, "code": "X:G...6"}, {"type": 2, "code": "USD"}], //assets to add
-    "timestamp": 123000000 //when update must be submitted
+    "timestamp": 123000000 //scheduled update time
 }
 ```
-Responses nothing 
 
-#### Update period
-
-Creates pending period update
+#### Update history retention period
 
 - Endpoint: `/period`
-- AllowAnonymous: false
-- Method: `post`
-- Post data:
+- Method: `POST`
+- Request format:
 ```json
 {
-    "period": 100000000, //new period to set
-    "timestamp": 123000000 //when update must be submitted
+    "period": 100000000, //new history retention period
+    "timestamp": 123000000 //scheduled update time
 }
 ```
 
-#### Update nodes
-
-Creates pending nodes update
+#### Add/remove nodes to the quorum set
 
 - Endpoint: `/nodes`
-- AllowAnonymous: false
-- Method: `post`
-- Post data:
+- Method: `POST`
+- Request format:
 ```json
 {
     "nodes": [
-        {"node": "G...9", "url": "ws://node0:30348" }, //presented node
+        {"node": "G...9", "url": "ws://node0:30348" }, //existing node
         {"node": "G...9", "url": "ws://node1:30348" }, //new node to add
         {"node": "G...M", "remove": true } //node to remove
     ],
-    "timestamp": 123000000 //when update must be submitted
+    "timestamp": 123000000 //scheduled update time
 }
 ```
 
-#### Init config
-
-Saves config to app.config.json, and switches node to Ready state
+#### Initialize new node from scratch
 
 - Endpoint: `/config`
-- AllowAnonymous: false
-- Method: `post`
-- Post data:
+- Method: `POST`
+- Request format:
 ```json
 {
   "contractSettings": {
@@ -217,14 +199,12 @@ Saves config to app.config.json, and switches node to Ready state
 }
 ```
 
-#### Get app name
-
-Returns name and version
+#### Fetch basic server info
 
 - Endpoint: `/`
-- AllowAnonymous: true
-- Method: `get`
-- Response:
+- Does not require authentication
+- Method: `GET`
+- Response format:
 ```json
 {
   "name": "reflector-node",
@@ -233,14 +213,11 @@ Returns name and version
 }
 ```
 
-#### Get current config
-
-Returns the current contract settings
+#### Fetch current server config
 
 - Endpoint: `/config`
-- AllowAnonymous: false
-- Method: `get`
-- Response:
+- Method: `GET`
+- Response format:
 ```json
 {
   "contractSettings": {
@@ -289,15 +266,11 @@ Returns the current contract settings
 }
 ```
 
-
-#### Get current settings
-
-Returns the current contract settings
+#### Fetch deployed smart contract settings
 
 - Endpoint: `/contract-settings`
-- AllowAnonymous: false
-- Method: `get`
-- Response:
+- Method: `GET`
+- Response format:
 ```json
 {
     "admin": "G...L",
@@ -329,13 +302,10 @@ Returns the current contract settings
 }
 ```
 
-#### Statistics
-
-Returns current node statistics
+#### Fetch general node statistics
 
 - Endpoint: `/statistics`
-- AllowAnonymous: false
-- Method: `get`
+- Method: `GET`
 - Response:
 ```json
 {
@@ -353,53 +323,50 @@ Returns current node statistics
 }
 ```
 
-# Reflector-Node Docker
+## Docker images
 
-This repository provides Docker configurations to run Reflector-Node along with the Stellar service.
+Docker configurations to run Reflector node software on top of Stellar-Quickstart Docker image or in standalone mode.
 
-## Prerequisites
+### Prerequisites
 
-- Docker installed on your machine.
+- Install Docker.
 
-## Running the Docker Container
+### Running Docker container
 
-
-Example running reflector-node-stellar-core:
+Example startup script for `reflector-node-stellar-core`:
 
 ```bash
 docker run -it -d \
 -e SECRET=S...4 \
 -p 30347:30347 -p 30348:30348 \
--v "YOUR_PATH_TO_REFLECTOR_DIRECTORY:/reflector-node/app/home" \
--v "YOUR_PATH_TO_STELLAR_DATA:/opt/stellar" \ 
+-v "REFLECTOR_WORKDIR:/reflector-node/app/home" \
+-v "STELLAR_WORKDIR:/opt/stellar" \ 
 --name=reflector-node \
 reflectornet/reflector-node-stellar-core:latest --futurenet --enable-soroban-rpc
 ```
 
 
-Example running reflector-node-standalone:
+Example startup script for `reflector-node-standalone`:
 
 ```bash
 docker run -it -d \
 -e SECRET=S...4 \
 -p 30347:30347 -p 30348:30348 \
--v "YOUR_PATH_TO_REFLECTOR_DIRECTORY:/reflector-node/app/home" \
+-v "REFLECTOR_WORKDIR:/reflector-node/app/home" \
 --name=reflector-node \
 reflectornet/reflector-node-standalone:latest
 ```
 
-Replace `SECRET` with the node's secret, `YOUR_PATH_TO_REFLECTOR_DIRECTORY` with the path to the reflector home folder and `YOUR_PATH_TO_STELLAR_DATA` with the path to your stellar data folder.
+- `SECRET` - secret key of the node in the StrKey encoding format
+- `REFLECTOR_WORKDIR` - path to the working directory where Reflector will store config and logs
+- `STELLAR_WORKDIR` - path to StellarCore working directory to store core server data
 
-## Exposed Ports
+#### Default ports 
 
-- `30347`: API port 
-- `30348`: WebSocket port
+- `30347`: REST API for administration 
+- `30348`: WebSocket port for inter-cluster communication
 
-## Volumes
+#### Volumes
 
-You need to mount two volumes:
-
-1. Reflector home directory: `YOUR_PATH_TO_REFLECTOR_DIRECTORY:/reflector-node/app/home`
-2. Stellar data: `YOUR_PATH_TO_STELLAR_DATA:/opt/stellar`
-
-Make sure to replace `YOUR_PATH_TO_REFLECTOR_DIRECTORY` and `YOUR_PATH_TO_STELLAR_DATA` with appropriate paths from your host machine.
+- Reflector working directory, e.g. `REFLECTOR_WORKDIR:/reflector-node/app/home`
+- StellarCore working directory, e.g. `STELLAR_WORKDIR:/opt/stellar`

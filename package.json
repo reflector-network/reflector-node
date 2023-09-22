@@ -1,25 +1,30 @@
 {
-  "name": "reflector-node",
+  "name": "@reflector-network/reflector-node",
   "version": "0.2.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Node server for Reflector, decentralized Stellar price feed oracle",
+  "main": "src/index.js",
   "scripts": {
-    "test": "jest",
-    "start": "cd ./src && cross-env SECRET=SECRET_HERE NODE_ENV=development node ./index.js",
+    "start": "cd ./src && cross-env SECRET=SECRET_HERE NODE_ENV=development node /index.js",
     "run-docker-cluster": "cd ./src && node ./tests/run-cluster.js",
     "build": "node ./build.js",
     "build-docker-stellar-core-image": "docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core .",
-    "build-docker-stanalone-image": "docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone ."
+    "build-docker-stanalone-image": "docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone .",
+    "test": "jest"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "team@stellar.expert",
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/reflector-network/reflector-node",
+    "type": "git"
+  },
   "devDependencies": {
     "@stellar-expert/eslint-config-js": "github:stellar-expert/eslint-config-js",
     "cross-env": "^7.0.3",
     "jest": "^29.5.0"
   },
   "dependencies": {
-    "@reflector-network/oracle-client": "https://github.com/reflector-network/oracle-client#v2.2.0",
+    "@reflector-network/oracle-client": "github:reflector-network/oracle-client#v2.2.0",
     "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v0.9.1",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
