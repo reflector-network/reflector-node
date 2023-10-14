@@ -31,10 +31,14 @@ jobs:
         docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone:latest .
         docker tag reflector-node-standalone:latest reflectornet/reflector-node-standalone:${{ github.ref_name }}
         docker push reflectornet/reflector-node-standalone:${{ github.ref_name }}
+        docker tag reflector-node-standalone:latest reflectornet/reflector-node-standalone:latest
+        docker push reflectornet/reflector-node-standalone:latest 
 
         docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core:latest .
         docker tag reflector-node-stellar-core:latest reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
         docker push reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
+        docker tag reflector-node-stellar-core:latest reflectornet/reflector-node-stellar-core:latest
+        docker push reflectornet/reflector-node-stellar-core:latest
 
     - name: Archive dist directory into tar.gz
       run: |

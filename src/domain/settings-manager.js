@@ -64,7 +64,8 @@ class SettingsManager extends EventEmitter {
         NODES_UPDATED: 'nodes-updated',
         NODES_PERIOD_UPDATED: 'nodes-period-updated',
         NODES_ASSETS_UPDATED: 'nodes-assets-updated',
-        CONTRACT_SETTINGS_UPDATED: 'contract-settings-updated'
+        CONTRACT_SETTINGS_UPDATED: 'contract-settings-updated',
+        CONTRACT_WAS_UPDATED: 'contract-was-updated'
     }
 
     constructor() {
@@ -93,6 +94,10 @@ class SettingsManager extends EventEmitter {
                     break
                 }
         }
+    }
+
+    get pendingUpdate() {
+        return this.__config.contractSettings.pendingUpdate
     }
 
     /**
@@ -129,6 +134,10 @@ class SettingsManager extends EventEmitter {
             case UpdateType.PERIOD:
                 if (update.period <= this.__config.contractSettings.timeframe)
                     throw new ValidationError('Invalid period')
+                break
+            case UpdateType.CONTRACT:
+                if (!update.wasmHash || update.wasmHash.length !== 64)
+                    throw new ValidationError('Invalid wasm hash')
                 break
             default:
                 throw new ValidationError('Invalid update type')
@@ -180,6 +189,9 @@ class SettingsManager extends EventEmitter {
                 event = SettingsManager.EVENTS.NODES_UPDATED
                 break
             }
+            case UpdateType.CONTRACT:
+                event = SettingsManager.EVENTS.CONTRACT_WAS_UPDATED
+                break
             default:
                 throw new Error('Invalid update type')
         }

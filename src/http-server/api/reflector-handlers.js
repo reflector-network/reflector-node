@@ -1,25 +1,13 @@
 const container = require('../../domain/container')
-const UpdateType = require('../../models/contract/updates/update-type')
-const {badRequest, forbidden} = require('../errors')
-const ValidationError = require('../../models/validation-error')
+const {forbidden} = require('../errors')
 const {registerRoute} = require('../router')
 const {validateSignature} = require('../signature-validator')
 const NodeStatus = require('../../domain/node-status')
+const logger = require('../../logger')
 
 /**
  * @typedef {import('express').Express} Express
  */
-
-function setUpdate(data, type) {
-    data.type = type
-    try {
-        container.settingsManager.setUpdate(data)
-    } catch (e) {
-        if (e instanceof ValidationError)
-            throw badRequest(e.message)
-        throw e
-    }
-}
 
 function checkIfNodeIsReady() {
     if (container.settingsManager.nodeStatus !== NodeStatus.ready)
@@ -61,20 +49,19 @@ module.exports = function (app) {
         checkIfNodeIsReady()
         return container.settingsManager.getConfigForClient()
     })
-    registerRoute(app, 'post', '/assets', {middleware: [validateSignature]}, (req) => {
+    registerRoute(app, 'get', '/update', {middleware: [validateSignature]}, () => {
         checkIfNodeIsReady()
-        setUpdate(req.body, UpdateType.ASSETS)
+        return container.settingsManager.pendingUpdate?.toPlainObject()
     })
-    registerRoute(app, 'post', '/nodes', {middleware: [validateSignature]}, (req) => {
+    registerRoute(app, 'post', '/update', {middleware: [validateSignature]}, (req) => {
         checkIfNodeIsReady()
-        setUpdate(req.body, UpdateType.NODES)
-    })
-    registerRoute(app, 'post', '/period', {middleware: [validateSignature]}, (req) => {
-        checkIfNodeIsReady()
-        setUpdate(req.body, UpdateType.PERIOD)
+        container.settingsManager.setUpdate(req.body)
     })
     registerRoute(app, 'post', '/config', {middleware: [validateSignature]}, (req) => {
         checkIfNodeIsInInit()
         container.settingsManager.updateConfig(req.body)
+    })
+    registerRoute(app, 'post', '/trace', {middleware: [validateSignature]}, (req) => {
+        logger.setTrace(req.body.isTraceEnabled)
     })
 }

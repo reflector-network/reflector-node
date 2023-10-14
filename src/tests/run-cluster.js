@@ -46,6 +46,7 @@ async function generateNewCluster(nodeConfigs) {
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
+    await bumpContract(server, admin, contractId)
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
         nodeConfig.keypair = Keypair.random()

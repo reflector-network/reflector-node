@@ -1,4 +1,4 @@
-const {Asset, StrKey, hash, xdr} = require('soroban-client')
+const {StrKey, hash, xdr} = require('soroban-client')
 
 /**
  * @typedef {import('soroban-client').Asset} Asset

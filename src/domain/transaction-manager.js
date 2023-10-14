@@ -177,7 +177,11 @@ class TransactionsManager {
                 tx = new InitPendingTransaction(
                     await this.__oracleClient.config(
                         await this.__getAccount(),
-                        contractSettings,
+                        {
+                            admin: contractSettings.admin,
+                            assets: contractSettings.assets.map(a => a.toOracleContractAsset(contractSettings.network)),
+                            period: contractSettings.period
+                        },
                         this.__txOptions
                     ),
                     1,
@@ -222,8 +226,8 @@ class TransactionsManager {
     async __getAggregatedTrades(timestamp) {
         let aggregatedTrades = await aggregateTrades({
             contract: this.__reflector.oracleId,
-            baseAsset: this.__reflector.baseAsset.getStellarAsset(),
-            assets: container.settingsManager.getAssets(true).map(a => a.getStellarAsset()),
+            baseAsset: this.__reflector.baseAsset,
+            assets: container.settingsManager.getAssets(true),
             decimals: this.__reflector.decimals,
             from: timestamp / 1000,
             period: this.__reflector.timeframe / 1000
@@ -284,10 +288,14 @@ class TransactionsManager {
                 || aggregatedTrades.lastTimestamp >= timestamp //this data already processed, skip this round
                 || aggregatedTrades.prices.length !== this.__reflector.assets.length) //config is changed, skip this round
                 return
+            const account = await this.__getAccount()
             const tx = await this.__oracleClient.setPrice(
-                await this.__getAccount(),
-                aggregatedTrades.prices,
-                timestamp,
+                account,
+                {
+                    admin: account.accountId(),
+                    prices: aggregatedTrades.prices,
+                    timestamp
+                },
                 this.__txOptions
             )
             this.__setPendingTransaction(new PriceUpdatePendingTransaction(tx, timestamp, aggregatedTrades.prices))

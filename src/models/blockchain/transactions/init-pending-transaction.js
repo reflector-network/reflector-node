@@ -22,7 +22,7 @@ class InitPendingTransaction extends PendingTransactionBase {
     config
 
     getDebugInfo() {
-        return `Pending config init: ${JSON.stringify(this.config)}, timestamp: ${this.timestamp}, type: ${this.type}, hash: ${this.hashHex}`
+        return `Pending config init: ${JSON.stringify(this.config.toPlainObject())}, timestamp: ${this.timestamp}, type: ${this.type}, hash: ${this.hashHex}`
     }
 }
 

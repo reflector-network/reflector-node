@@ -39,7 +39,7 @@ class ContractConfig extends ConfigBase {
             if (!asset)
                 throw new Error(ConfigBase.notDefined)
             //check if array and length > 0
-            this.baseAsset = new Asset(asset.type, asset.code, this.network)
+            this.baseAsset = new Asset(asset.type, asset.code)
         } catch (err) {
             this.__addConfigIssue(`baseAsset: ${err.message}`)
         }
@@ -49,7 +49,7 @@ class ContractConfig extends ConfigBase {
         try {
             if (!(assets && Array.isArray(assets) && assets.length > 0))
                 throw new Error(ConfigBase.invalidOrNotDefined)
-            this.assets = assets.map(asset => new Asset(asset.type, asset.code, this.network))
+            this.assets = assets.map(asset => new Asset(asset.type, asset.code))
         } catch (err) {
             this.__addConfigIssue(`assets: ${err.message}`)
         }

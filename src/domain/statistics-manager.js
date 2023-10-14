@@ -1,3 +1,4 @@
+const logger = require('../logger')
 const container = require('./container')
 
 class StatisticsManager {
@@ -41,7 +42,8 @@ class StatisticsManager {
             submittedTransactions: this.submittedTransactions,
             connectedNodes: container.nodesManager.getConnectedNodes(),
             nodeStatus: container.settingsManager.nodeStatus,
-            oracleData: this.oracleData
+            oracleData: this.oracleData,
+            isTraceEnabled: logger.isTraceEnabled()
         }
     }
 }

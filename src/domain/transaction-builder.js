@@ -4,6 +4,7 @@ const {getMajority} = require('../utils/majority-helper')
 const UpdateType = require('../models/contract/updates/update-type')
 const NodesPendingTransaction = require('../models/blockchain/transactions/nodes-pending-transaction')
 const PeriodPendingTransaction = require('../models/blockchain/transactions/period-pending-transaction')
+const ContractPendingTransaction = require('../models/blockchain/transactions/contract-pending-transaction')
 
 /**
  * @typedef {import('../models/contract/updates/update-base')} UpdateBase
@@ -27,7 +28,10 @@ async function buildUpdateTransaction(update, account, txOptions, orcaleClient, 
             try {
                 const tx = await orcaleClient.addAssets(
                     account,
-                    update.assets,
+                    {
+                        admin: account.accountId(),
+                        assets: update.assets.map(a => a.toOracleContractAsset(settingsManager.contractSettings.network))
+                    },
                     txOptions
                 )
                 return new AssetsPendingTransaction(tx, update.timestamp, update.assets)
@@ -73,10 +77,19 @@ async function buildUpdateTransaction(update, account, txOptions, orcaleClient, 
         {
             const tx = await orcaleClient.setPeriod(
                 account,
-                update.period,
+                {admin: account.accountId(), period: update.period},
                 txOptions
             )
             return new PeriodPendingTransaction(tx, update.timestamp, update.period)
+        }
+        case UpdateType.CONTRACT:
+        {
+            const tx = await orcaleClient.updateContract(
+                account,
+                {admin: account.accountId(), wasmHash: update.wasmHash},
+                txOptions
+            )
+            return new ContractPendingTransaction(tx, update.timestamp, update.wasmHash)
         }
         default:
             throw new Error(`Unknown update type: ${update.type}`)

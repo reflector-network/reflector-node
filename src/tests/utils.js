@@ -1,5 +1,6 @@
 const {exec} = require('child_process')
 const {TransactionBuilder, Operation} = require('soroban-client')
+const Client = require('@reflector-network/oracle-client')
 const Asset = require('../models/assets/asset')
 const {getMajority} = require('../utils/majority-helper')
 const constants = require('./constants')
@@ -7,9 +8,9 @@ const constants = require('./constants')
 const pathToContractProject = '../../reflector-contract/price-oracle'
 const pathToContractWasm = '../../reflector-contract/target/wasm32-unknown-unknown/release/reflector_oracle.wasm'
 
-async function runCommand(command) {
+async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
+        exec(command, args, (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`)
                 reject(error)
@@ -68,6 +69,27 @@ function generateSingleConfig(admin, oracleId, nodes, wsStartPort, hasConnection
         handshakeTimeout: 0,
         dbConnectionString: dbPass ? `postgres://stellar:${dbPass}@localhost:5432/core` : null,
         dbSyncDelay: 15
+    }
+}
+
+async function bumpContract(server, keypair, oracleId) {
+
+    const t = true
+    let bump = 500_000
+    while (t) {
+        try {
+            const accountInfo = await server.getAccount(keypair.publicKey())
+            const client = new Client(constants.network, constants.rpcUrl, oracleId)
+            const bumpTx = await client.bump(accountInfo, bump, {fee: 10000000})
+
+            const res = await client.submitTransaction(bumpTx, [keypair.signDecorated(bumpTx.hash())])
+            return
+        } catch (e) {
+            console.log(e)
+            bump /= 2
+            if (bump < 100_000)
+                throw e
+        }
     }
 }
 
@@ -147,5 +169,6 @@ module.exports = {
     createAccount,
     runCommand,
     generateSingleConfig,
-    updateAdminToMultiSigAccount
+    updateAdminToMultiSigAccount,
+    bumpContract
 }
