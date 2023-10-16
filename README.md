@@ -2,6 +2,8 @@
 
 > Node server for Reflector, decentralized Stellar price feed oracle
 
+Check [architecture and general concepts overview](docs/how-it-works.md) to learn what's inside and how it works.
+
 ## Installation
 
 ```
@@ -370,3 +372,8 @@ reflectornet/reflector-node-standalone:latest
 
 - Reflector working directory, e.g. `REFLECTOR_WORKDIR:/reflector-node/app/home`
 - StellarCore working directory, e.g. `STELLAR_WORKDIR:/opt/stellar`
+
+## Admin Dashboard
+
+[Admin Dashboard](https://node-admin.reflector.world) is a GUI that simplifies common administrative tasks, monitoring, and management of Reflector nodes.
+Check [admin guide](docs/admin/guide/index.md) for a short 101 course on node administration.
