@@ -1,11 +1,11 @@
 {
   "name": "@reflector-network/reflector-node",
-  "version": "0.3.0",
+  "version": "0.3.0-beta.1",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
   "scripts": {
-    "start": "cd ./src && cross-env SECRET=SA3SCQ5BVPWMGY65KOTKDDHXS4X7O6236IMKPLLOXUMQ4AOLBCMDDBKZ NODE_ENV=development node ./index.js",
+    "start": "cd ./src && cross-env SECRET=SECRET_HERE NODE_ENV=development node ./index.js",
     "run-docker-cluster": "cd ./src && node ./tests/run-cluster.js",
     "build": "node ./build.js",
     "build-docker-stellar-core-image": "docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core .",

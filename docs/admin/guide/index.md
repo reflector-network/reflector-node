@@ -10,12 +10,12 @@
 
 Running Reflector with built-in StellarCore image:
 ```bash
-docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...X -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" -v "/opt/stellar-data:/opt/stellar" --name=reflector reflectornet/reflector-node-stellar-core:v0.1.0 --futurenet --enable-soroban-rpc
+docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...X -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" -v "/opt/stellar-data:/opt/stellar" --name=reflector reflectornet/reflector-node-stellar-core:latest --testnet --enable-soroban-rpc
 ```
 
 Running Reflector standalone (requires connection to the database of StellarCore instance with Futurenet):
 ```bash
-docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...Y -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" --name=reflector reflectornet/reflector-node-standalone:v0.1.0
+docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...Y -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" --name=reflector reflectornet/reflector-node-standalone:latest
 ```
 
 Do not forget to open corresponding firewall ports and provide `SECRET` variable.
@@ -78,6 +78,18 @@ It can take some time to sync Stellar database. You can expose Horizon port as w
    The timestamp will be normalized to avoid concurrency conflicts with price updates.
 4. Confirm the action. You will see the update link. Copy it and share with other cluster nodes to coordinate the quorum update.
    ![Share nodes update](peer-nodes-submitted-screen.jpg)
+
+   
+### Updating contract
+
+1. Navigate to "Update contract" section.
+2. Set new contract wasm hash. 
+   ![Update Contract](update-contract.jpg)  
+3. Schedule the update by setting the timestamp.  
+   **_Note:_** Minimum allowed timestamp is the current UTC date plus 30 minutes, maximum is current date plus 10 days.
+   The timestamp will be normalized to avoid concurrency conflicts with price updates.
+4. Confirm the action. You will see the update link. Copy it and share with other cluster nodes to coordinate the quorum update.
+   ![Share contract update](update-contract-submitted-screen.jpg)
 
 
 ### Sharing current node config
