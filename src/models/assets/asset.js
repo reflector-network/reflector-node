@@ -1,5 +1,5 @@
-const {StrKey, Asset: StellarAsset} = require('soroban-client')
-const {encodeAssetContractId} = require('../../utils/contractId-helper')
+const { StrKey, Asset: StellarAsset } = require('soroban-client')
+const { encodeAssetContractId } = require('../../utils/contractId-helper')
 const AssetType = require('./asset-type')
 
 const assetTypeValues = Object.values(AssetType)
@@ -19,8 +19,12 @@ class Asset {
             throw new Error(`Asset type must be one of ${assetTypeValues.join(', ')}`)
 
         if (type === AssetType.STELLAR) {
-            if (code !== 'XLM') {
-                const [assetCode, issuer] = code.split(':')
+            let [assetCode, issuer] = code.split(':')
+            if (issuer === 'undefined')
+                issuer = undefined
+            if (assetCode === 'XLM' && !issuer)
+                this.__stellarAsset = StellarAsset.native()
+            else {
                 if (!assetCode || !issuer)
                     throw new Error('Asset code and issuer must be defined')
                 if (assetCode.length > 12)
@@ -28,8 +32,6 @@ class Asset {
                 if (!StrKey.isValidEd25519PublicKey(issuer))
                     new Error('Asset issuer must be a valid ed25519 public key')
                 this.__stellarAsset = new StellarAsset(assetCode, issuer)
-            } else {
-                this.__stellarAsset = StellarAsset.native()
             }
             this.code = encodeAssetContractId(this.__stellarAsset, networkPassphrase)
         } else if (type === AssetType.GENERIC) {
