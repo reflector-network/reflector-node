@@ -167,15 +167,17 @@ class SettingsManager extends EventEmitter {
                         const nodeAddress = nodeAddresses.findIndex(n => n.pubkey === node.pubkey)
                         if (nodeAddress >= 0)
                             nodeAddresses.splice(nodeAddress, 1)
-                    } else if (!currentNodes.includes(node.pubkey)) {
-                        currentNodes.push(node.pubkey)
-                        //try add to addresses
-                        const nodeAddress = nodeAddresses.find(n => n.pubkey === node.pubkey)
-                        if (!nodeAddress)
-                            nodeAddresses.push({pubkey: node.pubkey, url: node.url})
-                        else if (nodeAddress.url !== node.url)
-                            nodeAddress.url = node.url
+                        return
                     }
+                    if (!currentNodes.includes(node.pubkey)) {
+                        currentNodes.push(node.pubkey)
+                    }
+                    //try add to addresses
+                    const nodeAddress = nodeAddresses.find(n => n.pubkey === node.pubkey)
+                    if (!nodeAddress)
+                        nodeAddresses.push({pubkey: node.pubkey, url: node.url})
+                    else if (nodeAddress.url !== node.url)
+                        nodeAddress.url = node.url
                 })
                 event = SettingsManager.EVENTS.NODES_UPDATED
                 break

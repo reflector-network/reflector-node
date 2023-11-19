@@ -10,12 +10,12 @@
 
 Running Reflector with built-in StellarCore image:
 ```bash
-docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...X -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" -v "/opt/stellar-data:/opt/stellar" --name=reflector reflectornet/reflector-node-stellar-core:v0.1.0 --futurenet --enable-soroban-rpc
+docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...X -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" -v "/opt/stellar-data:/opt/stellar" --name=reflector reflectornet/reflector-node-stellar-core:v0.2.1 --testnet --enable-soroban-rpc
 ```
 
-Running Reflector standalone (requires connection to the database of StellarCore instance with Futurenet):
+Running Reflector standalone (requires connection to the database of StellarCore instance with Testnet):
 ```bash
-docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...Y -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" --name=reflector reflectornet/reflector-node-standalone:v0.1.0
+docker run -d -p 30347:30347 -p 30348:30348 -e SECRET=S...Y -e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" --name=reflector reflectornet/reflector-node-standalone:v0.2.1
 ```
 
 Do not forget to open corresponding firewall ports and provide `SECRET` variable.

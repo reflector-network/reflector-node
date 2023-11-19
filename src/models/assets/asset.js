@@ -63,7 +63,7 @@ class Asset {
     toPlainObject() {
         let code = this.code
         if (this.type === AssetType.STELLAR)
-            if (this.__stellarAsset === StellarAsset.native())
+            if (this.__stellarAsset.isNative())
                 code = 'XLM'
             else
                 code = `${this.__stellarAsset.code}:${this.__stellarAsset.issuer}`
