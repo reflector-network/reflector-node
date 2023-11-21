@@ -279,7 +279,7 @@ class TransactionsManager {
         if (!this.isRunning)
             return
         try {
-            const aggregatedTrades = await this.__getAggregatedTrades(timestamp)
+            const aggregatedTrades = await this.__getAggregatedTrades(timestamp - this.__reflector.timeframe)
             if (!aggregatedTrades?.admin //not initialized yet, skip this round
                 || aggregatedTrades.lastTimestamp >= timestamp //this data already processed, skip this round
                 || aggregatedTrades.prices.length !== container.settingsManager.getAssets(true).length) //config is changed, skip this round
