@@ -12,21 +12,19 @@ try {
     const container = require('./domain/container')
     const SettingsManager = require('./domain/settings-manager')
     const WsServer = require('./ws-server')
-    const TransactionsManager = require('./domain/transaction-manager')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
-    const NodesManager = require('./domain/nodes/nodes-manager')
     const StatisticsManager = require('./domain/statistics-manager')
     const HttpServer = require('./http-server')
+    const OracleRunnerManager = require('./domain/transactions/oracle-runner-manager')
 
     logger.info('Starting reflector node')
 
     container.settingsManager = new SettingsManager()
     container.statisticsManager = new StatisticsManager()
-    container.transactionsManager = new TransactionsManager()
     container.handlersManager = new HandlersManager()
     container.webSocketServer = new WsServer()
     container.httpServer = new HttpServer()
-    container.nodesManager = new NodesManager()
+    container.oracleRunnerManager = new OracleRunnerManager()
     require('./app')(container)
 } catch (e) {
     if (logger)

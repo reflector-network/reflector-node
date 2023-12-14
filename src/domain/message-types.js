@@ -7,7 +7,7 @@ const MessageTypes = {
     HANDSHAKE_REQUEST: 0,
     HANDSHAKE_RESPONSE: 1,
     STATE: 2,
-    SETTINGS: 3,
+    CONFIG: 3,
     SIGNATURE: 4
 }
 

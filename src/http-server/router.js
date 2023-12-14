@@ -1,5 +1,5 @@
 const cors = require('cors')
-const ValidationError = require('../models/validation-error')
+const {ValidationError} = require('@reflector/reflector-shared')
 const {badRequest} = require('./errors')
 
 

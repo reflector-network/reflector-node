@@ -1,25 +1,24 @@
-const {Keypair} = require('soroban-client')
+const {Keypair} = require('stellar-sdk')
 const logger = require('../../logger')
 const ChannelTypes = require('../../ws-server/channels/channel-types')
-const container = require('../container')
 const MessageTypes = require('../message-types')
 const NodeStates = require('./node-states')
 
 /**
- * @typedef {import('../../ws-server/channels/incoming-websocket-channel')} IncomingWebSocketChannel
- * @typedef {import('../../ws-server/channels/outgoing-websocket-channel')} OutgoingWebSocketChannel
- * @typedef {import('../../ws-server/channels/base-websocket-channel')} BaseWebSocketChannel
+ * @typedef {import('../../ws-server/channels/incoming-channel')} IncomingChannel
+ * @typedef {import('../../ws-server/channels/outgoing-channel')} OutgoingChannel
+ * @typedef {import('../../ws-server/channels/channel-base')} ChannelBase
  */
 
 class Node {
     /**
-     * @type {IncomingWebSocketChannel}
+     * @type {IncomingChannel}
      * @private
      */
     __incommingChannel = null
 
     /**
-     * @type {OutgoingWebSocketChannel}
+     * @type {OutgoingChannel}
      * @private
      */
     __outgoingChannel = null
@@ -51,7 +50,7 @@ class Node {
     }
 
     /**
-     * @param {IncomingWebSocketChannel} connection - the incoming websocket from the node
+     * @param {IncomingChannel} connection - the incoming websocket from the node
      */
     assignIncommingWebSocket(connection) {
         this.__incommingChannel?.close(1001, 'New connection', true)
@@ -79,13 +78,11 @@ class Node {
     }
 
     /**
-     * @param {OutgoingWebSocketChannel} connection - reflector node connection
+     * @param {OutgoingChannel} connection - reflector node connection
      */
     assignOutgoingWebSocket(connection) {
         this.__outgoingChannel?.close(1000, 'New connection', true)
         this.__outgoingChannel = connection
-        const {settingsManager} = container
-        settingsManager.updateNodeUrl(this.pubkey, this.__outgoingChannel.url)
     }
 
     /**
@@ -105,7 +102,7 @@ class Node {
 
     /**
      * @param {ChannelTypes} channelType - the channel type
-     * @returns {BaseWebSocketChannel}
+     * @returns {ChannelBase}
      * */
 
     __getChannel(channelType) {

@@ -1,25 +1,18 @@
-/**
- * @typedef {import('./channel-types')} ChannelTypes
- * @typedef {import('soroban-client').Keypair} Keypair
- */
-
 const WebSocket = require('ws')
 const {v4: uuidv4} = require('uuid')
 const logger = require('../../logger')
 const container = require('../../domain/container')
+const ChannelTypes = require('./channel-types')
 
-const isDev = process.env.NODE_ENV === 'development'
-
-
-class BaseWebSocketChannel {
+class ChannelBase {
 
     /**
      * @param {string} pubkey - the pubkey of the node
      * */
     constructor(pubkey) {
-        if (this.constructor === BaseWebSocketChannel)
+        if (this.constructor === ChannelBase)
             throw new Error('BaseWebSocketChannel is abstract class')
-        if (!pubkey)
+        if (!pubkey && this.constructor.name !== 'OrchestratorChannel')
             throw new Error('pubkey is required')
         this.pubkey = pubkey
     }
@@ -97,7 +90,7 @@ class BaseWebSocketChannel {
                     if (err) {
                         reject(err)
                     } else {
-                        if (message.resonseId)
+                        if (message.responseId)
                             resolve()
                     }
                 })
@@ -176,18 +169,24 @@ class BaseWebSocketChannel {
             this.__ws = null
             this.__isValidated = false
         }
-        logger.debug(`${this.pubkey} ${this.type} closed with code ${code} and reason ${reason}`)
+        logger.debug(`${this.__getConnectionInfo()} closed with code ${code} and reason ${reason}`)
     }
 
     __onError(error) {
         if (error.code === 'ECONNREFUSED' || error.code === 'EAI_AGAIN') {
             if (error.connectionAttempts > 0 && error.connectionAttempts % 20 === 0)
-                logger.debug(`${this.pubkey} ${this.type} websocket error ${error.code}. Connection attempts: ${error.connectionAttempts}`)
+                logger.debug(`${this.__getConnectionInfo()} websocket error ${error.code}. Connection attempts: ${error.connectionAttempts}`)
         } else {
-            logger.debug(`${this.pubkey} ${this.type} websocket error`)
+            logger.debug(`${this.__getConnectionInfo()} websocket error`)
             logger.debug(error)
         }
     }
+
+    __getConnectionInfo() {
+        if (this.type === ChannelTypes.ORCHESTRATOR)
+            return 'Orchestrator'
+        return `${this.pubkey} ${this.type}`
+    }
 }
 
-module.exports = BaseWebSocketChannel
+module.exports = ChannelBase

@@ -3,7 +3,9 @@ const path = require('path')
 const pino = require('pino')
 
 const isDev = process.env.NODE_ENV === 'development'
-const minLevel = isDev ? 'trace' : 'info'
+const traceLevel = 'trace'
+const infoLevel = 'info'
+const defaultLevel = isDev ? traceLevel : infoLevel
 const folder = './home/logs/'
 
 const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024 //10MB
@@ -23,7 +25,7 @@ function stringifyWithCircularReferences(obj) {
 }
 
 const baseLogOptions = {
-    level: minLevel,
+    level: defaultLevel,
     timestamp: () => `,"time":"${new Date().toISOString()}"`,
     formatters: {
         level(label) {
@@ -49,17 +51,17 @@ const errorFilePath = `${folder}/error.log`
 const combinedFilePath = `${folder}/combined.log`
 
 const errorLogStream = pino.destination({dest: errorFilePath, level: 'error'})
-const combinedLogStream = pino.destination({dest: combinedFilePath, level: minLevel})
+const combinedLogStream = pino.destination({dest: combinedFilePath, level: defaultLevel})
 
 const streams = [
     {stream: errorLogStream, level: 'error'},
-    {stream: combinedLogStream, level: minLevel}
+    {stream: combinedLogStream, level: defaultLevel}
 ]
 
 if (isDev) {
     streams.push({
         stream: process.stdout,
-        level: minLevel
+        level: defaultLevel
     })
 }
 
@@ -99,5 +101,15 @@ function manageLogs() {
 }
 
 manageLogs()
+
+logger.setTrace = (isTraceEnabled) => {
+    if (isTraceEnabled) {
+        logger.level = traceLevel
+    } else {
+        logger.level = infoLevel
+    }
+}
+
+logger.isTraceEnabled = () => logger.level === traceLevel
 
 module.exports = logger

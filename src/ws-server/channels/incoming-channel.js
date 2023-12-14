@@ -1,21 +1,20 @@
 /**
- * @typedef {import('soroban-client').Keypair} Keypair
+ * @typedef {import('stellar-sdk').Keypair} Keypair
  * */
 const WebSocket = require('ws')
 const {v4: uuidv4} = require('uuid')
-const BaseWebSocketChannel = require('./base-websocket-channel')
+const ChannelBase = require('./channel-base')
 const ChannelTypes = require('./channel-types')
 
 /**
  * Handles the ws channel and its events. Restarts on failure.
  */
-class IncomingWebSocketChannel extends BaseWebSocketChannel {
+class IncomingChannel extends ChannelBase {
 
 
     /**
      * @param {WebSocket.WebSocket} ws - ws instance
      * @param {string} pubkey - the pubkey of the node
-     * @param {Keypair} currentKeypair - the current keypair
      */
     constructor(ws, pubkey) {
         super(pubkey)
@@ -73,4 +72,4 @@ class IncomingWebSocketChannel extends BaseWebSocketChannel {
     type = ChannelTypes.INCOMING
 }
 
-module.exports = IncomingWebSocketChannel
+module.exports = IncomingChannel

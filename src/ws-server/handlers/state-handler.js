@@ -12,10 +12,13 @@ class StateHandler extends BaseHandler {
     async handle(ws, message) {
         switch (message.data.state) {
             case NodeStates.READY: {
-                const nodes = container.settingsManager.nodeAddresses
-                await container.transactionsManager.broadcastSignatureTo(ws.pubkey)
-                return {type: MessageTypes.SETTINGS, data: {nodes}}
+                const promises = []
+                for (const oracleRunner of container.oracleRunnerManager.getAll()) {
+                    promises.push(oracleRunner.broadcastSignatureTo(ws.pubkey))
+                }
+                await Promise.allSettled(promises)
             }
+                break
             default:
                 throw new Error(`State ${message.data.state} is not supported`)
         }

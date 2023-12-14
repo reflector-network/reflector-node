@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
-const {Server, Keypair} = require('soroban-client')
-const {buildContract, deployContract, createAccount, updateAdminToMultiSigAccount, generateSingleConfig, runCommand, bumpContract} = require('./utils')
+const {SorobanRpc, Keypair} = require('stellar-sdk')
+const {buildContract, deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, bumpContract, generateAppConfig, generateConfig} = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
@@ -35,37 +35,65 @@ async function closeEndRemoveIfExist(name) {
 }
 
 /**
- * @param {{isInitNode: boolean, stellarCore: boolean}[]} nodeConfigs
+ * @param {SorobanRpc.Server} server
+ * @param {string[]} nodes
+ * @param {{type: string}} dataSource
  */
-async function generateNewCluster(nodeConfigs) {
-    await buildContract()
-    const server = new Server(constants.rpcUrl)
+async function generateNewContract(server, nodes, dataSource) {
+    await buildContract() //if api - build contract with generic asset
     const admin = Keypair.random()
     await createAccount(server, admin.publicKey())
     const contractId = await deployContract(admin.secret())
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
+    //await bumpContract(server, admin, contractId)
+    await updateAdminToMultiSigAccount(server, admin, nodes)
+
+    const config = generateSingleConfig(admin.publicKey(), contractId, dataSource)
+    return config
+}
+
+/**
+ * @param {{isInitNode: boolean, stellarCore: boolean}[]} nodeConfigs
+ * @param {{dataSource: any}[]} contractConfigs
+ */
+async function generateNewCluster(nodeConfigs, contractConfigs) {
+
+    const server = new SorobanRpc.Server(constants.rpcUrl)
+    //generate system account
+    const systemAccount = Keypair.random()
+    await createAccount(server, systemAccount.publicKey())
+
+    //generate nodes keypairs
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
         nodeConfig.keypair = Keypair.random()
     }
 
     const nodes = nodeConfigs.filter(n => n.isInitNode).map(n => n.keypair.publicKey())
-    await updateAdminToMultiSigAccount(server, admin, nodes)
+    await updateAdminToMultiSigAccount(server, systemAccount, nodes)
 
-    const config = generateSingleConfig(admin.publicKey(), contractId, nodes, 30348, true, null)
-    const configPath = path.join(configsPath, 'app.config.json')
+    //generate contract configs
+    const contracts = {}
+    for (const contractConfig of contractConfigs) {
+        const config = await generateNewContract(server, nodes, contractConfig.dataSource)
+        contracts[config.oracleId] = config
+    }
+
+    const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, false)
     fs.mkdirSync(configsPath, {recursive: true})
+    const configPath = path.join(configsPath, '.config.json')
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), {encoding: 'utf-8'})
 
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
+        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.sources)
         const nodeHomeFolder = getReflectorHomeFolderName(i)
         fs.mkdirSync(nodeHomeFolder, {recursive: true})
-        fs.writeFileSync(path.join(nodeHomeFolder, '.secret'), nodeConfig.keypair.secret())
+        fs.writeFileSync(path.join(nodeHomeFolder, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
         if (nodeConfig.isInitNode) {
-            fs.copyFileSync(configPath, path.join(nodeHomeFolder, 'app.config.json'))
+            fs.copyFileSync(configPath, path.join(nodeHomeFolder, '.config.json'))
         }
         if (nodeConfig.stellarCore) {
             const stellarData = getStellarFolderName(i)
@@ -82,9 +110,9 @@ async function startNodes(nodesCount) {
         const nodeName = `node${i}`
         const port = 30347 + (i * 100)
         const wsPort = 30348 + (i * 100)
-        closeEndRemoveIfExist(nodeName)
+        //closeEndRemoveIfExist(nodeName)
 
-        const secret = fs.readFileSync(path.join(nodeHomeFolder, '.secret')).toString().trim()
+        const {secret} = JSON.parse(fs.readFileSync(path.join(nodeHomeFolder, 'app.config.json')).toString().trim())
 
         let startCommand = null
         if (fs.existsSync(stellarFolderName)) {
@@ -93,28 +121,34 @@ async function startNodes(nodesCount) {
         } else
             startCommand = `docker run -d -p ${port}:30347 -p ${wsPort}:30348 -e SECRET=${secret} -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-standalone:latest`
 
-        //console.log(startCommand)
-        await runCommand(startCommand)
+        console.log(startCommand)
+        //await runCommand(startCommand)
     }
 }
 
 /**
  * @param {{isInitNode: boolean, stellarCore: boolean}[]} nodes
+ * @param {{dataSource: any}[]} contractConfigs
  */
-async function run(nodes) {
+async function run(nodes, contractConfigs) {
     if (!fs.existsSync(configsPath)) {
-        await generateNewCluster(nodes)
+        await generateNewCluster(nodes, contractConfigs)
     }
     await startNodes(getNodesCount())
 }
 
 const nodeConfigs = [
-    {isInitNode: true, stellarCore: true},
-    {isInitNode: false, stellarCore: true},
-    {isInitNode: false, stellarCore: true},
-    {isInitNode: false, stellarCore: false},
-    {isInitNode: false, stellarCore: true},
-    {isInitNode: false, stellarCore: true}
+    {isInitNode: true, stellarCore: false}
+    //{ isInitNode: false, stellarCore: false },
+    //{ isInitNode: false, stellarCore: true },
+    //{ isInitNode: false, stellarCore: false },
+    //{ isInitNode: false, stellarCore: true },
+    //{ isInitNode: false, stellarCore: true }
 ]
 
-run(nodeConfigs).catch(console.error)
+const contractConfigs = [
+    {dataSource: constants.sources.pubnet},
+    {dataSource: constants.sources.coinmarketcap}
+]
+
+run(nodeConfigs, contractConfigs).catch(console.error)

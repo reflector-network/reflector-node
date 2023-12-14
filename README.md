@@ -30,7 +30,7 @@ Create `app.config.json` file in the root `reflector-node` directory.
     "oracleId": "C...A", //the deployed contract address
     "horizon": "https://rpc-futurenet.stellar.org:443", //horizon url
     "network": "Test SDF Future Network ; October 2022", //network passphrase
-    "baseAsset": { //the contract's base asset. 1 - Stellar asset, 2 - Generic asset
+    "baseAsset": { //the contract's base asset. 1 - Stellar asset, 2 - Other asset
       "type": 1,
       "code": "X:G...W"
     },

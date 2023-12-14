@@ -18,7 +18,7 @@ function setNonce(value) {
 }
 
 function validateSignature(req, res, next) {
-    const nodeKeypair = container.settingsManager.config.keypair
+    const nodeKeypair = container.settingsManager.appConfig.keypair
     if (!nodeKeypair)
         return next()
 
@@ -44,7 +44,7 @@ function validateSignature(req, res, next) {
     }
 
     const [_, signature] = authorization.split(' ')
-    const messageToSign = `${container.settingsManager.config.publicKey}:${JSON.stringify(payload)}`
+    const messageToSign = `${container.settingsManager.appConfig.publicKey}:${JSON.stringify(payload)}`
     const messageHash = createHash('sha256').update(messageToSign, 'utf8').digest()
     const isValid = nodeKeypair.verify(messageHash, Buffer.from(signature, 'hex'))
     if (!isValid)

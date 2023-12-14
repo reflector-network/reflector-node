@@ -1,0 +1,92 @@
+const {createDbConnection} = require('@reflector/reflector-db-connector')
+const DataSourceTypes = require('../models/data-source-types')
+
+/**
+ * @typedef {import('@reflector/reflector-db-connector').AggregatedTradeResult} AggregatedTradeResult
+ * @typedef {import('@reflector/reflector-db-connector').AccountProps} AccountProps
+ * @typedef {import('@reflector/reflector-db-connector').Signer} Signer
+ * @typedef {import('@reflector/reflector-db-connector').TradeAggregationParams} TradeAggregationParams
+ * @typedef {import('../models/data-source')} DataSource
+ */
+
+const networks = {
+    testnet: 'Test SDF Network ; September 2015',
+    pubnet: 'Public Global Stellar Network ; September 2015'
+}
+
+/**
+ * @type {Map<string, { networkPassphrase: string, horizonUrl: [string], dbConnector: [DbConnector], type: string, secret: [string] }>}
+ */
+const __connections = new Map()
+
+/**
+ * @param {DataSource} dataSource - data source
+ * @param {string} dockerDbPassword - docker db password
+ */
+function __registerConnection(dataSource, dockerDbPassword) {
+    if (!dataSource)
+        throw new Error('network is required')
+    const {name, dbConnection: source, horizonUrl, secret, type} = dataSource
+    switch (type) {
+        case DataSourceTypes.DB:
+            {
+                const networkPassphrase = networks[name] || name
+                const dbConnector = createDbConnection({
+                    connectionString:
+                    source === 'docker'
+                        ? `postgres://stellar:${encodeURIComponent(dockerDbPassword)}@localhost:5432/core`
+                        : source
+                })
+                __connections.set(name, {networkPassphrase, dbConnector, horizonUrl, type})
+            }
+            break
+        case DataSourceTypes.API:
+            __connections.set(name, {type, secret})
+            break
+        default:
+            throw new Error(`Invalid DataSource type: ${type}`)
+    }
+}
+
+function __deleteConnection(name) {
+    if (!name)
+        throw new Error('name is required')
+    const sourceData = __connections.get(name)
+    if (!sourceData)
+        return
+    __connections.delete(name)
+}
+
+class DataSourcesManager {
+    /**
+     * @param {DataSource[]} dataSources - data sources
+     * @param {string} dockerDbPassword - docker db password
+     */
+    setDataSources(dataSources, dockerDbPassword) {
+        for (const source of dataSources) {
+            __registerConnection(source, dockerDbPassword)
+        }
+    }
+
+    /**
+     * @param {string} name - source name
+     * @returns {{ networkPassphrase: string, horizonUrl: [string], dbConnector: [DbConnector], type: string, secret: [string] }}
+     */
+    get(name) {
+        if (!name)
+            throw new Error('name is required')
+        return __connections.get(name)
+    }
+
+    /**
+     * @param {string} name - source name
+     * @returns {boolean}
+     */
+    has(name) {
+        if (!name)
+            throw new Error('name is required')
+        return __connections.has(name)
+    }
+}
+
+module.exports = new DataSourcesManager()

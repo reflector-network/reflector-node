@@ -2,10 +2,17 @@ const http = require('http')
 const express = require('express')
 const bodyParser = require('body-parser')
 const logger = require('../logger')
-const {normalizePort} = require('../utils/port-helper')
-const ValidationError = require('../models/validation-error')
+const {ValidationError} = require('@reflector/reflector-shared')
+const container = require('../domain/container')
 const reflectorHandlers = require('./api/reflector-handlers')
 const {badRequest} = require('./errors')
+
+function normalizePort(val) {
+    const port = parseInt(val, 10)
+    if (isNaN(port)) return val
+    if (port >= 0) return port
+    throw new Error('Invalid port')
+}
 
 class HttpServer {
     /**
@@ -67,6 +74,14 @@ class HttpServer {
                 logger.error('Http server error')
                 logger.error(err)
             }
+        })
+
+        const wss = container.webSocketServer.wsServer
+        //Integrate WebSocket server with HTTP server
+        this.server.on('upgrade', (request, socket, head) => {
+            wss.handleUpgrade(request, socket, head, (ws) => {
+                wss.emit('connection', ws, request)
+            })
         })
 
         this.server.on('error', (error) => {

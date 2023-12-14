@@ -1,9 +1,9 @@
-const {Keypair} = require('soroban-client')
+const {Keypair} = require('stellar-sdk')
 const ChannelTypes = require('../channels/channel-types')
 const BaseHandler = require('./base-handler')
 
 /**
- * @typedef {import('../channels/base-websocket-channel')} BaseWebSocketChannel
+ * @typedef {import('../channels/channel-base')} ChannelBase
  */
 
 
@@ -14,7 +14,7 @@ class HandshakeResponseHandler extends BaseHandler {
     allowAnonymous = true
 
     /**
-     * @param {BaseWebSocketChannel} channel - channel
+     * @param {ChannelBase} channel - channel
      * @param {any} message - message to handle
      */
     async handle(channel, message) {

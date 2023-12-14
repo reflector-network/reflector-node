@@ -1,25 +1,13 @@
 const container = require('../../domain/container')
-const UpdateType = require('../../models/contract/updates/update-type')
-const {badRequest, forbidden} = require('../errors')
-const ValidationError = require('../../models/validation-error')
+const {forbidden} = require('../errors')
 const {registerRoute} = require('../router')
 const {validateSignature} = require('../signature-validator')
 const NodeStatus = require('../../domain/node-status')
+const logger = require('../../logger')
 
 /**
  * @typedef {import('express').Express} Express
  */
-
-function setUpdate(data, type) {
-    data.type = type
-    try {
-        container.settingsManager.setUpdate(data)
-    } catch (e) {
-        if (e instanceof ValidationError)
-            throw badRequest(e.message)
-        throw e
-    }
-}
 
 function checkIfNodeIsReady() {
     if (container.settingsManager.nodeStatus !== NodeStatus.ready)
@@ -39,19 +27,19 @@ module.exports = function (app) {
             version: container.version,
             status: container.settingsManager.nodeStatus
         }
-        if (container.settingsManager.config?.publicKey)
-            info.pubkey = container.settingsManager.config.publicKey
+        if (container.settingsManager.appConfig?.publicKey)
+            info.pubkey = container.settingsManager.appConfig.publicKey
         return info
     })
     registerRoute(app, 'get', '/config-requirements', {}, () => {
         checkIfNodeIsInInit()
-        const {config} = container.settingsManager
+        const {appConfig: config} = container.settingsManager
         const isDbConnectionRequired = !(config.dockerDbPassword || config.dbConnectionString)
         return {isDbConnectionRequired}
     })
-    registerRoute(app, 'get', '/contract-settings', {middleware: [validateSignature]}, () => {
+    registerRoute(app, 'get', '/contract-settings/:oracleId', {middleware: [validateSignature]}, (req) => {
         checkIfNodeIsReady()
-        return container.settingsManager.getContractSettingsForClient()
+        return container.settingsManager.getContractSettingsForClient(req.params.oracleId)
     })
     registerRoute(app, 'get', '/statistics', {middleware: [validateSignature]}, () => {
         checkIfNodeIsReady()
@@ -61,20 +49,23 @@ module.exports = function (app) {
         checkIfNodeIsReady()
         return container.settingsManager.getConfigForClient()
     })
-    registerRoute(app, 'post', '/assets', {middleware: [validateSignature]}, (req) => {
+    registerRoute(app, 'get', '/update/:oracleId', {middleware: [validateSignature]}, (req) => {
         checkIfNodeIsReady()
-        setUpdate(req.body, UpdateType.ASSETS)
+        return container.settingsManager.getPendingUpdate(req.params.oracleId)?.toPlainObject()
     })
-    registerRoute(app, 'post', '/nodes', {middleware: [validateSignature]}, (req) => {
+    registerRoute(app, 'post', '/update/:oracleId', {middleware: [validateSignature]}, (req) => {
         checkIfNodeIsReady()
-        setUpdate(req.body, UpdateType.NODES)
-    })
-    registerRoute(app, 'post', '/period', {middleware: [validateSignature]}, (req) => {
-        checkIfNodeIsReady()
-        setUpdate(req.body, UpdateType.PERIOD)
+        container.settingsManager.setPendingUpdate(req.params.oracleId, req.body)
     })
     registerRoute(app, 'post', '/config', {middleware: [validateSignature]}, (req) => {
         checkIfNodeIsInInit()
         container.settingsManager.updateConfig(req.body)
+    })
+    registerRoute(app, 'post', '/trace', {middleware: [validateSignature]}, (req) => {
+        logger.setTrace(req.body.isTraceEnabled)
+    })
+    registerRoute(app, 'post', '/addContract', {middleware: [validateSignature]}, (req) => {
+        const {contract} = req.body
+        container.settingsManager.addContract(contract)
     })
 }
