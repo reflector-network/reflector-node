@@ -1,5 +1,4 @@
 const ChannelTypes = require('../channels/channel-types')
-const MessageTypes = require('../../domain/message-types')
 const NodeStates = require('../../domain/nodes/node-states')
 const container = require('../../domain/container')
 const BaseHandler = require('./base-handler')

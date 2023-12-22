@@ -2,6 +2,7 @@ const WebSocket = require('ws')
 const {v4: uuidv4} = require('uuid')
 const logger = require('../../logger')
 const container = require('../../domain/container')
+const MessageTypes = require('../handlers/message-types')
 const ChannelTypes = require('./channel-types')
 
 class ChannelBase {
@@ -142,9 +143,21 @@ class ChannelBase {
         try {
             const message = JSON.parse(rawMessage)
             let result = undefined
-            if (message.type !== undefined) //message requires handling
-                result = await container.handlersManager.handle(this, message) || {}
+            if (message.type !== undefined
+                && [MessageTypes.ERROR, MessageTypes.OK].indexOf(message.type) === -1
+            ) //message requires handling
+                try {
+                    result = await container.handlersManager.handle(this, message) || {type: MessageTypes.OK}
+                } catch (e) {
+                    logger.debug(e)
+                    result = {
+                        error: e.message,
+                        responseId: message.requestId
+                    }
+                }
             if (message.requestId) { //message requires response
+                if (!result)
+                    result = {type: MessageTypes.ERROR, error: 'No response'}
                 result.responseId = message.requestId
                 await this.send(result)
                 return
@@ -154,7 +167,10 @@ class ChannelBase {
                 if (request) {
                     delete this.__requests[message.responseId]
                     clearTimeout(request.responseTimeout)
-                    request.resolve(result) //resolve the promise with the result
+                    if (message.type === MessageTypes.ERROR)
+                        request.reject(result)
+                    else
+                        request.resolve(result) //resolve the promise with the result
                 }
             }
         } catch (e) {

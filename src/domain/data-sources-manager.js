@@ -1,5 +1,8 @@
 const {createDbConnection} = require('@reflector/reflector-db-connector')
+const IssuesContainer = require('@reflector/reflector-shared/models/issues-container')
+const {ValidationError} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
+const logger = require('../logger')
 
 /**
  * @typedef {import('@reflector/reflector-db-connector').AggregatedTradeResult} AggregatedTradeResult
@@ -25,7 +28,7 @@ const __connections = new Map()
  */
 function __registerConnection(dataSource, dockerDbPassword) {
     if (!dataSource)
-        throw new Error('network is required')
+        throw new ValidationError('dataSource is required')
     const {name, dbConnection: source, horizonUrl, secret, type} = dataSource
     switch (type) {
         case DataSourceTypes.DB:
@@ -33,18 +36,20 @@ function __registerConnection(dataSource, dockerDbPassword) {
                 const networkPassphrase = networks[name] || name
                 const dbConnector = createDbConnection({
                     connectionString:
-                    source === 'docker'
-                        ? `postgres://stellar:${encodeURIComponent(dockerDbPassword)}@localhost:5432/core`
-                        : source
+                        source === 'docker'
+                            ? `postgres://stellar:${encodeURIComponent(dockerDbPassword)}@localhost:5432/core`
+                            : source
                 })
                 __connections.set(name, {networkPassphrase, dbConnector, horizonUrl, type})
             }
             break
         case DataSourceTypes.API:
+            if (!secret)
+                throw new ValidationError('secret is required')
             __connections.set(name, {type, secret})
             break
         default:
-            throw new Error(`Invalid DataSource type: ${type}`)
+            throw new ValidationError(`invalid dataSource type: ${type}`)
     }
 }
 
@@ -57,14 +62,22 @@ function __deleteConnection(name) {
     __connections.delete(name)
 }
 
-class DataSourcesManager {
+class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
      * @param {string} dockerDbPassword - docker db password
      */
     setDataSources(dataSources, dockerDbPassword) {
         for (const source of dataSources) {
-            __registerConnection(source, dockerDbPassword)
+            try {
+                __registerConnection(source, dockerDbPassword)
+            } catch (err) {
+                let errorMessage = err.message
+                if (!(err instanceof ValidationError))
+                    errorMessage = 'issue registering data source. Check logs for details'
+                this.__addIssue(`${source.name}: ${errorMessage}`)
+                logger.error(err)
+            }
         }
     }
 

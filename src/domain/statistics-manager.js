@@ -1,3 +1,4 @@
+const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
 const logger = require('../logger')
 const nodesManager = require('../domain/nodes/nodes-manager')
 const container = require('./container')
@@ -79,17 +80,21 @@ class StatisticsManager {
     }
 
     getStatistics() {
+        const settingsStatistics = container.settingsManager.statistics
+        const connectedNodes = nodesManager.getConnectedNodes()
+        const oracleStatistics = mapToPlainObject(this.__oracleStatistics)
         const currentTime = Date.now()
         return {
             startTime: this.startTime,
             uptime: currentTime - this.startTime,
+            currentTime,
             lastProcessedTimestamp: this.lastProcessedTimestamp,
             totalProcessed: this.totalProcessed,
             submittedTransactions: this.submittedTransactions,
-            connectedNodes: nodesManager.getConnectedNodes(),
-            nodeStatus: container.settingsManager.nodeStatus,
-            oracleData: this.__oracleStatistics.values().map(oracleStatistics => oracleStatistics.getStatistics()),
-            isTraceEnabled: logger.isTraceEnabled()
+            connectedNodes,
+            oracleStatistics,
+            isTraceEnabled: logger.isTraceEnabled(),
+            ...settingsStatistics
         }
     }
 }

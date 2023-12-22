@@ -2,7 +2,7 @@ const {Account, Transaction, SorobanRpc} = require('stellar-sdk')
 const {PendingTransactionType, normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../../logger')
 const container = require('../container')
-const MessageTypes = require('../message-types')
+const MessageTypes = require('../../ws-server/handlers/message-types')
 const networkConnectionManager = require('../data-sources-manager')
 const nodesManager = require('../nodes/nodes-manager')
 
@@ -104,7 +104,7 @@ class RunnerBase {
 
     /**
      * @param {number} timestamp - timestamp
-     * @returns {Promise<{nextTimestamp: number, timeout: number>}>} - next timestamp and worker timeout
+     * @returns {Promise}
      */
     __workerFn(timestamp) {
         throw new Error('Not implemented')

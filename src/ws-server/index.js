@@ -1,24 +1,24 @@
 const {Server, WebSocket} = require('ws')
 const {StrKey} = require('stellar-sdk')
 const logger = require('../logger')
-const MessageTypes = require('../domain/message-types')
 const container = require('../domain/container')
-const IncomingChannel = require('./channels/incoming-channel')
 const nodesManager = require('../domain/nodes/nodes-manager')
+const MessageTypes = require('./handlers/message-types')
+const IncomingChannel = require('./channels/incoming-channel')
 const OrchestratorChannel = require('./channels/orchestrator-channel')
 
 class WsServer {
     init() {
         const {settingsManager} = container
-        const {keypair, orchestratorUrl} = settingsManager.appConfig
+        const {keypair, orchestratorUrl, port} = settingsManager.appConfig
         this.__keypair = keypair
-        this.wsServer = new Server({noServer: true})
+        this.wsServer = new Server({port: port || 30348})
         this.wsServer
             .addListener('connection', (ws, req) => this.__onConnect(ws, req))
             .addListener('close', () => this.__onServerClose())
             .addListener('error', (err) => this.__onServerError(err))
 
-        this.orchestratorConnection = new OrchestratorChannel(null, orchestratorUrl || 'ws://orchestrator.reflector.world')
+        this.orchestratorConnection = new OrchestratorChannel(orchestratorUrl || 'ws://orchestrator.reflector.world')
     }
 
     /**
@@ -52,6 +52,14 @@ class WsServer {
     __onServerError(err) {
         logger.error('Ws server error')
         logger.error(err)
+    }
+
+    __onServerClose() {
+        logger.info('Ws server closed')
+    }
+
+    close() {
+        this.wsServer.close()
     }
 }
 

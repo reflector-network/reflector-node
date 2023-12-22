@@ -17,7 +17,7 @@ class HandshakeResponseHandler extends BaseHandler {
      * @param {ChannelBase} channel - channel
      * @param {any} message - message to handle
      */
-    async handle(channel, message) {
+    handle(channel, message) {
         const {signature} = message.data
         const kp = Keypair.fromPublicKey(channel.pubkey)
         if (!kp.verify(Buffer.from(channel.authPayload), Buffer.from(signature, 'hex'))) {

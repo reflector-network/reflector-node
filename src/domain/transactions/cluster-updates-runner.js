@@ -2,7 +2,6 @@ const {buildUpdateTransaction} = require('@reflector/reflector-shared')
 const {retrieveAccountProps} = require('@reflector/reflector-db-connector')
 const logger = require('../../logger')
 const container = require('../container')
-const NodeStatus = require('../node-status')
 const RunnerBase = require('./runner-base')
 
 /**
@@ -18,11 +17,6 @@ class ClusteUpdatesRunner extends RunnerBase {
         const {pendingConfig, config} = settingsManager
         if (!pendingConfig) {
             logger.debug('No pending config')
-            return idleWorkerTimeframe
-        }
-
-        if (settingsManager.nodeStatus !== NodeStatus.ready) {
-            logger.debug('Node is not ready')
             return idleWorkerTimeframe
         }
 

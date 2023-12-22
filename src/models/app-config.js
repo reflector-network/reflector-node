@@ -1,23 +1,24 @@
-const { Keypair, StrKey } = require('stellar-sdk')
-const { ConfigBase } = require('@reflector/reflector-shared')
-const { mapToPlainObject } = require('@reflector/reflector-shared/utils/map-helper')
+const {Keypair, StrKey} = require('stellar-sdk')
+const {IssuesContainer} = require('@reflector/reflector-shared')
+const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
 const DataSource = require('./data-source')
 
-class AppConfig extends ConfigBase {
+class AppConfig extends IssuesContainer {
     /**
      * @param {any} config - raw config object
      */
     constructor(config) {
         super()
         if (!config) {
-            this.__addConfigIssue(`config: ${ConfigBase.notDefined}`)
+            this.__addConfigIssue(`config: ${IssuesContainer.notDefined}`)
             return
         }
         this.handshakeTimeout = config.handshakeTimeout || 5000
         this.__assignKeypair(config.secret)
         this.__assignDataSources(config.dataSources)
         this.__assignOrchestratorUrl(config.orchestratorUrl)
-        this.__setDbSyncDelay(config.dbSyncDelay)
+        this.__assignDbSyncDelay(config.dbSyncDelay)
+        this.__assignPort(config.port)
         this.dockerDbPassword = config.dockerDbPassword
     }
 
@@ -51,10 +52,15 @@ class AppConfig extends ConfigBase {
      */
     dbSyncDelay
 
+    /**
+     * @type {number}
+     */
+    port
+
     __assignKeypair(secret) {
         try {
             if (!(secret && StrKey.isValidEd25519SecretSeed(secret)))
-                throw new Error(ConfigBase.invalidOrNotDefined)
+                throw new Error(IssuesContainer.invalidOrNotDefined)
             this.keypair = Keypair.fromSecret(secret)
             this.publicKey = this.keypair.publicKey()
             this.secret = secret
@@ -66,11 +72,11 @@ class AppConfig extends ConfigBase {
     __assignDataSources(dataSources) {
         try {
             if (!dataSources)
-                throw new Error(ConfigBase.notDefined)
+                throw new Error(IssuesContainer.notDefined)
             const sourceKeys = Object.keys(dataSources)
 
             if (!sourceKeys.length)
-                throw new Error(ConfigBase.notDefined)
+                throw new Error(IssuesContainer.notDefined)
             if (sourceKeys.length !== new Set(sourceKeys).size)
                 throw new Error('Duplicate data source name found in dataSources')
 
@@ -97,13 +103,23 @@ class AppConfig extends ConfigBase {
         }
     }
 
-    __setDbSyncDelay(dbSyncDelay) {
+    __assignDbSyncDelay(dbSyncDelay) {
         try {
             if (!dbSyncDelay || isNaN(dbSyncDelay))
                 return
             this.dbSyncDelay = dbSyncDelay
         } catch (e) {
             this.__addConfigIssue(`dbSyncDelay: ${e.message}`)
+        }
+    }
+
+    __assignPort(port) {
+        try {
+            if (!port || isNaN(port))
+                return
+            this.port = port
+        } catch (e) {
+            this.__addConfigIssue(`port: ${e.message}`)
         }
     }
 

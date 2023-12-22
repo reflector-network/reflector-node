@@ -59,7 +59,7 @@ class OracleRunner extends RunnerBase {
                 fee
             })
         }
-        statisticsManager.setLastOracleData(this.oracleId, Number(contractState.lastTimestamp), !!contractState.uninitialized)
+        statisticsManager.setLastOracleData(this.oracleId, Number(contractState.lastTimestamp), !contractState.uninitialized)
 
         if (tx) { //if transaction is built, set it as pending
             this.__setPendingTransaction(tx)

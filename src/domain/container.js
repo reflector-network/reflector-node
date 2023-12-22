@@ -3,7 +3,6 @@
  * @typedef {import('../ws-server')} WsServer
  * @typedef {import('./statistics-manager')} StatisticsManager
  * @typedef {import('../ws-server/handlers/handlers-manager')} HandlersManager
- * @typedef {import('../http-server')} HttpServer
  * @typedef {import('./contract-manager')} ContractManager
  * @typedef {import('./transactions/oracle-runner-manager')} OracleRunnerManager
  */
@@ -20,11 +19,6 @@ class Container {
      * @type {WsServer}
      * */
     webSocketServer
-
-    /**
-     * @type {HttpServer}
-     */
-    httpServer
 
     /**
      * @type {HandlersManager}

@@ -1,9 +1,10 @@
-const MessageTypes = require('../../domain/message-types')
+const MessageTypes = require('./message-types')
 const HandshakeRequestHandler = require('./handshake-request-handler')
 const HandshakeResponseHandler = require('./handshake-response-handler')
 const ConfigHandler = require('./config-handler')
 const SignaturesHandler = require('./signatures-handler')
 const StateHandler = require('./state-handler')
+const StatisticsRequestHandler = require('./statistics-request-handler')
 
 /**
  * @typedef {import('../channels/channel-base')} ChannelBase
@@ -17,7 +18,8 @@ class HandlersManager {
             [MessageTypes.HANDSHAKE_RESPONSE]: new HandshakeResponseHandler(),
             [MessageTypes.CONFIG]: new ConfigHandler(),
             [MessageTypes.STATE]: new StateHandler(),
-            [MessageTypes.SIGNATURE]: new SignaturesHandler()
+            [MessageTypes.SIGNATURE]: new SignaturesHandler(),
+            [MessageTypes.STATISTICS_REQUEST]: new StatisticsRequestHandler()
         }
     }
 

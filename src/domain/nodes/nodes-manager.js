@@ -1,8 +1,8 @@
 const ChannelTypes = require('../../ws-server/channels/channel-types')
 const logger = require('../../logger')
-const Node = require('./node')
 const OutgoingChannel = require('../../ws-server/channels/outgoing-channel')
 const container = require('../container')
+const Node = require('./node')
 
 /**
  * @typedef {import('../../ws-server/channels/incoming-channel')} IncomingChannel
@@ -17,7 +17,7 @@ class NodesManager {
     __nodes = new Map()
 
     getConnectedNodes() {
-        return this.__nodes.values().filter(n => n.isReady(ChannelTypes.OUTGOING)).map(n => n.pubkey)
+        return [...this.__nodes.values()].filter(n => n.isReady(ChannelTypes.OUTGOING)).map(n => n.pubkey)
     }
 
     async broadcast(message) {

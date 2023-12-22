@@ -16,19 +16,12 @@ async function init(container) {
 
         logger.info('Closing ws server.')
 
-        container.httpServer.close()
+        container.webSocketServer.close()
 
         process.exit(code)
 
     }
     try {
-
-        // if (!container.settingsManager.appConfig.isValid) {
-        //     logger.warn('Node is not configured. Waiting for configuration update.')
-        //     logger.warn(`Current config issues:\n ${container.settingsManager.appConfig.issuesString}`)
-        //     throw new Error('Node is not configured')
-        // }
-
         process.on('unhandledRejection', (reason, p) => {
             logger.error('Unhandled Rejection at: Promise')
             logger.error(reason)
@@ -47,7 +40,6 @@ async function init(container) {
 
         container.settingsManager.init()
         container.webSocketServer.init()
-        container.httpServer.start()
 
         container.app = {shutdown}
         return container.app

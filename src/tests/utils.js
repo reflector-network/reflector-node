@@ -1,7 +1,7 @@
 const {exec} = require('child_process')
 const {TransactionBuilder, Operation} = require('stellar-sdk')
 const Client = require('@reflector/oracle-client')
-const {Asset, getMajority} = require('@reflector/reflector-shared')
+const {getMajority} = require('@reflector/reflector-shared')
 const constants = require('./constants')
 
 const pathToContractProject = '../../reflector-contract'

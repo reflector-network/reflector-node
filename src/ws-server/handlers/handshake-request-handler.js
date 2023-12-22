@@ -1,6 +1,6 @@
 const ChannelTypes = require('../channels/channel-types')
 const container = require('../../domain/container')
-const MessageTypes = require('../../domain/message-types')
+const MessageTypes = require('./message-types')
 const BaseHandler = require('./base-handler')
 
 /**
@@ -17,13 +17,13 @@ class HandshakeRequestHandler extends BaseHandler {
      * @param {ChannelBase} channel - channel
      * @param {any} message - message to handle
      */
-    async handle(channel, message) {
+    handle(channel, message) {
         const authPayload = message.data?.payload
         if (!authPayload)
             throw new Error('Payload is required')
         const {keypair} = container.settingsManager.appConfig
         const signature = keypair.sign(Buffer.from(authPayload)).toString('hex')
-        return Promise.resolve({type: MessageTypes.HANDSHAKE_RESPONSE, data: {signature}})
+        return {type: MessageTypes.HANDSHAKE_RESPONSE, data: {signature}}
     }
 }
 

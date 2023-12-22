@@ -43,6 +43,7 @@ async function generateNewContract(server, nodes, dataSource) {
     await buildContract() //if api - build contract with generic asset
     const admin = Keypair.random()
     await createAccount(server, admin.publicKey())
+    console.log('Admin ' + admin.publicKey() + ' secret:' + admin.secret())
     const contractId = await deployContract(admin.secret())
     if (!contractId) {
         throw new Error('Contract was not deployed')
@@ -64,6 +65,8 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     //generate system account
     const systemAccount = Keypair.random()
     await createAccount(server, systemAccount.publicKey())
+
+    console.log('System secret:' + systemAccount.secret())
 
     //generate nodes keypairs
     for (let i = 0; i < nodeConfigs.length; i++) {

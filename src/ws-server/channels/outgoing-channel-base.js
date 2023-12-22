@@ -1,4 +1,4 @@
-const { WebSocket } = require('ws')
+const {WebSocket} = require('ws')
 const container = require('../../domain/container')
 const ChannelBase = require('./channel-base')
 
@@ -20,8 +20,12 @@ class OutgoingChannelBase extends ChannelBase {
         this.__connect()
     }
 
+    get headers() {
+        return {}
+    }
+
     __connect() {
-        const ws = new WebSocket(this.url, { headers: { 'pubkey': container.settingsManager.appConfig.publicKey } })
+        const ws = new WebSocket(this.url, {headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers}})
         this.__ws = ws
         this.__assignListeners()
         this.__ws.connectionTimeout = setTimeout(() => {
