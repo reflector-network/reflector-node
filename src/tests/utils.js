@@ -1,5 +1,5 @@
 const {exec} = require('child_process')
-const {TransactionBuilder, Operation} = require('stellar-sdk')
+const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
 const Client = require('@reflector/oracle-client')
 const {getMajority} = require('@reflector/reflector-shared')
 const constants = require('./constants')

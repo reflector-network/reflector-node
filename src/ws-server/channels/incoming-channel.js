@@ -1,5 +1,5 @@
 /**
- * @typedef {import('stellar-sdk').Keypair} Keypair
+ * @typedef {import('@stellar/stellar-sdk').Keypair} Keypair
  * */
 const WebSocket = require('ws')
 const {v4: uuidv4} = require('uuid')

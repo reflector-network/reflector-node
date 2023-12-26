@@ -1,4 +1,4 @@
-const {Keypair} = require('stellar-sdk')
+const {Keypair} = require('@stellar/stellar-sdk')
 const logger = require('../../logger')
 const ChannelTypes = require('../../ws-server/channels/channel-types')
 const MessageTypes = require('../../ws-server/handlers/message-types')

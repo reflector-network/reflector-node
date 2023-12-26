@@ -1,5 +1,5 @@
 const {Server, WebSocket} = require('ws')
-const {StrKey} = require('stellar-sdk')
+const {StrKey} = require('@stellar/stellar-sdk')
 const logger = require('../logger')
 const container = require('../domain/container')
 const nodesManager = require('../domain/nodes/nodes-manager')

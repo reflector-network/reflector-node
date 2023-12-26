@@ -1,5 +1,5 @@
-const {xdr} = require('stellar-sdk')
-const {Keypair} = require('stellar-sdk')
+const {xdr} = require('@stellar/stellar-sdk')
+const {Keypair} = require('@stellar/stellar-sdk')
 const ChannelTypes = require('../channels/channel-types')
 const container = require('../../domain/container')
 const BaseHandler = require('./base-handler')

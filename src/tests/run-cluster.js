@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const {SorobanRpc, Keypair} = require('stellar-sdk')
+const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
 const {buildContract, deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, bumpContract, generateAppConfig, generateConfig} = require('./utils')
 const constants = require('./constants')
 

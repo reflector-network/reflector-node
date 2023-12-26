@@ -23,16 +23,16 @@ class ClusteUpdatesRunner extends RunnerBase {
         if (pendingConfig.timestamp > Date.now())
             return pendingConfig.timestamp - Date.now()
 
-
-        const {horizonUrl, dbConnector, network} = this.__getBlockchainConnectorSettings()
-        const accountInfo = await retrieveAccountProps(dbConnector, config.systemAccount)
+        const {horizonUrl, blockchainConnector, networkPassphrase} = this.__getBlockchainConnectorSettings()
+        const accountInfo = await retrieveAccountProps(blockchainConnector, config.systemAccount)
         const account = this.__getAccount(config.systemAccount, accountInfo.sequence)
 
         const tx = await buildUpdateTransaction({
+            timestamp: pendingConfig.timestamp,
             account,
-            network,
+            network: networkPassphrase,
             horizonUrl,
-            newConfig: pendingConfig,
+            newConfig: pendingConfig.config,
             currentConfig: config
         })
 

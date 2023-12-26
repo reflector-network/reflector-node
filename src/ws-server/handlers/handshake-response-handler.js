@@ -1,4 +1,4 @@
-const {Keypair} = require('stellar-sdk')
+const {Keypair} = require('@stellar/stellar-sdk')
 const ChannelTypes = require('../channels/channel-types')
 const BaseHandler = require('./base-handler')
 

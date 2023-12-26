@@ -1,4 +1,4 @@
-const {Account, Transaction, SorobanRpc} = require('stellar-sdk')
+const {Account, Transaction, SorobanRpc} = require('@stellar/stellar-sdk')
 const {PendingTransactionType, normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../../logger')
 const container = require('../container')
@@ -8,7 +8,7 @@ const nodesManager = require('../nodes/nodes-manager')
 
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
- * @typedef {import('stellar-sdk').xdr.DecoratedSignature} DecoratedSignature
+ * @typedef {import('@stellar/stellar-sdk').xdr.DecoratedSignature} DecoratedSignature
  */
 
 /**
@@ -119,7 +119,6 @@ class RunnerBase {
             logger.error(`Error on oracle runner worker. Oracle id: ${this.oracleId}`)
             logger.error(e)
         } finally {
-
             const nextTimestamp = timestamp + this.__timeframe
             let timeout = nextTimestamp - Date.now()
             if (this.oracleId) { //if oracle price runner, add db sync delay
@@ -185,7 +184,9 @@ class RunnerBase {
             if (!horizonUrl)
                 throw new Error(`Horizon url not found: ${settingsManager.config.network}`)
             await this.__submitTransaction(networkPassphrase, horizonUrl, tx, tx.getMajoritySignatures(currentNodesLength))
-            statisticsManager.incSubmittedTransactions(this.oracleId)
+            statisticsManager.incSubmittedTransactions(this.oracleId ?? 'cluster')
+            if (!this.oracleId)
+                settingsManager.applyPendingUpdate()
         } catch (e) {
             if (e.message !== 'Transaction submit failed: DUPLICATE') {
                 logger.error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx: ${tx.transaction.toXDR()}`)
@@ -195,7 +196,7 @@ class RunnerBase {
                     container.app.shutdown(13)
             }
         }
-        statisticsManager.setLastProcessedTimestamp(this.oracleId, tx.timestamp)
+        statisticsManager.setLastProcessedTimestamp(this.oracleId ?? 'cluster', tx.timestamp)
         logger.debug(`Transaction is processed. ${tx.getDebugInfo()}`)
     }
 
@@ -244,7 +245,8 @@ class RunnerBase {
 
         const submitResult = await server.sendTransaction(tx)
         if (submitResult.status !== 'PENDING') {
-            const error = new Error(`Transaction submit failed: ${submitResult.status}`)
+            const {name: errorName, value: code} = submitResult.errorResult.result().switch()
+            const error = new Error(`Transaction submit failed: ${submitResult.status}. Error name: ${errorName}, code: ${code}`)
             error.status = submitResult.status
             error.errorResultXdr = submitResult.errorResultXdr
             error.hash = submitResult.hash

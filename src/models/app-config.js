@@ -1,4 +1,4 @@
-const {Keypair, StrKey} = require('stellar-sdk')
+const {Keypair, StrKey} = require('@stellar/stellar-sdk')
 const {IssuesContainer} = require('@reflector/reflector-shared')
 const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
 const DataSource = require('./data-source')

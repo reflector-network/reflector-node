@@ -81,7 +81,7 @@ class SettingsManager {
             : null
         if (rawPendingConfig) {
             const oraclesPendingConfig = new ConfigEnvelope(rawPendingConfig)
-            if (!oraclesPendingConfig.isValid) {
+            if (!oraclesPendingConfig.config.isValid) {
                 logger.error(`Invalid pending config. Config will not by assigned. Issues: ${oraclesPendingConfig.issuesString}`)
             } else
                 this.setPendingConfig(oraclesPendingConfig, false)
@@ -90,6 +90,7 @@ class SettingsManager {
 
     applyPendingUpdate() {
         this.setConfig(this.pendingConfig.config)
+        this.pendingConfig = null
         //remove pending config
         fs.unlinkSync(oraclePendingConfigPath)
     }
@@ -123,7 +124,7 @@ class SettingsManager {
     setPendingConfig(envelope, save = true) {
         if (this.pendingConfig)
             throw new Error('Pending config already exists')
-        const updates = buildUpdates(envelope.timestamp, envelope.config, this.config)
+        const updates = buildUpdates(envelope.timestamp, this.config, envelope.config)
         if (updates.size === 0)
             throw new Error('No updates found in pending config')
         this.pendingConfig = envelope
@@ -155,18 +156,10 @@ class SettingsManager {
     }
 
     getAssets(oracleId, includePending = false) {
-        const contractConfig = __getContractConfig(this.config, oracleId)
-        const assets = [...contractConfig.assets]
         if (!(includePending && this.pendingConfig))
-            return assets
+            return __getContractConfig(this.config, oracleId).assets
 
-        const pendingConfig = __getContractConfig(this.pendingConfig.config, oracleId)
-        const pendingAssets = []
-        for (const asset of pendingConfig.assets) {
-            if (assets.indexOf(asset) === -1)
-                pendingAssets.push(asset)
-        }
-        return [...assets, ...pendingAssets]
+        return __getContractConfig(this.pendingConfig.config, oracleId).assets
     }
 
     get statistics() {
