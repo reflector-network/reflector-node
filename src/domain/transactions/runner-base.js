@@ -9,6 +9,8 @@ const nodesManager = require('../nodes/nodes-manager')
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
  * @typedef {import('@stellar/stellar-sdk').xdr.DecoratedSignature} DecoratedSignature
+ * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.SendTransactionResponse} SendTransactionResponse
+ * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetFailedTransactionResponse} GetFailedTransactionResponse
  */
 
 /**
@@ -46,7 +48,21 @@ async function sendSignature(oracleId, pubkey, tx) {
     logger.debug(`Signature sent to ${pubkey}. Contract id: ${oracleId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
 }
 
-const __pendingSignatures = {}
+/**
+ * @param {SendTransactionResponse|GetFailedTransactionResponse} submitResult - transaction submit result
+ * @returns {Error}
+ */
+function getSubmissionError(submitResult) {
+    const resultXdr = (submitResult.resultXdr ?? submitResult.errorResult)
+    const {name: errorName, value: code} = resultXdr?.result()?.switch() ?? {}
+    const error = new Error(`Transaction submit failed: ${submitResult.status}. Error name: ${errorName}, code: ${code}`)
+    error.status = submitResult.status
+    error.errorResultXdr = resultXdr?.toXDR('base64') ?? null
+    error.hash = submitResult.hash
+    error.meta = submitResult.resultMetaXdr?.toXDR('base64') ?? null
+    error.tx = submitResult.envelopeXdr?.toXDR('base64') ?? null
+    return error
+}
 
 class RunnerBase {
 
@@ -64,16 +80,17 @@ class RunnerBase {
     async addSignature(txHash, signature) {
         //if the transaction is not the pending transaction, add the signature to the pending signatures list
         if (this.__pendingTransaction?.hashHex !== txHash) {
+            logger.error(`addSignature: no pending tx. ${this.__pendingTransaction?.hashHex}, ${txHash}`)
             /**@type {timestamp: number, signatures: DecoratedSignature[]} */
             const signaturesData =
-                __pendingSignatures[txHash] = __pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
+                this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
             if (!signaturesData.signatures.find(s => s.hint().equals(signature.hint())))
                 signaturesData.signatures.push(signature)
             logger.debug(`addSignature: no pending tx: ${txHash}`)
             return
         }
         this.__pendingTransaction.addSignature(signature)
-        await this.trySubmitTransaction(this)
+        await this.__trySubmitTransaction(this)
         logger.debug(`addSignature: added to pending tx: ${txHash}`)
     }
 
@@ -149,7 +166,7 @@ class RunnerBase {
         if (this.__pendingTransaction) {
             const {type, timestamp} = this.__pendingTransaction
             logger.error(`Pending transaction wasn't submitted. ContractId: ${this.oracleId}, tx type: ${type}, tx timestamp: ${timestamp}.`)
-            this.clearPendingTransaction()
+            this.__clearPendingTransaction()
         }
 
         const keypair = container.settingsManager.appConfig.keypair
@@ -220,57 +237,60 @@ class RunnerBase {
      * @param {DecoratedSignature[]} signatures - signatures
      */
     async __submitTransaction(network, horizonUrl, pendingTx, signatures) {
-        if (!pendingTx)
-            throw new Error('tx is required')
-        if (!signatures)
-            throw new Error('signatures is required')
-        if (!network)
-            throw new Error('network is required')
-        if (!horizonUrl)
-            throw new Error('horizonUrl is required')
+        let attempts = 5
+        while (attempts > 0) {
+            if (!pendingTx)
+                throw new Error('tx is required')
+            if (!signatures)
+                throw new Error('signatures is required')
+            if (!network)
+                throw new Error('network is required')
+            if (!horizonUrl)
+                throw new Error('horizonUrl is required')
 
-        const server = new SorobanRpc.Server(horizonUrl, {allowHttp: true})
+            const server = new SorobanRpc.Server(horizonUrl, {allowHttp: true})
 
-        const txXdr = pendingTx.transaction.toXDR() //Get the raw XDR for the transaction to avoid modifying the transaction object
-        const tx = new Transaction(txXdr, network) //Create a new transaction object from the XDR
-        signatures.forEach(signature => tx.addDecoratedSignature(signature))
+            const txXdr = pendingTx.transaction.toXDR() //Get the raw XDR for the transaction to avoid modifying the transaction object
+            const tx = new Transaction(txXdr, network) //Create a new transaction object from the XDR
+            signatures.forEach(signature => tx.addDecoratedSignature(signature))
 
-        const hash = tx.hash().toString('hex')
+            const hash = tx.hash().toString('hex')
 
-        let response = await server.getTransaction(hash)
-        if (response.status === 'SUCCESS') {
-            response.hash = hash
+            let response = await server.getTransaction(hash)
+            if (response.status === 'SUCCESS') {
+                response.hash = hash
+                return response
+            }
+
+            const submitResult = await server.sendTransaction(tx)
+            if (submitResult.status !== 'PENDING') {
+                const error = getSubmissionError(submitResult)
+                if (error.code === -9) {//insufficient fee
+                    attempts--
+                    continue
+                }
+                throw error
+            }
+
+            response = await server.getTransaction(hash)
+            let getResultAttempts = 10
+            while ((response.status === 'PENDING' || response.status === 'NOT_FOUND') && getResultAttempts > 0) {
+                await new Promise(resolve => setTimeout(resolve, 500))
+                response = await server.getTransaction(hash)
+                getResultAttempts--
+            }
+
+            response.hash = hash //Add hash to response to avoid return new object
+            if (response.status === 'FAILED') {
+                const error = getSubmissionError(response)
+                if (error.code === -9) {//insufficient fee
+                    attempts--
+                    continue
+                }
+                throw error
+            }
             return response
         }
-
-        const submitResult = await server.sendTransaction(tx)
-        if (submitResult.status !== 'PENDING') {
-            const {name: errorName, value: code} = submitResult.errorResult.result().switch()
-            const error = new Error(`Transaction submit failed: ${submitResult.status}. Error name: ${errorName}, code: ${code}`)
-            error.status = submitResult.status
-            error.errorResultXdr = submitResult.errorResultXdr
-            error.hash = submitResult.hash
-            throw error
-        }
-
-        response = await server.getTransaction(hash)
-        let attemptsLeft = 10
-        while ((response.status === 'PENDING' || response.status === 'NOT_FOUND') && attemptsLeft > 0) {
-            await new Promise(resolve => setTimeout(resolve, 500))
-            response = await server.getTransaction(hash)
-            attemptsLeft--
-        }
-
-        response.hash = hash //Add hash to response to avoid return new object
-        if (response.status === 'FAILED') {
-            const error = new Error(`Transaction submit failed, result: ${response.status}`)
-            error.status = response.status
-            error.hash = response.hash
-            error.envelopeXdr = response.envelopeXdr
-            error.resultXdr = response.resultXdr
-            error.resultMetaXdr = response.resultMetaXdr
-        }
-        return response
     }
 
     /**

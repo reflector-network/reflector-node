@@ -12,7 +12,7 @@ class WsServer {
         const {settingsManager} = container
         const {keypair, orchestratorUrl, port} = settingsManager.appConfig
         this.__keypair = keypair
-        this.wsServer = new Server({port: port || 30348})
+        this.wsServer = new Server({port: port || 30347})
         this.wsServer
             .addListener('connection', (ws, req) => this.__onConnect(ws, req))
             .addListener('close', () => this.__onServerClose())
@@ -59,7 +59,7 @@ class WsServer {
     }
 
     close() {
-        this.wsServer.close()
+        this.wsServer?.close()
     }
 }
 

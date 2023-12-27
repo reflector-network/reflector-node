@@ -44,6 +44,11 @@ class Container {
      * @type {string}
      */
     version = packageInfo.version
+
+    /**
+     * @type {string}
+     */
+    homeDir = './home'
 }
 
 module.exports = new Container()

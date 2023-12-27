@@ -7,10 +7,10 @@ const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
 const connectionManager = require('./data-sources-manager')
 
-const appConfigPath = './home/app.config.json'
-const oracleConfigPath = './home/.config.json'
-const oraclePendingConfigPath = './home/.pending.config.json'
-const dockerDbPasswordPath = './home/.dockerDbPassword'
+const appConfigPath = `${container.homeDir}/app.config.json`
+const oracleConfigPath = `${container.homeDir}/.config.json`
+const oraclePendingConfigPath = `${container.homeDir}/.pending.config.json`
+const dockerDbPasswordPath = `${container.homeDir}/.dockerDbPassword`
 
 /**
  * @typedef {import('@reflector/reflector-shared').Node} Node

@@ -1,6 +1,7 @@
 const fs = require('fs')
+const container = require('../domain/container')
 
-const nonceFile = './home/.nonce.json'
+const nonceFile = `${container.homeDir}/.nonce.json`
 
 const nonces = fs.existsSync(nonceFile) ? JSON.parse(fs.readFileSync(nonceFile).toString().trim()) : {}
 

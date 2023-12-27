@@ -3,13 +3,23 @@ const fs = require('fs')
 
 let logger = null
 try {
-    const homeDir = './home'
+    let homeDir = './home'
+
+    process.argv.forEach(value => {
+        const [key, val] = value.split('=')
+        if (key === 'homeDir')
+            homeDir = val
+    })
+
     if (!fs.existsSync(homeDir))
         fs.mkdirSync(homeDir)
 
-    logger = require('./logger')
 
     const container = require('./domain/container')
+    container.homeDir = homeDir
+
+    logger = require('./logger')
+
     const SettingsManager = require('./domain/settings-manager')
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')

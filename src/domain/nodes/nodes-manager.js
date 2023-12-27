@@ -28,7 +28,7 @@ class NodesManager {
     }
 
     async sendTo(pubkey, message) {
-        const node = this.__nodes[pubkey]
+        const node = this.__nodes.get(pubkey)
         if (!node)
             return
         try {
@@ -45,7 +45,7 @@ class NodesManager {
      * @param {IncomingChannel} connection - new connection
      */
     addConnection(connection) {
-        const node = this.__nodes[connection.pubkey]
+        const node = this.__nodes.get(connection.pubkey)
         if (!node) {
             connection.close(1001, 'Unauthorized')
             return

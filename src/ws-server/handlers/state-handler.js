@@ -12,7 +12,7 @@ class StateHandler extends BaseHandler {
         switch (message.data.state) {
             case NodeStates.READY: {
                 const promises = []
-                for (const oracleRunner of container.oracleRunnerManager.getAll()) {
+                for (const oracleRunner of container.oracleRunnerManager.all()) {
                     promises.push(oracleRunner.broadcastSignatureTo(ws.pubkey))
                 }
                 await Promise.allSettled(promises)

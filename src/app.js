@@ -16,7 +16,7 @@ async function init(container) {
 
         logger.info('Closing ws server.')
 
-        container.webSocketServer.close()
+        container.webSocketServer?.close()
 
         process.exit(code)
 

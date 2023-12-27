@@ -1,12 +1,13 @@
 const fs = require('fs')
 const path = require('path')
 const pino = require('pino')
+const container = require('./domain/container')
 
 const isDev = process.env.NODE_ENV === 'development'
-const traceLevel = 'trace'
+const traceLevel = 'info'
 const infoLevel = 'info'
 const defaultLevel = isDev ? traceLevel : infoLevel
-const folder = './home/logs/'
+const folder = `${container.homeDir}/logs/`
 
 const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024 //10MB
 const LOG_RETENTION_DAYS = 7

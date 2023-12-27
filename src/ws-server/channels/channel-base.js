@@ -5,6 +5,8 @@ const container = require('../../domain/container')
 const MessageTypes = require('../handlers/message-types')
 const ChannelTypes = require('./channel-types')
 
+const isDev = process.env.NODE_ENV === 'development'
+
 class ChannelBase {
 
     /**
@@ -79,7 +81,7 @@ class ChannelBase {
                     const error = new Error('Request timed out')
                     error.timeout = true
                     reject(error)
-                }, 5000)
+                }, isDev ? 50000000 : 5000)
                 this.__requests[message.requestId] = {
                     resolve,
                     reject,

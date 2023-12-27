@@ -64,6 +64,10 @@ class OracleRunnerManager {
         oracleRunner.stop()
         this.oracleRunners.delete(oracleId)
     }
+
+    all() {
+        return [...this.oracleRunners.values()]
+    }
 }
 
 module.exports = OracleRunnerManager
