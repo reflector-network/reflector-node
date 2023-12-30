@@ -34,7 +34,8 @@ class OracleStatistics {
             oracleId: this.oracleId,
             lastProcessedTimestamp: this.lastProcessedTimestamp,
             totalProcessed: this.totalProcessed,
-            submittedTransactions: this.submittedTransactions
+            submittedTransactions: this.submittedTransactions,
+            lastOracleTimestamp: this.lastOracleTimestamp
         }
     }
 }

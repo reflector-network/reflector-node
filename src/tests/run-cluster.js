@@ -48,7 +48,7 @@ async function generateNewContract(server, nodes, dataSource) {
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
-    //await bumpContract(server, admin, contractId)
+    await bumpContract(server, admin, contractId)
     await updateAdminToMultiSigAccount(server, admin, nodes)
 
     const config = generateSingleConfig(admin.publicKey(), contractId, dataSource)
