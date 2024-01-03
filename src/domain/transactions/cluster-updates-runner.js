@@ -47,11 +47,15 @@ class ClusteUpdatesRunner extends RunnerBase {
         return idleWorkerTimeframe
     }
 
-    get __timeframe() {
+    __getNextTimestamp() {
         const {pendingConfig} = container.settingsManager
-        if (!pendingConfig)
-            return idleWorkerTimeframe
-        return pendingConfig.timestamp - Date.now()
+        if (!pendingConfig || this.__pendingTransaction)
+            return Date.now() + idleWorkerTimeframe
+        return pendingConfig.timestamp
+    }
+
+    get __timeframe() {
+        return 1
     }
 }
 

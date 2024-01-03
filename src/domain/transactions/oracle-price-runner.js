@@ -79,6 +79,10 @@ class OracleRunner extends RunnerBase {
         const {timeframe} = this.__getCurrentContract()
         return timeframe
     }
+
+    __getNextTimestamp(currentTimestamp) {
+        return currentTimestamp + this.__timeframe
+    }
 }
 
 module.exports = OracleRunner

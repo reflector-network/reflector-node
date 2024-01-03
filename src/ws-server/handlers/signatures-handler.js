@@ -15,11 +15,11 @@ class SignaturesHandler extends BaseHandler {
 
     async handle(ws, message) {
         const {signature, hash, oracleId} = message.data
-        if (!(signature && hash && oracleId)) {
+        if (!(signature && hash)) {
             return
         }
 
-        const oracleRunner = container.oracleRunnerManager.get(oracleId)
+        const oracleRunner = oracleId ? container.oracleRunnerManager.get(oracleId) : container.oracleRunnerManager.updatesRunner
         if (!oracleRunner)
             return
 

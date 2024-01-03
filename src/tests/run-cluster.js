@@ -40,7 +40,6 @@ async function closeEndRemoveIfExist(name) {
  * @param {{type: string}} dataSource
  */
 async function generateNewContract(server, nodes, dataSource) {
-    await buildContract() //if api - build contract with generic asset
     const admin = Keypair.random()
     await createAccount(server, admin.publicKey())
     console.log('Admin ' + admin.publicKey() + ' secret:' + admin.secret())
@@ -76,6 +75,10 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 
     const nodes = nodeConfigs.filter(n => n.isInitNode).map(n => n.keypair.publicKey())
     await updateAdminToMultiSigAccount(server, systemAccount, nodes)
+
+
+    //build contract
+    await buildContract()
 
     //generate contract configs
     const contracts = {}

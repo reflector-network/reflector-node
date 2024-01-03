@@ -68,7 +68,7 @@ function generateContractConfig(admin, oracleId, dataSource) {
 function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort, hasConnectionUrls, dbPass = null) {
     const nodeAddresses = {}
     for (let i = 0; i < nodes.length; i++) {
-        const pubkey = nodes[i];
+        const pubkey = nodes[i]
         nodeAddresses[pubkey] = {
             pubkey,
             url: `ws://localhost:${wsStartPort++}`,

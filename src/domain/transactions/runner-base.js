@@ -136,7 +136,7 @@ class RunnerBase {
             logger.error(`Error on oracle runner worker. Oracle id: ${this.oracleId}`)
             logger.error(e)
         } finally {
-            const nextTimestamp = timestamp + this.__timeframe
+            const nextTimestamp = this.__getNextTimestamp(timestamp)
             let timeout = nextTimestamp - Date.now()
             if (this.oracleId) { //if oracle price runner, add db sync delay
                 const dbSyncDelay = (container.settingsManager.appConfig.dbSyncDelay || 15) * 1000
@@ -265,8 +265,9 @@ class RunnerBase {
             const submitResult = await server.sendTransaction(tx)
             if (submitResult.status !== 'PENDING') {
                 const error = getSubmissionError(submitResult)
-                if (error.code === -9) {//insufficient fee
+                if (error.code === -9 || submitResult.status === 'TRY_AGAIN_LATER') {//insufficient fee
                     attempts--
+                    logger.debug(`Attempt to submit transaction failed. Status: ${submitResult.status}, code: ${error.code}, hash: ${hash}`)
                     continue
                 }
                 throw error
@@ -281,10 +282,11 @@ class RunnerBase {
             }
 
             response.hash = hash //Add hash to response to avoid return new object
-            if (response.status === 'FAILED') {
+            if (response.status !== 'SUCCESS') {
                 const error = getSubmissionError(response)
-                if (error.code === -9) {//insufficient fee
+                if (error.code === -9 || submitResult.status === 'TRY_AGAIN_LATER') {//insufficient fee
                     attempts--
+                    logger.debug(`Attempt to submit transaction failed. Status: ${submitResult.status}, code: ${error.code}, hash: ${hash}`)
                     continue
                 }
                 throw error
@@ -300,6 +302,10 @@ class RunnerBase {
      */
     __getAccount(account, sequence) {
         return new Account(account, sequence.toString())
+    }
+
+    __getNextTimestamp(currentTimestamp) {
+        throw new Error('Not implemented')
     }
 
     get __timeframe() {
