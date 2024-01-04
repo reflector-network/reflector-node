@@ -45,7 +45,8 @@ async function init(container) {
         return container.app
     } catch (e) {
         logger.error(e)
-        shutdown(13)
+        //some timeout to write logs
+        setTimeout(() => shutdown(13), 1000)
     }
 }
 

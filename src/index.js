@@ -24,7 +24,7 @@ try {
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
     const StatisticsManager = require('./domain/statistics-manager')
-    const OracleRunnerManager = require('./domain/transactions/oracle-runner-manager')
+    const OracleRunnerManager = require('./domain/runners/oracle-runner-manager')
 
     logger.info('Starting reflector node')
 

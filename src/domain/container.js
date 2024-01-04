@@ -4,7 +4,7 @@
  * @typedef {import('./statistics-manager')} StatisticsManager
  * @typedef {import('../ws-server/handlers/handlers-manager')} HandlersManager
  * @typedef {import('./contract-manager')} ContractManager
- * @typedef {import('./transactions/oracle-runner-manager')} OracleRunnerManager
+ * @typedef {import('./runners/oracle-runner-manager')} OracleRunnerManager
  */
 
 const packageInfo = require('../../package.json')

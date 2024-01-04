@@ -205,13 +205,11 @@ class RunnerBase {
             if (!this.oracleId)
                 settingsManager.applyPendingUpdate()
         } catch (e) {
-            if (e.message !== 'Transaction submit failed: DUPLICATE') {
-                logger.error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx: ${tx.transaction.toXDR()}`)
-                logger.error(e)
-                //shutdown if the error is not and it's not price update tx
-                if (tx.type !== PendingTransactionType.INIT && tx.type !== PendingTransactionType.PRICE_UPDATE)
-                    container.app.shutdown(13)
-            }
+            logger.error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx: ${tx.transaction.toXDR()}`)
+            logger.error(e)
+            //shutdown if the error is not and it's not price update tx
+            if (tx.type !== PendingTransactionType.INIT && tx.type !== PendingTransactionType.PRICE_UPDATE)
+                container.app.shutdown(13)
         }
         statisticsManager.setLastProcessedTimestamp(this.oracleId ?? 'cluster', tx.timestamp)
         logger.debug(`Transaction is processed. ${tx.getDebugInfo()}`)

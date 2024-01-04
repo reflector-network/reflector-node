@@ -4,10 +4,6 @@ const container = require('../container')
 const {getPrices} = require('../price-provider')
 const RunnerBase = require('./runner-base')
 
-/**
- * @typedef {import('../../models/blockchain/transactions/pending-transaction-base')} PendingTransactionBase
- */
-
 class OracleRunner extends RunnerBase {
     constructor(oracleId) {
         if (!oracleId)

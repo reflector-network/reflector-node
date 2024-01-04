@@ -4,10 +4,6 @@ const logger = require('../../logger')
 const container = require('../container')
 const RunnerBase = require('./runner-base')
 
-/**
- * @typedef {import('../../models/blockchain/transactions/pending-transaction-base')} PendingTransactionBase
- */
-
 const idleWorkerTimeframe = 1000 * 60 //1 minute
 
 class ClusteUpdatesRunner extends RunnerBase {

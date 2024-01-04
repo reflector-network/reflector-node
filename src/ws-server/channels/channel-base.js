@@ -149,17 +149,23 @@ class ChannelBase {
                 && [MessageTypes.ERROR, MessageTypes.OK].indexOf(message.type) === -1
             ) //message requires handling
                 try {
-                    result = await container.handlersManager.handle(this, message) || {type: MessageTypes.OK}
+                    result = await container.handlersManager.handle(this, message) || {type: MessageTypes.OK, responseId: message.requestId}
                 } catch (e) {
                     logger.debug(e)
                     result = {
+                        type: MessageTypes.ERROR,
                         error: e.message,
                         responseId: message.requestId
                     }
                 }
+            else
+                result = message
             if (message.requestId) { //message requires response
                 if (!result)
                     result = {type: MessageTypes.ERROR, error: 'No response'}
+                else if (result.type === undefined) {
+                    result = {type: MessageTypes.OK, data: result}
+                }
                 result.responseId = message.requestId
                 await this.send(result)
                 return
@@ -170,9 +176,9 @@ class ChannelBase {
                     delete this.__requests[message.responseId]
                     clearTimeout(request.responseTimeout)
                     if (message.type === MessageTypes.ERROR)
-                        request.reject(result)
+                        request.reject(new Error(message.error))
                     else
-                        request.resolve(result) //resolve the promise with the result
+                        request.resolve(result.data) //resolve the promise with the result
                 }
             }
         } catch (e) {

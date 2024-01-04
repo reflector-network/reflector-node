@@ -34,9 +34,10 @@
     "lowdb": "^6.1.1",
     "mongoose": "^7.2.0",
     "pino": "^8.15.1",
+    "rotating-file-stream": "^3.2.1",
     "sha.js": "^2.4.11",
+    "stellar-sdk": "^11.1.0",
     "uuid": "^9.0.0",
-    "ws": "^8.13.0",
-    "stellar-sdk": "^11.1.0"
+    "ws": "^8.13.0"
   }
 }
