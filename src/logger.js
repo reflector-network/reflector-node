@@ -17,7 +17,7 @@ const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
 
 //replace absolute paths in stack trace with relative paths
 const cleanup = data => {
-    if (typeof data === 'object') {
+    if (data && typeof data === 'object') {
         const keys = Object.getOwnPropertyNames(data)
         for (const key of keys) {
             data[key] = cleanup(data[key])
