@@ -61,6 +61,8 @@ function getSubmissionError(submitResult) {
     error.hash = submitResult.hash
     error.meta = submitResult.resultMetaXdr?.toXDR('base64') ?? null
     error.tx = submitResult.envelopeXdr?.toXDR('base64') ?? null
+    error.code = code
+    error.errorName = errorName ?? submitResult.status
     return error
 }
 
@@ -235,7 +237,18 @@ class RunnerBase {
      * @param {DecoratedSignature[]} signatures - signatures
      */
     async __submitTransaction(network, horizonUrl, pendingTx, signatures) {
-        let attempts = 5
+        let attempts = 10
+        function processResponse(response) {
+            const error = getSubmissionError(response)
+            if (error.code === -9 //insufficient fee
+                || error.errorName === 'TRY_AGAIN_LATER'
+                || error.errorName === 'NOT_FOUND') {
+                attempts--
+                logger.debug(`Attempt to submit transaction failed. Status: ${error.status}, code: ${error.code}, hash: ${error.hash}`)
+                return new Promise(resolve => setTimeout(resolve, 2000))
+            }
+            throw error
+        }
         while (attempts > 0) {
             if (!pendingTx)
                 throw new Error('tx is required')
@@ -262,13 +275,8 @@ class RunnerBase {
 
             const submitResult = await server.sendTransaction(tx)
             if (submitResult.status !== 'PENDING') {
-                const error = getSubmissionError(submitResult)
-                if (error.code === -9 || submitResult.status === 'TRY_AGAIN_LATER') {//insufficient fee
-                    attempts--
-                    logger.debug(`Attempt to submit transaction failed. Status: ${submitResult.status}, code: ${error.code}, hash: ${hash}`)
-                    continue
-                }
-                throw error
+                await processResponse(response)
+                continue
             }
 
             response = await server.getTransaction(hash)
@@ -281,13 +289,8 @@ class RunnerBase {
 
             response.hash = hash //Add hash to response to avoid return new object
             if (response.status !== 'SUCCESS') {
-                const error = getSubmissionError(response)
-                if (error.code === -9 || submitResult.status === 'TRY_AGAIN_LATER') {//insufficient fee
-                    attempts--
-                    logger.debug(`Attempt to submit transaction failed. Status: ${submitResult.status}, code: ${error.code}, hash: ${hash}`)
-                    continue
-                }
-                throw error
+                await processResponse(response)
+                continue
             }
             return response
         }

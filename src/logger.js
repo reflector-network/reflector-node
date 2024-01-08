@@ -15,13 +15,20 @@ const LOG_RETENTION_DAYS = '1d'
 
 const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
 
+const circularRefTag = 'circular-ref-tag'
+
 //replace absolute paths in stack trace with relative paths
 const cleanup = data => {
     if (data && typeof data === 'object') {
+        data[circularRefTag] = true
         const keys = Object.getOwnPropertyNames(data)
         for (const key of keys) {
+            const value = data[key]
+            if (key === circularRefTag || (value && typeof value === 'object' && value[circularRefTag]))
+                continue
             data[key] = cleanup(data[key])
         }
+        delete data[circularRefTag]
         return data
     } else if (Array.isArray(data)) {
         for (let i = 0; i < data.length; i++) {

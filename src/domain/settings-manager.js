@@ -14,6 +14,7 @@ const dockerDbPasswordPath = `${container.homeDir}/.dockerDbPassword`
 
 /**
  * @typedef {import('@reflector/reflector-shared').Node} Node
+ * @typedef {import('@reflector/reflector-shared').ContractConfig} ContractConfig
  */
 
 /**
