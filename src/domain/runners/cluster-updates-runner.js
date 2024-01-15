@@ -33,6 +33,7 @@ class ClusteUpdatesRunner extends RunnerBase {
         })
 
         if (tx) { //if transaction is built, set it as pending
+            logger.info(`Update tx: ${tx.transaction.toXDR()}`)
             this.__setPendingTransaction(tx)
             await this.__trySubmitTransaction()
         } else {

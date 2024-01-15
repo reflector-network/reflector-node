@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 
-# Check if the SECRET environment variable is set
-if [ -z "$SECRET" ]; then
-    echo "ERROR: SECRET is not set!"
-    exit 1
-fi
-
 # Save the arguments to environment variable
 export STELLAR_ARGS="$@"
 

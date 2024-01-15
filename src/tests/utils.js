@@ -50,14 +50,29 @@ function generateAppConfig(secret, dataSources, dbPass = null) {
 }
 
 function generateContractConfig(admin, oracleId, dataSource) {
-    const baseAsset = dataSource.type === 'api' ? constants.baseGenericAsset : constants.baseStellarAsset
-    const assets = dataSource.type === 'api' ? constants.genericAssets : constants.stellarAssets
+    const assets = {}
+    switch (dataSource.name) {
+        case 'coinmarketcap':
+            assets.baseAsset = constants.baseGenericAsset
+            assets.assets = constants.genericAssets
+            break
+        case 'pubnet':
+            assets.baseAsset = constants.baseStellarPubnetAsset
+            assets.assets = constants.stellarPubnetAssets
+            break
+        case 'testnet':
+            assets.baseAsset = constants.baseStellarTestnetAsset
+            assets.assets = constants.stellarTestnetAssets
+            break
+        default:
+            throw new Error('Unknown data source')
+    }
     return {
         admin,
         oracleId,
-        baseAsset,
+        baseAsset: assets.baseAsset,
         decimals: constants.decimals,
-        assets,//.slice(0, 2),
+        assets: assets.assets,//.slice(0, 2),
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,
@@ -65,7 +80,7 @@ function generateContractConfig(admin, oracleId, dataSource) {
     }
 }
 
-function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort, hasConnectionUrls, dbPass = null) {
+function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort, hasConnectionUrls) {
     const nodeAddresses = {}
     for (let i = 0; i < nodes.length; i++) {
         const pubkey = nodes[i]
@@ -89,7 +104,7 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
 async function bumpContract(server, keypair, oracleId) {
 
     const t = true
-    let bump = 500_000
+    let bump = 5_000_000
     while (t) {
         try {
             const accountInfo = await server.getAccount(keypair.publicKey())
@@ -97,6 +112,9 @@ async function bumpContract(server, keypair, oracleId) {
             const bumpTx = await client.bump(accountInfo, bump, {fee: 10000000})
 
             const res = await client.submitTransaction(bumpTx, [keypair.signDecorated(bumpTx.hash())])
+            if (res.status !== 'SUCCESS')
+                throw new Error(`Bump failed with status ${res.status}`)
+            console.log(`Bumped to ${bump} ledgers.`)
             return
         } catch (e) {
             console.log(e)
