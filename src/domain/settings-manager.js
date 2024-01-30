@@ -91,9 +91,14 @@ class SettingsManager {
 
     applyPendingUpdate() {
         this.setConfig(this.pendingConfig.config)
+        this.clearPendingConfig()
+    }
+
+    clearPendingConfig() {
         this.pendingConfig = null
         //remove pending config
-        fs.unlinkSync(oraclePendingConfigPath)
+        if (fs.existsSync(oraclePendingConfigPath))
+            fs.unlinkSync(oraclePendingConfigPath)
     }
 
     /**

@@ -22,7 +22,7 @@ function isConfigVerified(configEnvelope, isCurrentConfig = false) {
     }
     const {nonce, signature} = currentNodeSignature
     const currentNonce = nonceManager.getNonce(MessageTypes.CONFIG)
-    if (!(nonce > currentNonce //replayed
+    if (!(nonce >= currentNonce //replayed
         || (isCurrentConfig && configEnvelope.config.getHash() === settingsManager.pendingConfig?.config.getHash()) //pending config applied already
     )) {
         return false
@@ -66,6 +66,8 @@ class ConfigHandler extends BaseHandler {
             } else {
                 logger.info('Pending config is not verified')
             }
+        } else {
+            settingsManager.clearPendingConfig()
         }
     }
 }

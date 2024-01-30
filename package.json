@@ -27,7 +27,7 @@
     "@reflector/oracle-client": "github:reflector-network/oracle-client#v3.1.0",
     "@reflector/reflector-coinmarketcap-connector": "github:reflector-network/reflector-coinmarketcap-connector#v0.1.0",
     "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v1.0.1",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v0.8.6",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v0.9.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
@@ -36,7 +36,7 @@
     "pino": "^8.15.1",
     "rotating-file-stream": "^3.2.1",
     "sha.js": "^2.4.11",
-    "stellar-sdk": "^11.1.0",
+    "@stellar/stellar-sdk": "^11.1.0",
     "uuid": "^9.0.0",
     "ws": "^8.13.0"
   }
