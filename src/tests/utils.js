@@ -86,7 +86,7 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         const pubkey = nodes[i]
         nodeAddresses[pubkey] = {
             pubkey,
-            url: `ws://localhost:${wsStartPort++}`,
+            url: `ws://localhost:${wsStartPort + (i * 100)}`,
             domain: `node${i}.com`
         }
     }

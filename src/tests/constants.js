@@ -56,7 +56,7 @@ function getDataSources(isStellarCoreDocker) {
     const dataSources = structuredClone(sources)
     if (!isStellarCoreDocker)
         return dataSources
-    for (const source of dataSources.values()) {
+    for (const source of Object.values(dataSources)) {
         if (source.type === 'db')
             source.dbConnection = 'docker'
     }
