@@ -1,5 +1,5 @@
 # Using the Stellar image as the base
-FROM stellar/quickstart:testing@sha256:3c7947f65db493f2ab8ca639753130ba4916c57d000d4a1f01ec530e3423853b
+FROM stellar/quickstart:soroban-dev@sha256:64b2d14b8a531c534560e287768846f538b2f063fc776aa9ca016c788e86c782
 
 # Install curl, jq, and other utilities
 RUN apt-get update \

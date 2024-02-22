@@ -39,5 +39,9 @@ fi
 export POSTGRES_PASSWORD=$DOCKER_DB_PASSWORD
 SUPERVISORD_CONFIG="/etc/supervisor/conf.d/supervisord.conf"
 
+# Ensure /reflector-node/app/home/docker/logs/ and /opt/stellar/logs/ exists
+mkdir -p /reflector-node/app/home/docker/logs/
+mkdir -p /opt/stellar/logs/
+
 # Start the services using the supervisord configuration
 exec /usr/bin/supervisord -c $SUPERVISORD_CONFIG
