@@ -2,6 +2,7 @@ const {buildInitTransaction, isTimestampValid, buildPriceUpdateTransaction} = re
 const {retrieveAccountProps, retrieveContractState} = require('@reflector/reflector-db-connector')
 const container = require('../container')
 const {getPrices} = require('../price-provider')
+const logger = require('../../logger')
 const RunnerBase = require('./runner-base')
 
 class OracleRunner extends RunnerBase {
@@ -28,6 +29,10 @@ class OracleRunner extends RunnerBase {
         const contractState = await retrieveContractState(blockchainConnector, this.oracleId)
 
         const {settingsManager, statisticsManager} = container
+
+        logger.debug(`Contract state: ${JSON.stringify({lastTimestamp: Number(contractState.lastTimestamp), uninitialized: contractState.uninitialized, oracleId: this.oracleId})}`)
+        statisticsManager.setLastOracleData(this.oracleId, Number(contractState.lastTimestamp), !contractState.uninitialized)
+
         let tx = null
         if (contractState.uninitialized)
             tx = await buildInitTransaction({account, network, horizonUrl, config: contractConfig})
@@ -55,7 +60,6 @@ class OracleRunner extends RunnerBase {
                 fee
             })
         }
-        statisticsManager.setLastOracleData(this.oracleId, Number(contractState.lastTimestamp), !contractState.uninitialized)
 
         if (tx) { //if transaction is built, set it as pending
             this.__setPendingTransaction(tx)

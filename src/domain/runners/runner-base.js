@@ -82,7 +82,7 @@ class RunnerBase {
     async addSignature(txHash, signature) {
         //if the transaction is not the pending transaction, add the signature to the pending signatures list
         if (this.__pendingTransaction?.hashHex !== txHash) {
-            logger.error(`addSignature: no pending tx. ${this.__pendingTransaction?.hashHex}, ${txHash}`)
+            logger.debug(`addSignature: no pending tx. ${this.__pendingTransaction?.hashHex}, ${txHash}`)
             /**@type {timestamp: number, signatures: DecoratedSignature[]} */
             const signaturesData =
                 this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
@@ -203,7 +203,8 @@ class RunnerBase {
             if (!horizonUrl)
                 throw new Error(`Horizon url not found: ${settingsManager.config.network}`)
             await this.__submitTransaction(networkPassphrase, horizonUrl, tx, tx.getMajoritySignatures(currentNodesLength))
-            statisticsManager.incSubmittedTransactions(this.oracleId ?? 'cluster')
+            if (this.oracleId)
+                statisticsManager.incSubmittedTransactions(this.oracleId)
             if (!this.oracleId)
                 settingsManager.applyPendingUpdate()
         } catch (e) {
@@ -213,8 +214,9 @@ class RunnerBase {
             if (tx.type !== PendingTransactionType.INIT && tx.type !== PendingTransactionType.PRICE_UPDATE)
                 container.app.shutdown(13)
         }
-        statisticsManager.setLastProcessedTimestamp(this.oracleId ?? 'cluster', tx.timestamp)
-        logger.debug(`Transaction is processed. ${tx.getDebugInfo()}`)
+        if (this.oracleId)
+            statisticsManager.setLastProcessedTimestamp(this.oracleId, tx.timestamp)
+        logger.debug(`Transaction is processed ${this.oracleId}. ${tx.getDebugInfo()}`)
     }
 
     __getBlockchainConnectorSettings() {
