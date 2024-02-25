@@ -3,30 +3,36 @@ const fs = require('fs')
 
 let logger = null
 try {
-    const homeDir = './home'
+    let homeDir = './home'
+
+    process.argv.forEach(value => {
+        const [key, val] = value.split('=')
+        if (key === 'homeDir')
+            homeDir = val
+    })
+
     if (!fs.existsSync(homeDir))
         fs.mkdirSync(homeDir)
 
-    logger = require('./logger')
 
     const container = require('./domain/container')
+    container.homeDir = homeDir
+
+    logger = require('./logger')
+
     const SettingsManager = require('./domain/settings-manager')
     const WsServer = require('./ws-server')
-    const TransactionsManager = require('./domain/transaction-manager')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
-    const NodesManager = require('./domain/nodes/nodes-manager')
     const StatisticsManager = require('./domain/statistics-manager')
-    const HttpServer = require('./http-server')
+    const OracleRunnerManager = require('./domain/runners/oracle-runner-manager')
 
     logger.info('Starting reflector node')
 
     container.settingsManager = new SettingsManager()
     container.statisticsManager = new StatisticsManager()
-    container.transactionsManager = new TransactionsManager()
     container.handlersManager = new HandlersManager()
     container.webSocketServer = new WsServer()
-    container.httpServer = new HttpServer()
-    container.nodesManager = new NodesManager()
+    container.oracleRunnerManager = new OracleRunnerManager()
     require('./app')(container)
 } catch (e) {
     if (logger)

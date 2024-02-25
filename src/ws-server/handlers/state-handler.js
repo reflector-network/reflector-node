@@ -1,5 +1,4 @@
 const ChannelTypes = require('../channels/channel-types')
-const MessageTypes = require('../../domain/message-types')
 const NodeStates = require('../../domain/nodes/node-states')
 const container = require('../../domain/container')
 const BaseHandler = require('./base-handler')
@@ -12,10 +11,13 @@ class StateHandler extends BaseHandler {
     async handle(ws, message) {
         switch (message.data.state) {
             case NodeStates.READY: {
-                const nodes = container.settingsManager.nodeAddresses
-                await container.transactionsManager.broadcastSignatureTo(ws.pubkey)
-                return {type: MessageTypes.SETTINGS, data: {nodes}}
+                const promises = []
+                for (const oracleRunner of container.oracleRunnerManager.all()) {
+                    promises.push(oracleRunner.broadcastSignatureTo(ws.pubkey))
+                }
+                await Promise.allSettled(promises)
             }
+                break
             default:
                 throw new Error(`State ${message.data.state} is not supported`)
         }

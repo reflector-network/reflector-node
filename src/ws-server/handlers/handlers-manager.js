@@ -1,12 +1,16 @@
-const MessageTypes = require('../../domain/message-types')
+const MessageTypes = require('./message-types')
 const HandshakeRequestHandler = require('./handshake-request-handler')
 const HandshakeResponseHandler = require('./handshake-response-handler')
-const SettingsHandler = require('./settings-handler')
+const ConfigHandler = require('./config-handler')
 const SignaturesHandler = require('./signatures-handler')
 const StateHandler = require('./state-handler')
+const StatisticsRequestHandler = require('./statistics-request-handler')
+const LogsRequestHandler = require('./logs-request-handler')
+const LogFileRequestHandler = require('./log-file-request-handler')
+const SetTraceHandler = require('./set-trace-handler')
 
 /**
- * @typedef {import('../channels/base-websocket-channel')} BaseWebSocketChannel
+ * @typedef {import('../channels/channel-base')} ChannelBase
  */
 
 class HandlersManager {
@@ -15,14 +19,18 @@ class HandlersManager {
         this.handlers = {
             [MessageTypes.HANDSHAKE_REQUEST]: new HandshakeRequestHandler(),
             [MessageTypes.HANDSHAKE_RESPONSE]: new HandshakeResponseHandler(),
-            [MessageTypes.SETTINGS]: new SettingsHandler(),
+            [MessageTypes.CONFIG]: new ConfigHandler(),
             [MessageTypes.STATE]: new StateHandler(),
-            [MessageTypes.SIGNATURE]: new SignaturesHandler()
+            [MessageTypes.SIGNATURE]: new SignaturesHandler(),
+            [MessageTypes.STATISTICS_REQUEST]: new StatisticsRequestHandler(),
+            [MessageTypes.LOGS_REQUEST]: new LogsRequestHandler(),
+            [MessageTypes.LOG_FILE_REQUEST]: new LogFileRequestHandler(),
+            [MessageTypes.SET_TRACE]: new SetTraceHandler()
         }
     }
 
     /**
-     * @param {BaseWebSocketChannel} channel - channel type
+     * @param {ChannelBase} channel - channel type
      * @param {any} message - message to handle
      */
     async handle(channel, message) {

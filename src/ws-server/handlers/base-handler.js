@@ -3,7 +3,7 @@
 /*eslint-disable class-methods-use-this */
 
 /**
- * @typedef {import('../channels/base-websocket-channel')} BaseWebSocketChannel
+ * @typedef {import('../channels/channel-base')} ChannelBase
  */
 
 class BaseHandler {
@@ -20,7 +20,7 @@ class BaseHandler {
     allowAnonymous = false
 
     /**
-     * @param {BaseWebSocketChannel} channel - channel type
+     * @param {ChannelBase} channel - channel type
      * @param {any} message - message to handle
      * @returns {Promise<any>} - response message
      */

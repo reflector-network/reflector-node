@@ -1,261 +1,181 @@
+
+const fs = require('fs')
+const {ValidationError, ConfigEnvelope, buildUpdates, Config} = require('@reflector/reflector-shared')
+const AppConfig = require('../models/app-config')
+const logger = require('../logger')
+const nodesManager = require('./nodes/nodes-manager')
+const container = require('./container')
+const connectionManager = require('./data-sources-manager')
+
+const appConfigPath = `${container.homeDir}/app.config.json`
+const oracleConfigPath = `${container.homeDir}/.config.json`
+const oraclePendingConfigPath = `${container.homeDir}/.pending.config.json`
+
 /**
- * @typedef {import('../models/config')} Config
- * @typedef {import('../models/contract/updates/update-base')} UpdateBase
+ * @typedef {import('@reflector/reflector-shared').Node} Node
+ * @typedef {import('@reflector/reflector-shared').ContractConfig} ContractConfig
  */
 
-const {EventEmitter} = require('events')
-const fs = require('fs')
-const {StrKey} = require('soroban-client')
-const UpdateType = require('../models/contract/updates/update-type')
-const ValidationError = require('../models/validation-error')
-const Config = require('../models/config')
-const {buildUpdate} = require('./updates-helper')
-const NodeStatus = require('./node-status')
+/**
+ * @param {Config} config - config
+ * @param {string} oracleId - oracle id
+ * @returns {ContractConfig}
+ */
+function __getContractConfig(config, oracleId) {
+    const contractConfig = config.contracts.get(oracleId)
+    if (!contractConfig)
+        throw new ValidationError('Contract not found')
+    return contractConfig
+}
 
-const configPath = './home/app.config.json'
-const dockerDbPasswordPath = './home/.dockerDbPassword'
+class SettingsManager {
+    /**
+     * @type {AppConfig}
+     */
+    appConfig
 
-class PrivateField {
-    constructor(name, isEditable = false) {
-        this.name = name
-        this.isEditable = isEditable
+    /**
+     * @type {ConfigEnvelope}
+     */
+    pendingConfig
+
+    /**
+     * @type {Config}
+     */
+    config
+
+    init() {
+        //set app config
+        if (!fs.existsSync(appConfigPath))
+            throw new Error('Config file not found')
+        const rawAppConfig = JSON.parse(fs.readFileSync(appConfigPath).toString().trim())
+        this.appConfig = new AppConfig(rawAppConfig)
+        if (!this.appConfig.isValid) {
+            //shutdown the app if app config is invalid
+            throw new Error(`Invalid app config. Issues: ${this.appConfig.issuesString}`)
+        }
+        this.setAppConfig(this.appConfig)
+
+        //set current config
+        const rawConfig = fs.existsSync(oracleConfigPath)
+            ? JSON.parse(fs.readFileSync(oracleConfigPath).toString().trim())
+            : null
+        if (rawConfig) {
+            const oraclesConfig = new Config(rawConfig)
+            if (!oraclesConfig.isValid) {
+                logger.error(`Invalid config. Config will not be assigned. Issues: ${oraclesConfig.issuesString}`)
+            } else
+                this.setConfig(oraclesConfig, false)
+        }
+        //set pending updates
+        const rawPendingConfig = fs.existsSync(oraclePendingConfigPath)
+            ? JSON.parse(fs.readFileSync(oraclePendingConfigPath).toString().trim())
+            : null
+        if (rawPendingConfig) {
+            const oraclesPendingConfig = new ConfigEnvelope(rawPendingConfig)
+            if (!oraclesPendingConfig.config.isValid) {
+                logger.error(`Invalid pending config. Config will not by assigned. Issues: ${oraclesPendingConfig.issuesString}`)
+            } else
+                this.setPendingConfig(oraclesPendingConfig, false)
+        }
     }
-}
 
-const configPrivateFields = [new PrivateField('dockerDbPassword'), new PrivateField('dbConnectionString', true), new PrivateField('handshakeTimeout')]
-const contractSettingsPrivateFields = [new PrivateField('pendingUpdate')]
-
-function __setPrivateFields(dest, source, privateFields) {
-    for (const field of privateFields)
-        if (!field.isEditable || !dest[field.name]) //if field is not defined or is not editable, we should use old value
-            dest[field.name] = source[field.name] || null
-}
-
-function __removePrivateFields(obj, privateFields) {
-    if (!obj)
-        return
-    for (const field of privateFields)
-        delete obj[field.name]
-}
-
-function __getDockerDbPassword() {
-    if (!fs.existsSync(dockerDbPasswordPath)) {
-        return null
-    }
-    return fs.readFileSync(dockerDbPasswordPath).toString().trim()
-}
-
-function __getSecret() {
-    const secret = process.env.SECRET
-    if (!(secret && StrKey.isValidEd25519SecretSeed(secret)))
-        throw new Error('SECRET is not defined or invalid. Provide valid secret in SECRET env variable. It should be valid Ed25519 secret seed.')
-    return secret
-}
-
-function __getRawConfig() {
-    if (!fs.existsSync(configPath))
-        return {}
-    return JSON.parse(fs.readFileSync(configPath).toString().trim())
-}
-
-class SettingsManager extends EventEmitter {
-
-    static EVENTS = {
-        NODES_UPDATED: 'nodes-updated',
-        NODES_PERIOD_UPDATED: 'nodes-period-updated',
-        NODES_ASSETS_UPDATED: 'nodes-assets-updated',
-        CONTRACT_SETTINGS_UPDATED: 'contract-settings-updated'
+    applyPendingUpdate() {
+        this.setConfig(this.pendingConfig.config)
+        this.clearPendingConfig()
     }
 
-    constructor() {
-        super()
-        const secret = __getSecret()
-        const dockerDbPassword = __getDockerDbPassword()
-        const rawConfig = __getRawConfig()
-
-        this.__config = new Config(rawConfig, secret, dockerDbPassword)
+    clearPendingConfig() {
+        this.pendingConfig = null
+        //remove pending config
+        if (fs.existsSync(oraclePendingConfigPath))
+            fs.unlinkSync(oraclePendingConfigPath)
     }
 
     /**
-     * Update node url
-     * @param {string} pubkey - node pubkey
-     * @param {string} url - node url
+     * @param {AppConfig} config - config
      */
-    updateNodeUrl(pubkey, url) {
-        this.__checkIfConfigIsValid()
-        for (const node of this.nodeAddresses) {
-            if (node.pubkey === pubkey)
-                if (node.url === url)
-                    return
-                else {
-                    node.url = url
-                    this.__saveConfig()
-                    break
-                }
-        }
+    setAppConfig(config) {
+        this.appConfig = config
+        connectionManager.setDataSources([...config.dataSources.values()], config.dockerDbPassword)
     }
 
     /**
-     * @param {any} rawUpdate - the update object
+     * @param {Config} config - config
+     * @param {boolean} [save] - save config to file
      */
-    setUpdate(rawUpdate) {
-        this.__checkIfConfigIsValid()
-        if (this.__config.contractSettings.pendingUpdate)
-            throw new ValidationError('Pending update already exist')
-        if (!rawUpdate.timestamp)
-            throw new ValidationError('Timestamp is not defined')
-        const update = buildUpdate(rawUpdate, this.__config.contractSettings.network)
-        switch (update.type) {
-            case UpdateType.ASSETS:
-                update.assets.forEach(asset => {
-                    if (update.assets.filter(a => a.type === asset.type && a.code === asset.code) > 1)
-                        throw new ValidationError(`Asset ${asset.code} is duplicated`)
-                    if (this.__config.contractSettings.assets.findIndex(a => a.type === asset.type && a.code === asset.code) >= 0)
-                        throw new ValidationError(`Asset ${asset.code} already exist`)
-                    if (this.__config.contractSettings.baseAsset.type === asset.type
-                        && this.__config.contractSettings.baseAsset.code === asset.code)
-                        throw new ValidationError(`Asset ${asset.code} is base asset`)
-                })
-                break
-            case UpdateType.NODES: {
-                update.nodes.forEach(node => {
-                    if (!StrKey.isValidEd25519PublicKey(node.pubkey))
-                        throw new ValidationError(`Node ${node.pubkey} is invalid`)
-                    if (update.nodes.filter(n => n.pubkey === node.pubkey) > 1)
-                        throw new ValidationError(`Node ${node.pubkey} is duplicated`)
-                })
-                break
-            }
-            case UpdateType.PERIOD:
-                if (update.period <= this.__config.contractSettings.timeframe)
-                    throw new ValidationError('Invalid period')
-                break
-            default:
-                throw new ValidationError('Invalid update type')
-        }
-        this.__config.contractSettings.pendingUpdate = update
-        this.__saveConfig()
+    setConfig(config, save = true) {
+        this.config = config
+        if (!this.config.isValid)
+            return
+        container.oracleRunnerManager.setOracleIds([...config.contracts.keys()])
+        nodesManager.setNodes(config.nodes)
+        if (save)
+            fs.writeFileSync(oracleConfigPath, JSON.stringify(config.toPlainObject(), null, 2))
     }
 
-    //we don't allow to have multiple pending updates, so we can update config by pending update
-    applyUpdate() {
-        let event = null
-        this.__checkIfConfigIsValid()
-        if (!this.__config.contractSettings.pendingUpdate)
-            throw new Error('Pending update do not exist')
-        switch (this.__config.contractSettings.pendingUpdate.type) {
-            case UpdateType.ASSETS: {
-                this.__config.contractSettings.assets.push(...this.__config.contractSettings.pendingUpdate.assets)
-                event = SettingsManager.EVENTS.NODES_ASSETS_UPDATED
-                break
-            }
-            case UpdateType.PERIOD: {
-                this.__config.contractSettings.period = this.__config.contractSettings.pendingUpdate.period
-                event = SettingsManager.EVENTS.NODES_PERIOD_UPDATED
-                break
-            }
-            case UpdateType.NODES: {
-                const updateNodes = this.__config.contractSettings.pendingUpdate.nodes
-                const currentNodes = this.__config.contractSettings.nodes
-                const nodeAddresses = this.__config.nodes
-                updateNodes.forEach(node => {
-                    if (node.remove) {
-                        //try remove from contract settings
-                        const index = currentNodes.findIndex(pubkey => pubkey === node.pubkey)
-                        if (index >= 0)
-                            currentNodes.splice(index, 1)
-                        const nodeAddress = nodeAddresses.findIndex(n => n.pubkey === node.pubkey)
-                        if (nodeAddress >= 0)
-                            nodeAddresses.splice(nodeAddress, 1)
-                        return
-                    }
-                    if (!currentNodes.includes(node.pubkey)) {
-                        currentNodes.push(node.pubkey)
-                    }
-                    //try add to addresses
-                    const nodeAddress = nodeAddresses.find(n => n.pubkey === node.pubkey)
-                    if (!nodeAddress)
-                        nodeAddresses.push({pubkey: node.pubkey, url: node.url})
-                    else if (nodeAddress.url !== node.url)
-                        nodeAddress.url = node.url
-                })
-                event = SettingsManager.EVENTS.NODES_UPDATED
-                break
-            }
-            default:
-                throw new Error('Invalid update type')
-        }
-        this.__config.contractSettings.pendingUpdate = null
-        this.__saveConfig()
-        if (event)
-            this.emit(event)
+    /**
+     * @param {ConfigEnvelope} envelope - config
+     * @param {boolean} [save] - save config to file
+     */
+    setPendingConfig(envelope, save = true) {
+        if (this.pendingConfig)
+            throw new Error('Pending config already exists')
+        const updates = buildUpdates(envelope.timestamp, this.config, envelope.config)
+        if (updates.size === 0)
+            throw new Error('No updates found in pending config')
+        this.pendingConfig = envelope
+        if (save)
+            fs.writeFileSync(oraclePendingConfigPath, JSON.stringify(envelope.toPlainObject(), null, 2))
     }
 
-    get nodeStatus() {
-        return this.__config.isValid ? NodeStatus.ready : NodeStatus.init
-    }
-
-    get contractSettings() {
-        return this.config.contractSettings
-    }
-
-    get config() {
-        return this.__config
-    }
-
-    get nodeAddresses() {
+    /**
+     * @type {Node[]}
+     */
+    get nodes() {
         return this.config.nodes
     }
 
-    getAssets(includePending = false) {
-        let assets = [...this.contractSettings.assets]
-        if (includePending && this.contractSettings.pendingUpdate && this.contractSettings.pendingUpdate.type === UpdateType.ASSETS)
-            assets = [...assets, ...this.contractSettings.pendingUpdate.assets]
-        return assets
+    get network() {
+        return this.config.network
     }
 
-    getConfigForClient() {
-        const config = this.config.toPlainObject()
-        __removePrivateFields(config, configPrivateFields)
-        __removePrivateFields(config.contractSettings, contractSettingsPrivateFields)
-        return config
+    get horizonUrl() {
+        return this.appConfig.networkHorizonUrl
     }
 
-    getContractSettingsForClient() {
-        const contractSettings = this.config.contractSettings.toPlainObject()
-        __removePrivateFields(contractSettings, contractSettingsPrivateFields)
-
-        const nodes = contractSettings.nodes
-        contractSettings.nodes = nodes.map(node => ({
-            pubkey: node,
-            url: this.config.nodes.find(n => n.pubkey === node)?.url
-        }))
-        return contractSettings
+    /**
+     * @param {string} oracleId - oracle id
+     * @returns {ContractConfig}
+     */
+    getContractConfig(oracleId) {
+        return __getContractConfig(this.config, oracleId)
     }
 
-    updateConfig(rawConfig) {
-        //set private fields here to avoid validation errors
-        __setPrivateFields(rawConfig, this.__config, configPrivateFields)
-        __setPrivateFields(rawConfig.contractSettings, this.__config.contractSettings, contractSettingsPrivateFields)
-        //set secret we received from env
-        const config = new Config(rawConfig, this.__config.secret, this.__config.dockerDbPassword)
-        if (!config.isValid) {
-            const error = new ValidationError('Invalid config')
-            error.details = {issues: config.issues}
-            throw error
+    getAssets(oracleId, includePending = false) {
+        if (!(includePending && this.pendingConfig))
+            return __getContractConfig(this.config, oracleId).assets
+
+        return __getContractConfig(this.pendingConfig.config, oracleId).assets
+    }
+
+    get statistics() {
+        const connectionIssues = connectionManager.issues || []
+        if (this.config && this.config.isValid) {
+            const dataSources = [...this.config.contracts.values()].map(c => c.dataSource)
+            for (const dataSource of dataSources) {
+                if (!connectionManager.has(dataSource))
+                    connectionIssues.push(`Connection data for data source ${dataSource} not found`)
+            }
+            if (!connectionManager.has(this.config.network))
+                connectionIssues.push(`Connection data for network ${this.config.network} not found`)
         }
-        this.__config = config
-        this.__saveConfig()
-        this.emit(SettingsManager.EVENTS.CONTRACT_SETTINGS_UPDATED)
-    }
-
-    __checkIfConfigIsValid() {
-        if (!this.config.isValid)
-            throw new ValidationError('Config is not in ready state')
-    }
-
-    __saveConfig() {
-        fs.writeFileSync(configPath, JSON.stringify(this.config.toPlainObject(), null, 2))
+        return {
+            currentConfigHash: this.config ? this.config.getHash() : null,
+            pendingConfigHash: this.pendingConfig ? this.pendingConfig.config.getHash() : null,
+            connectionIssues,
+            version: container.version
+        }
     }
 }
 

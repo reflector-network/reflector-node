@@ -24,17 +24,32 @@ jobs:
     - name: Run Build Script
       run: npm run build
 
+    - name: Determine If Latest Tag Should Be Pushed
+      id: determine_latest_push
+      run: |
+        # Check if the tag matches the pattern "vX.Y.Z" (where X, Y, Z are integers)
+        if [[ "${{ github.ref_name }}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          LATEST_PUSH=true
+        else
+          LATEST_PUSH=false
+        fi
+        echo "LATEST_PUSH=${LATEST_PUSH}" >> $GITHUB_ENV
+      shell: bash
+
     - name: Build and push Docker image
       run: |
         docker login -u reflectornet --password-stdin <<< ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-        docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone:latest .
-        docker tag reflector-node-standalone:latest reflectornet/reflector-node-standalone:${{ github.ref_name }}
-        docker push reflectornet/reflector-node-standalone:${{ github.ref_name }}
+        docker build -f ./docker/reflector-node/Dockerfile -t reflector-node .
 
-        docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core:latest .
-        docker tag reflector-node-stellar-core:latest reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
-        docker push reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
+        docker tag reflector-node reflectornet/reflector-node:${{ github.ref_name }}
+        docker push reflectornet/reflector-node:${{ github.ref_name }}
+
+        if [ "${{ env.LATEST_PUSH }}" = "true" ]; then
+          # Push latest only if LATEST_PUSH is true
+          docker tag reflector-node reflectornet/reflector-node:latest
+          docker push reflectornet/reflector-node:latest
+        fi
 
     - name: Archive dist directory into tar.gz
       run: |

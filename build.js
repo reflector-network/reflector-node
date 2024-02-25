@@ -9,7 +9,7 @@ const distAppDir = path.resolve(distDir, 'app')
 const foldersToIgnore = ['tests', 'home']
 
 if (fs.existsSync(distDir)) {
-    fs.rmdirSync(distDir, {recursive: true})
+    fs.rmSync(distDir, {recursive: true})
 }
 
 fs.mkdirSync(distDir, {recursive: true})

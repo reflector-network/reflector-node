@@ -1,15 +1,15 @@
 const {exec} = require('child_process')
-const {TransactionBuilder, Operation} = require('soroban-client')
-const Asset = require('../models/assets/asset')
-const {getMajority} = require('../utils/majority-helper')
+const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
+const Client = require('@reflector/oracle-client')
+const {getMajority} = require('@reflector/reflector-shared')
 const constants = require('./constants')
 
-const pathToContractProject = '../../reflector-contract/price-oracle'
+const pathToContractProject = '../../reflector-contract'
 const pathToContractWasm = '../../reflector-contract/target/wasm32-unknown-unknown/release/reflector_oracle.wasm'
 
-async function runCommand(command) {
+async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
+        exec(command, args, (error, stdout, stderr) => {
             if (error) {
                 console.error(`exec error: ${error}`)
                 reject(error)
@@ -26,9 +26,7 @@ async function runCommand(command) {
 }
 
 async function buildContract() {
-    const {baseAsset, decimals, timeframe} = constants
-    const {code} = new Asset(baseAsset.type, baseAsset.code, constants.network)
-    const command = `cd "${pathToContractProject}" && build-wasm.sh --base_asset_type 0 --base ${code} --decimals ${decimals} --resolution ${timeframe}`
+    const command = `cd "${pathToContractProject}" && cargo build --release --target wasm32-unknown-unknown`
     await runCommand(command)
 
     const optimizeCommand = `soroban contract optimize --wasm "${pathToContractWasm}" --wasm-out "${pathToContractWasm}"`
@@ -41,33 +39,87 @@ async function deployContract(admin) {
     return await runCommand(command)
 }
 
-
-function generateSingleConfig(admin, oracleId, nodes, wsStartPort, hasConnectionUrls, dbPass = null) {
+function generateAppConfig(secret, dataSources) {
     return {
-        contractSettings: {
-            admin,
-            oracleId,
-            baseAsset: constants.baseAsset,
-            decimals: constants.decimals,
-            horizon: constants.rpcUrl,
-            network: constants.network,
-            nodes,
-            assets: constants.assets.slice(0, 2),
-            timeframe: constants.timeframe,
-            period: constants.period,
-            fee: constants.fee,
-            pendingUpdate: null
-        },
-        nodes: nodes.reduce((addresses, pubkey, index) => {
-            addresses.push({
-                pubkey,
-                url: hasConnectionUrls ? `ws://host.docker.internal:${wsStartPort + (index * 100)}` : null
-            })
-            return addresses
-        }, []),
         handshakeTimeout: 0,
-        dbConnectionString: dbPass ? `postgres://stellar:${dbPass}@localhost:5432/core` : null,
-        dbSyncDelay: 15
+        secret,
+        dataSources
+    }
+}
+
+function generateContractConfig(admin, oracleId, dataSource) {
+    const assets = {}
+    switch (dataSource.name) {
+        case 'coinmarketcap':
+            assets.baseAsset = constants.baseGenericAsset
+            assets.assets = constants.genericAssets
+            break
+        case 'pubnet':
+            assets.baseAsset = constants.baseStellarPubnetAsset
+            assets.assets = constants.stellarPubnetAssets
+            break
+        case 'testnet':
+            assets.baseAsset = constants.baseStellarTestnetAsset
+            assets.assets = constants.stellarTestnetAssets
+            break
+        default:
+            throw new Error('Unknown data source')
+    }
+    return {
+        admin,
+        oracleId,
+        baseAsset: assets.baseAsset,
+        decimals: constants.decimals,
+        assets: assets.assets,//.slice(0, 2),
+        timeframe: constants.timeframe,
+        period: constants.period,
+        fee: constants.fee,
+        dataSource: dataSource.name
+    }
+}
+
+function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort, hasConnectionUrls) {
+    const nodeAddresses = {}
+    for (let i = 0; i < nodes.length; i++) {
+        const pubkey = nodes[i]
+        nodeAddresses[pubkey] = {
+            pubkey,
+            url: `ws://localhost:${wsStartPort + (i * 100)}`,
+            domain: `node${i}.com`
+        }
+    }
+
+    return {
+        systemAccount,
+        contracts: contractConfigs,
+        wasmHash,
+        network,
+        minDate,
+        nodes: nodeAddresses
+    }
+}
+
+async function bumpContract(server, keypair, oracleId) {
+
+    const t = true
+    let bump = 5_000_000
+    while (t) {
+        try {
+            const accountInfo = await server.getAccount(keypair.publicKey())
+            const client = new Client(constants.network, constants.rpcUrl, oracleId)
+            const bumpTx = await client.bump(accountInfo, bump, {fee: 10000000})
+
+            const res = await client.submitTransaction(bumpTx, [keypair.signDecorated(bumpTx.hash())])
+            if (res.status !== 'SUCCESS')
+                throw new Error(`Bump failed with status ${res.status}`)
+            console.log(`Bumped to ${bump} ledgers.`)
+            return
+        } catch (e) {
+            console.log(e)
+            bump /= 2
+            if (bump < 100_000)
+                throw e
+        }
     }
 }
 
@@ -146,6 +198,9 @@ module.exports = {
     deployContract,
     createAccount,
     runCommand,
-    generateSingleConfig,
-    updateAdminToMultiSigAccount
+    generateAppConfig,
+    generateConfig,
+    generateContractConfig,
+    updateAdminToMultiSigAccount,
+    bumpContract
 }

@@ -1,42 +1,73 @@
 const fs = require('fs')
 const path = require('path')
 const pino = require('pino')
+const rfs = require('rotating-file-stream')
+const container = require('./domain/container')
 
 const isDev = process.env.NODE_ENV === 'development'
-const minLevel = isDev ? 'trace' : 'info'
-const folder = './home/logs/'
+const traceLevel = 'trace'
+const infoLevel = 'info'
+const defaultLevel = isDev ? traceLevel : infoLevel
+const folder = `${container.homeDir}/logs/`
 
-const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024 //10MB
-const LOG_RETENTION_DAYS = 7
+const MAX_LOG_FILE_SIZE = '2M'
+const LOG_RETENTION_DAYS = '7d'
 
-function stringifyWithCircularReferences(obj) {
-    const cache = new Set()
-    return JSON.stringify(obj, (key, value) => {
-        if (typeof value === 'object' && value !== null) {
-            if (cache.has(value)) {
-                return
-            }
-            cache.add(value)
+const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
+
+const circularRefTag = 'circular-ref-tag'
+
+//replace absolute paths in stack trace with relative paths
+const cleanup = data => {
+    if (data && typeof data === 'object') {
+        data[circularRefTag] = true
+        const keys = Object.getOwnPropertyNames(data)
+        for (const key of keys) {
+            const value = data[key]
+            if (key === circularRefTag || (value && typeof value === 'object' && value[circularRefTag]))
+                continue
+            data[key] = cleanup(data[key])
         }
-        return value
-    })
+        delete data[circularRefTag]
+        return data
+    } else if (Array.isArray(data)) {
+        for (let i = 0; i < data.length; i++) {
+            data[i] = cleanup(data[i])
+        }
+        return data
+    } else if (typeof data !== 'string') {
+        return data
+    }
+    return data
+        .replaceAll(basePath, './')
+        .replaceAll(/(\d+)\.(\d+)\.(\d+)\.(\d+)/g, '$1.***.***.$4')
+        .replaceAll('\\', '/')
+}
+
+const errorSerializer = err => {
+    if (err) {
+        err = cleanup(err)
+    }
+    return pino.stdSerializers.err(err)
+}
+
+const msgSerializer = msg => {
+    if (msg) {
+        msg = cleanup(msg)
+    }
+    return typeof msg === 'string' ? msg : {msg}
 }
 
 const baseLogOptions = {
-    level: minLevel,
+    level: defaultLevel,
     timestamp: () => `,"time":"${new Date().toISOString()}"`,
+    serializers: {err: errorSerializer, msg: msgSerializer},
     formatters: {
         level(label) {
             return {level: label}
         },
         bindings() {
             return {}
-        },
-        log(object) {
-            if (object.stack) {
-                return {msg: `${object.message} ${stringifyWithCircularReferences(object)}\n${object.stack}`}
-            }
-            return object
         }
     }
 }
@@ -45,59 +76,40 @@ if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder, {recursive: true})
 }
 
-const errorFilePath = `${folder}/error.log`
-const combinedFilePath = `${folder}/combined.log`
+//configure rotating-file-stream
+const rfsOptions = {
+    size: MAX_LOG_FILE_SIZE,
+    interval: LOG_RETENTION_DAYS,
+    path: folder,
+    maxFiles: 100
+}
 
-const errorLogStream = pino.destination({dest: errorFilePath, level: 'error'})
-const combinedLogStream = pino.destination({dest: combinedFilePath, level: minLevel})
+const errorLogStream = rfs.createStream('error.log', rfsOptions)
+const combinedLogStream = rfs.createStream('combined.log', rfsOptions)
+
 
 const streams = [
     {stream: errorLogStream, level: 'error'},
-    {stream: combinedLogStream, level: minLevel}
+    {stream: combinedLogStream, level: defaultLevel}
 ]
 
 if (isDev) {
     streams.push({
         stream: process.stdout,
-        level: minLevel
+        level: defaultLevel
     })
 }
 
 const logger = pino(baseLogOptions, pino.multistream(streams))
 
-function rotateLogs(filePath) {
-    if (fs.existsSync(filePath) && fs.statSync(filePath).size > MAX_LOG_FILE_SIZE) {
-        const timestamp = new Date().toISOString().replace(/[:\-T.Z]/g, "")
-        fs.renameSync(filePath, `${filePath}.${timestamp}`)
+logger.setTrace = (isTraceEnabled) => {
+    if (isTraceEnabled) {
+        logger.level = traceLevel
+    } else {
+        logger.level = infoLevel
     }
 }
 
-function cleanOldLogs(folderPath) {
-    const files = fs.readdirSync(folderPath)
-    const now = Date.now()
-    const sevenDaysTime = LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
-
-    for (const file of files) {
-        const filePath = path.join(folderPath, file)
-        const fileStat = fs.statSync(filePath)
-
-        if (now - fileStat.mtimeMs > sevenDaysTime) {
-            fs.unlinkSync(filePath)
-        }
-    }
-}
-
-function manageLogs() {
-    try {
-        rotateLogs(errorFilePath)
-        rotateLogs(combinedFilePath)
-        cleanOldLogs(folder)
-    } catch (e) {
-        logger.error(e)
-    }
-    setTimeout(manageLogs, 5 * 60 * 1000)
-}
-
-manageLogs()
+logger.isTraceEnabled = () => logger.level === traceLevel
 
 module.exports = logger

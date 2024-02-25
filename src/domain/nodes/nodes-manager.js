@@ -1,100 +1,34 @@
 const ChannelTypes = require('../../ws-server/channels/channel-types')
 const logger = require('../../logger')
-const WsServer = require('../../ws-server')
+const OutgoingChannel = require('../../ws-server/channels/outgoing-channel')
 const container = require('../container')
-const SettingsManager = require('../settings-manager')
 const Node = require('./node')
 
 /**
- * @typedef {import('../ws-server/channels/incoming-websocket-channel')} IncomingWebSocketChannel
- * @typedef {import('soroban-client').Keypair} Keypair
- * @typedef {import('../../models/config')} Config
+ * @typedef {import('../../ws-server/channels/incoming-channel')} IncomingChannel
+ * @typedef {import('@reflector/reflector-shared').Node} ConfigNode
  */
 
 class NodesManager {
-
-    constructor() {
-        this.__connectionHandler = this.__onConnection.bind(this)
-        this.__nodesUpdateHandler = this.__updateNodes.bind(this)
-    }
-
     /**
-     * @type {{[pubkey: string]: Node}}
+     * @type {Map<String, Node>}
      * @private
      */
-    __nodes = null
-
-    /**
-     * @type {{pubkey: string, url: string, confirmedUrl: boolean}[]}}
-     */
-    __pendingNodeUrls = null
-
-    start() {
-        if (this.isRunning)
-            return
-        const {settingsManager, webSocketServer} = container
-        this.pubkey = settingsManager.config.publicKey
-        this.__pendingNodeUrls = []
-        this.__nodes = {}
-        webSocketServer.on(WsServer.EVENTS.CONNECTION, this.__connectionHandler)
-        settingsManager.on(SettingsManager.EVENTS.NODES_UPDATED, this.__nodesUpdateHandler)
-        this.isRunning = true
-        this.__updateNodes()
-        this.__processPendingNodes()
-    }
-
-    __updateNodes() {
-        const {settingsManager} = container
-        const confirmedNodes = []
-        for (const node of settingsManager.nodeAddresses) {
-            if (settingsManager.contractSettings.nodes.includes(node.pubkey))
-                confirmedNodes.push(node)
-        }
-        for (const node of Object.values(this.__nodes)) { //close nodes that were removed
-            if (!confirmedNodes.find(x => x.pubkey === node.pubkey)) {
-                node.close()
-                delete this.__nodes[node.pubkey]
-            }
-        }
-        //try to connect to new nodes/addresses
-        this.addNodes(confirmedNodes, true)
-    }
-
-
-    /**
-     * Add nodes to the manager
-     * @param {{pubkey: string, url: string}[]} nodes - array of nodes
-     * @param {boolean} createIfNotExists - create the node if not exists
-     */
-    addNodes(nodes, createIfNotExists = false) {
-        //ignore current node
-        for (const {pubkey, url} of nodes.filter(x => x.pubkey !== this.pubkey)) {
-            let node = this.__nodes[pubkey]
-            if (!node) {
-                if (!createIfNotExists)
-                    continue
-                this.__nodes[pubkey] = node = new Node(pubkey)
-            }
-            if (url && node.url !== url)
-                this.__pendingNodeUrls.push({pubkey, url, confirmedUrl: createIfNotExists})
-        }
-    }
+    __nodes = new Map()
 
     getConnectedNodes() {
-        if (!this.isRunning)
-            return []
-        return Object.values(this.__nodes).filter(n => n.isReady(ChannelTypes.OUTGOING)).map(n => n.pubkey)
+        return [...this.__nodes.values()].filter(n => n.isReady(ChannelTypes.OUTGOING)).map(n => n.pubkey)
     }
 
     async broadcast(message) {
         const broadcasted = []
-        for (const node of Object.values(this.__nodes))
+        for (const node of this.__nodes.values())
             broadcasted.push(this.sendTo(node.pubkey, message))
         await Promise.allSettled(broadcasted)
     }
 
     async sendTo(pubkey, message) {
-        const node = this.__nodes[pubkey]
+        const node = this.__nodes.get(pubkey)
         if (!node)
             return
         try {
@@ -108,10 +42,10 @@ class NodesManager {
 
     /**
      * Add new connection
-     * @param {IncomingWebSocketChannel} connection - new connection
+     * @param {IncomingChannel} connection - new connection
      */
-    __onConnection(connection) {
-        const node = this.__nodes[connection.pubkey]
+    addConnection(connection) {
+        const node = this.__nodes.get(connection.pubkey)
         if (!node) {
             connection.close(1001, 'Unauthorized')
             return
@@ -119,54 +53,32 @@ class NodesManager {
         node.assignIncommingWebSocket(connection)
     }
 
-    async __processPendingNodes() {
-        if (!this.isRunning)
-            return
-        while (this.__pendingNodeUrls.length > 0) {
-            const {pubkey, url, confirmedUrl} = this.__pendingNodeUrls.shift()
-            await this.__addNode(pubkey, url, confirmedUrl)
-        }
-        //Sleep for a while before the next iteration
-        this.__pendingNodesTimeout = setTimeout(() => this.__processPendingNodes(), 5000)
-    }
-
-    async __addNode(pubkey, url, confirmedUrl = false) {
-        if (pubkey === this.pubkey || !url) //ignore current node and empty urls
-            return
-        const node = this.__nodes[pubkey]
-        if (!node) {
-            return
-        }
-        const maxConnectionAttempts = confirmedUrl ? 0 : 1
-        const isNewUrl = node.url !== url
-        const canConnect = !node.isReady(ChannelTypes.OUTGOING) || confirmedUrl
-        if (isNewUrl && canConnect) {
-            const connection = container.webSocketServer.getNewConnection(url, pubkey)
-            try {
-                await connection.connect(maxConnectionAttempts)
-            } catch (err) {
-                if (!confirmedUrl) {
-                    connection.close(1000, err.message, true)
-                    return
-                }
-                logger.debug(err)
+    /**
+     * @param {Map<string, ConfigNode>}} nodes - nodes from settings
+     */
+    setNodes(configNodes) {
+        const allNodePubkeys = new Set([...configNodes.keys(), ...this.__nodes.keys()])
+        for (const pubkey of allNodePubkeys) {
+            if (pubkey === container.settingsManager.appConfig.publicKey) //skip self
+                continue
+            const settingsNode = configNodes.get(pubkey)
+            const currentNode = this.__nodes.get(pubkey)
+            if (!settingsNode) {
+                const node = this.__nodes.get(pubkey)
+                node.close()
+                this.__nodes.delete(pubkey)
+                continue
             }
-            node.assignOutgoingWebSocket(connection)
+            if (!currentNode) {
+                const node = new Node(pubkey)
+                this.__nodes.set(pubkey, node)
+            }
+            if (settingsNode.url === currentNode?.url)
+                continue
+            const node = this.__nodes.get(pubkey)
+            node.assignOutgoingWebSocket(settingsNode.url ? new OutgoingChannel(pubkey, settingsNode.url) : null)
         }
-    }
-
-    stop() {
-        if (!this.isRunning)
-            return
-        this.isRunning = false
-        container.webSocketServer.off(WsServer.EVENTS.CONNECTION, this.__connectionHandler)
-        container.settingsManager.off(SettingsManager.EVENTS.NODES_UPDATED, this.__nodesUpdateHandler)
-        for (const node of Object.values(this.__nodes))
-            node.close()
-        this.__nodes = null
-        this.__pendingNodeUrls = null
-        this.__pendingNodesTimeout && clearTimeout(this.__pendingNodesTimeout)
     }
 }
 
-module.exports = NodesManager
+module.exports = new NodesManager()
