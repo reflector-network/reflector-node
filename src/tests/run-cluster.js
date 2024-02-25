@@ -10,10 +10,6 @@ function getNodeFolderName(nodeNumber) {
     return path.join(configsPath, `node${nodeNumber}`)
 }
 
-function getStellarFolderName(nodeNumber) {
-    return path.join(getNodeFolderName(nodeNumber), 'stellar')
-}
-
 function getReflectorHomeFolderName(nodeNumber) {
     return path.join(getNodeFolderName(nodeNumber), 'reflector-home')
 }
@@ -94,16 +90,12 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
-        const appConfig = generateAppConfig(nodeConfig.keypair.secret(),  constants.getDataSources(nodeConfig.stellarCore))
+        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources())
         const nodeHomeFolder = getReflectorHomeFolderName(i)
         fs.mkdirSync(nodeHomeFolder, {recursive: true})
         fs.writeFileSync(path.join(nodeHomeFolder, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
         if (nodeConfig.isInitNode) {
             fs.copyFileSync(configPath, path.join(nodeHomeFolder, '.config.json'))
-        }
-        if (nodeConfig.stellarCore) {
-            const stellarData = getStellarFolderName(i)
-            fs.mkdirSync(stellarData, {recursive: true})
         }
     }
 }
@@ -112,18 +104,11 @@ async function startNodes(nodesCount) {
     for (let i = 0; i < nodesCount; i++) {
         console.log(`Starting node ${i}`)
         const nodeHomeFolder = path.resolve(getReflectorHomeFolderName(i))
-        const stellarFolderName = path.resolve(getStellarFolderName(i))
         const nodeName = `node${i}`
         const port = 30347 + (i * 100)
-        const wsPort = 30348 + (i * 100)
         //closeEndRemoveIfExist(nodeName)
 
-        let startCommand = null
-        if (fs.existsSync(stellarFolderName)) {
-            const horizonPort = 8100 + (i * 100)
-            startCommand = `docker run -d -p ${horizonPort}:8000 -p ${port}:30347 -p ${wsPort}:30348 -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" -v "${stellarFolderName}:/opt/stellar" --restart=unless-stopped --name=${nodeName} reflector-node-stellar-core-dev --testnet --enable-soroban-rpc`
-        } else
-            startCommand = `docker run -d -p ${port}:30347 -p ${wsPort}:30348 -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-standalone-dev`
+        const startCommand = `docker run -d -p ${port}:30347 -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
 
         console.log(startCommand)
         await runCommand(startCommand)
@@ -131,7 +116,7 @@ async function startNodes(nodesCount) {
 }
 
 /**
- * @param {{isInitNode: boolean, stellarCore: boolean}[]} nodes
+ * @param {{isInitNode: boolean}[]} nodes
  * @param {{dataSource: any}[]} contractConfigs
  */
 async function run(nodes, contractConfigs) {
@@ -142,12 +127,9 @@ async function run(nodes, contractConfigs) {
 }
 
 const nodeConfigs = [
-    {isInitNode: true, stellarCore: false},
-    {isInitNode: false, stellarCore: false}
-    //{ isInitNode: false, stellarCore: true },
-    //{ isInitNode: false, stellarCore: false },
-    //{ isInitNode: false, stellarCore: true },
-    //{ isInitNode: false, stellarCore: true }
+    {isInitNode: true},
+    {isInitNode: true},
+    {isInitNode: false}
 ]
 
 const contractConfigs = [

@@ -10,7 +10,6 @@ const connectionManager = require('./data-sources-manager')
 const appConfigPath = `${container.homeDir}/app.config.json`
 const oracleConfigPath = `${container.homeDir}/.config.json`
 const oraclePendingConfigPath = `${container.homeDir}/.pending.config.json`
-const dockerDbPasswordPath = `${container.homeDir}/.dockerDbPassword`
 
 /**
  * @typedef {import('@reflector/reflector-shared').Node} Node
@@ -27,13 +26,6 @@ function __getContractConfig(config, oracleId) {
     if (!contractConfig)
         throw new ValidationError('Contract not found')
     return contractConfig
-}
-
-function __getDockerDbPassword() {
-    if (!fs.existsSync(dockerDbPasswordPath)) {
-        return null
-    }
-    return fs.readFileSync(dockerDbPasswordPath).toString().trim()
 }
 
 class SettingsManager {
@@ -57,7 +49,6 @@ class SettingsManager {
         if (!fs.existsSync(appConfigPath))
             throw new Error('Config file not found')
         const rawAppConfig = JSON.parse(fs.readFileSync(appConfigPath).toString().trim())
-        rawAppConfig.dockerDbPassword = __getDockerDbPassword()
         this.appConfig = new AppConfig(rawAppConfig)
         if (!this.appConfig.isValid) {
             //shutdown the app if app config is invalid

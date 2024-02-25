@@ -19,7 +19,6 @@ class AppConfig extends IssuesContainer {
         this.__assignOrchestratorUrl(config.orchestratorUrl)
         this.__assignDbSyncDelay(config.dbSyncDelay)
         this.__assignPort(config.port)
-        this.dockerDbPassword = config.dockerDbPassword
     }
 
     /**
@@ -41,11 +40,6 @@ class AppConfig extends IssuesContainer {
      * @type {Map<string, DataSource>}
      */
     dataSources = new Map()
-
-    /**
-     * @type {string}
-     */
-    dockerDbPassword
 
     /**
      * @type {number}

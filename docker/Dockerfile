@@ -7,15 +7,14 @@ RUN apk add --no-cache curl jq bash supervisor util-linux \
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV API_PORT=30347
-ENV WS_PORT=30348
+ENV WS_PORT=30347
 
 # Copy startnode script and make it executable
-COPY /docker/reflector-node-standalone/startnode /startnode
+COPY /docker/startnode /startnode
 RUN chmod +x /startnode
 
 # Set up supervisor configurations
-COPY /docker/reflector-node-standalone/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY /docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Set working directory
 WORKDIR /reflector-node
@@ -25,6 +24,5 @@ COPY dist/ .
 
 # Expose necessary ports
 EXPOSE 30347
-EXPOSE 30348
 
 ENTRYPOINT ["/startnode"]

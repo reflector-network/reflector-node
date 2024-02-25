@@ -39,13 +39,11 @@ async function deployContract(admin) {
     return await runCommand(command)
 }
 
-function generateAppConfig(secret, dataSources, dbPass = null) {
+function generateAppConfig(secret, dataSources) {
     return {
         handshakeTimeout: 0,
         secret,
-        dataSources,
-        dbSyncDelay: 15,
-        dockerDbPassword: dbPass
+        dataSources
     }
 }
 

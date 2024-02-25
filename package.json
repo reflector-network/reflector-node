@@ -5,11 +5,11 @@
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
   "scripts": {
-    "start": "cd ./src && cross-env NODE_ENV=development nodemon ./index.js",
+    "start": "cd ./src && node ./index.js",
+    "run-dev": "cd ./src && cross-env NODE_ENV=development nodemon ./index.js",
     "run-docker-cluster": "cd ./src && node ./tests/run-cluster.js",
     "build": "node ./build.js",
-    "build-docker-stellar-core-image": "docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core-dev .",
-    "build-docker-stanalone-image": "docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone-dev .",
+    "build-docker-stanalone-image": "docker build -f ./docker/Dockerfile -t reflector-node-dev .",
     "test": "jest"
   },
   "author": "team@stellar.expert",

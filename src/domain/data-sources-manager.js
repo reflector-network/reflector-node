@@ -35,10 +35,7 @@ function __registerConnection(dataSource, dockerDbPassword) {
             {
                 const networkPassphrase = networks[name] || name
                 const dbConnector = createDbConnection({
-                    connectionString:
-                        source === 'docker'
-                            ? `postgres://stellar:${encodeURIComponent(dockerDbPassword)}@localhost:5432/core`
-                            : source
+                    connectionString: source
                 })
                 __connections.set(name, {networkPassphrase, dbConnector, horizonUrl, type})
             }

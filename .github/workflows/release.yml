@@ -40,23 +40,15 @@ jobs:
       run: |
         docker login -u reflectornet --password-stdin <<< ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-        docker build -f ./docker/reflector-node-standalone/Dockerfile -t reflector-node-standalone .
+        docker build -f ./docker/reflector-node/Dockerfile -t reflector-node .
 
-        docker tag reflector-node-standalone reflectornet/reflector-node-standalone:${{ github.ref_name }}
-        docker push reflectornet/reflector-node-standalone:${{ github.ref_name }}
-
-        docker build -f ./docker/reflector-node-stellar-core/Dockerfile -t reflector-node-stellar-core .
-        
-        docker tag reflector-node-stellar-core reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
-        docker push reflectornet/reflector-node-stellar-core:${{ github.ref_name }}
+        docker tag reflector-node reflectornet/reflector-node:${{ github.ref_name }}
+        docker push reflectornet/reflector-node:${{ github.ref_name }}
 
         if [ "${{ env.LATEST_PUSH }}" = "true" ]; then
           # Push latest only if LATEST_PUSH is true
-          docker tag reflector-node-standalone reflectornet/reflector-node-standalone:latest
-          docker push reflectornet/reflector-node-standalone:latest
-
-          docker tag reflector-node-stellar-core reflectornet/reflector-node-stellar-core:latest
-          docker push reflectornet/reflector-node-stellar-core:latest
+          docker tag reflector-node reflectornet/reflector-node:latest
+          docker push reflectornet/reflector-node:latest
         fi
 
     - name: Archive dist directory into tar.gz
