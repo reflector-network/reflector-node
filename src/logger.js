@@ -11,7 +11,7 @@ const defaultLevel = isDev ? traceLevel : infoLevel
 const folder = `${container.homeDir}/logs/`
 
 const MAX_LOG_FILE_SIZE = '2M'
-const LOG_RETENTION_DAYS = '1d'
+const LOG_RETENTION_DAYS = '7d'
 
 const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
 
