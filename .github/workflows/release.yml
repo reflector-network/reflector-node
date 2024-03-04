@@ -40,7 +40,7 @@ jobs:
       run: |
         docker login -u reflectornet --password-stdin <<< ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-        docker build -f ./docker/reflector-node/Dockerfile -t reflector-node .
+        docker build -f ./docker/Dockerfile -t reflector-node .
 
         docker tag reflector-node reflectornet/reflector-node:${{ github.ref_name }}
         docker push reflectornet/reflector-node:${{ github.ref_name }}
