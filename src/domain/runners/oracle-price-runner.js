@@ -81,7 +81,7 @@ class OracleRunner extends RunnerBase {
     }
 
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + this.__timeframe
+        return currentTimestamp + Math.min(1000 * 60, this.__timeframe / 2) //1 minute or half of timeframe (whichever is smaller)
     }
 }
 
