@@ -17,6 +17,61 @@ const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
 
 const circularRefTag = 'circular-ref-tag'
 
+const originalConsoleError = console.error
+const originalConsoleWarn = console.warn
+const originalConsoleInfo = console.info
+const originalConsoleLog = console.log
+const originalConsoleDebug = console.debug
+
+//Override console.error
+console.error = (...args) => {
+    //Log the error using Pino
+    logger.error(...args)
+
+    //Call the original console.error
+    originalConsoleError(...args)
+}
+
+//Override console.warn
+console.warn = (...args) => {
+    //Log the warn using Pino
+    logger.warn(...args)
+
+    //Call the original console.warn
+    if (originalConsoleWarn)
+        originalConsoleWarn(...args)
+}
+
+//Override console.info
+console.info = (...args) => {
+    //Log the info using Pino
+    logger.info(...args)
+
+    //Call the original console.info
+    if (originalConsoleInfo)
+        originalConsoleInfo(...args)
+}
+
+//Override console.log
+console.log = (...args) => {
+    //Log the log using Pino
+    logger.info(...args)
+
+    //Call the original console.log
+    if (originalConsoleLog)
+        originalConsoleLog(...args)
+}
+
+//Override console.debug
+console.debug = (...args) => {
+    //Log the debug using Pino
+    logger.debug(...args)
+
+    //Call the original console.debug
+    if (originalConsoleDebug)
+        originalConsoleDebug(...args)
+}
+
 //replace absolute paths in stack trace with relative paths
 const cleanup = data => {
     if (data && typeof data === 'object') {

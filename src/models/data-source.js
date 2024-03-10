@@ -8,7 +8,7 @@ class DataSource {
         this.__setType(raw.type)
         this.__setName(raw.name)
         this.__setDbConnection(raw.dbConnection)
-        this.__setHorizonUrl(raw.horizonUrl)
+        this.__setHorizonUrls(raw.horizonUrls)
         this.__setSecret(raw.secret)
     }
 
@@ -23,9 +23,9 @@ class DataSource {
     dbConnection = null
 
     /**
-     * @type {string}
+     * @type {string[]}
      */
-    horizonUrl = null
+    horizonUrls = null
 
     /**
      * @type {string}
@@ -62,8 +62,10 @@ class DataSource {
         this.name = name
     }
 
-    __setHorizonUrl(horizonUrl) {
-        this.horizonUrl = horizonUrl
+    __setHorizonUrls(horizonUrls) {
+        if (this.type === DataSourceTypes.DB && (!Array.isArray(horizonUrls) || horizonUrls.length === 0))
+            throw new Error('DataSource horizonUrls is undefined or empty. It is required for DB data sources.')
+        this.horizonUrls = horizonUrls
     }
 
     __setSecret(secret) {

@@ -16,7 +16,7 @@
     },
     "pubnet": {
       "dbConnection": "postgres://stellar:@187.241.174.205:5432/stellar-core",
-      "horizonUrl": "https://soroban-testnet.stellar.org",
+      "horizonUrls": ["https://soroban-testnet.stellar.org"],
       "type": "db",
       "name": "testnet"
     }

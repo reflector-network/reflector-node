@@ -20,7 +20,7 @@ class ClusteUpdatesRunner extends RunnerBase {
         if (pendingConfig.timestamp > Date.now())
             return pendingConfig.timestamp - Date.now()
 
-        const {horizonUrl, blockchainConnector, networkPassphrase} = this.__getBlockchainConnectorSettings()
+        const {horizonUrls, blockchainConnector, networkPassphrase} = this.__getBlockchainConnectorSettings()
         const accountInfo = await retrieveAccountProps(blockchainConnector, config.systemAccount)
         const account = this.__getAccount(config.systemAccount, accountInfo.sequence)
 
@@ -29,7 +29,7 @@ class ClusteUpdatesRunner extends RunnerBase {
                 timestamp: pendingConfig.timestamp,
                 account,
                 network: networkPassphrase,
-                horizonUrl,
+                horizonUrls,
                 newConfig: pendingConfig.config,
                 currentConfig: config
             })

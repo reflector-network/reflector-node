@@ -40,13 +40,13 @@ const sources = {
     },
     pubnet: {
         dbConnection: 'postgres://stellar:pass@127.0.0.1:5432/stellar-pubnet-core',
-        horizonUrl: 'https://soroban-testnet.stellar.org',
+        horizonUrls: ['https://soroban-testnet.stellar.org'],
         type: 'db',
         name: 'pubnet'
     },
     testnet: {
         dbConnection: 'postgres://stellar:pass@127.0.0.1:5432/stellar-testnet-core',
-        horizonUrl: 'https://soroban-testnet.stellar.org',
+        horizonUrls: ['https://bad.rpc.org', 'https://soroban-testnet.stellar.org'],
         type: 'db',
         name: 'testnet'
     }

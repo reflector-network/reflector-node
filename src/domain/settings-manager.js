@@ -140,10 +140,6 @@ class SettingsManager {
         return this.config.network
     }
 
-    get horizonUrl() {
-        return this.appConfig.networkHorizonUrl
-    }
-
     /**
      * @param {string} oracleId - oracle id
      * @returns {ContractConfig}

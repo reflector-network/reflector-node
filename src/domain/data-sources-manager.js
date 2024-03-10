@@ -18,18 +18,17 @@ const networks = {
 }
 
 /**
- * @type {Map<string, { networkPassphrase: string, horizonUrl: [string], dbConnector: [DbConnector], type: string, secret: [string] }>}
+ * @type {Map<string, { networkPassphrase: string, horizonUrls: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }>}
  */
 const __connections = new Map()
 
 /**
  * @param {DataSource} dataSource - data source
- * @param {string} dockerDbPassword - docker db password
  */
-function __registerConnection(dataSource, dockerDbPassword) {
+function __registerConnection(dataSource) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
-    const {name, dbConnection: source, horizonUrl, secret, type} = dataSource
+    const {name, dbConnection: source, horizonUrls, secret, type} = dataSource
     switch (type) {
         case DataSourceTypes.DB:
             {
@@ -37,7 +36,7 @@ function __registerConnection(dataSource, dockerDbPassword) {
                 const dbConnector = createDbConnection({
                     connectionString: source
                 })
-                __connections.set(name, {networkPassphrase, dbConnector, horizonUrl, type})
+                __connections.set(name, {networkPassphrase, dbConnector, horizonUrls, type})
             }
             break
         case DataSourceTypes.API:
@@ -80,7 +79,7 @@ class DataSourcesManager extends IssuesContainer {
 
     /**
      * @param {string} name - source name
-     * @returns {{ networkPassphrase: string, horizonUrl: [string], dbConnector: [DbConnector], type: string, secret: [string] }}
+     * @returns {{ networkPassphrase: string, horizonUrls: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }}
      */
     get(name) {
         if (!name)
