@@ -18,7 +18,7 @@ class WsServer {
             .addListener('close', () => this.__onServerClose())
             .addListener('error', (err) => this.__onServerError(err))
 
-        this.orchestratorConnection = new OrchestratorChannel(orchestratorUrl || 'https://orchestrator.reflector.world')
+        this.orchestratorConnection = new OrchestratorChannel(orchestratorUrl || 'https://orchestrator.reflector.network')
     }
 
     /**

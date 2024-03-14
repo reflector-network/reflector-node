@@ -1,6 +1,6 @@
 # @reflector/reflector-node
 
-> Node server for Reflector, decentralized Stellar price feed oracle
+> Node server for [Reflector](https://reflector.network), decentralized Stellar price feed oracle
 
 Check [architecture and general concepts overview](docs/how-it-works.md) to learn what's inside and how it works.
 
@@ -26,20 +26,14 @@ Create `app.config.json` file in the `home` directory.
 {
   "secret": "S...G", //secret key of the node
   "dataSources": { //data sources for price data
-    "coinmarketcap": {
-      "type": "api",
-      "secret": "COINMARKETCAP_API_KEY",
-      "name": "coinmarketcap"
-    },
     "pubnet": {
-      "dbConnection": "postgres://stellar:@187.241.174.205:5432/stellar-core",
+      "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
       "horizonUrls": ["https://soroban-testnet.stellar.org"],
       "type": "db",
       "name": "testnet"
     }
   },
-  "dbSyncDelay": 15, //delay in seconds for database synchronization. Optional, default is 15
-  "orchestratorUrl": "http://182.168.11.137:12274" //orchestrator URL. Optional, default is "https://orchestrator.reflector.world"
+  "dbSyncDelay": 15 //delay in seconds for database synchronization. Optional, default is 15
 }
 ```
 
@@ -99,5 +93,5 @@ password for the PostgreSQL database.
 
 ## Admin Dashboard
 
-[Admin Dashboard](https://node-admin.reflector.world) is a GUI that simplifies common administrative tasks, monitoring, and management of Reflector nodes.
+[Admin Dashboard](https://node-admin.reflector.network) is a GUI that simplifies common administrative tasks, monitoring, and management of Reflector nodes.
 Check [admin guide](docs/admin/guide/index.md) for a short 101 course on node administration.
