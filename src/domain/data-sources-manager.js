@@ -18,7 +18,7 @@ const networks = {
 }
 
 /**
- * @type {Map<string, { networkPassphrase: string, horizonUrls: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }>}
+ * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }>}
  */
 const __connections = new Map()
 
@@ -28,7 +28,7 @@ const __connections = new Map()
 function __registerConnection(dataSource) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
-    const {name, dbConnection: source, horizonUrls, secret, type} = dataSource
+    const {name, dbConnection: source, sorobanRpc, secret, type} = dataSource
     switch (type) {
         case DataSourceTypes.DB:
             {
@@ -36,7 +36,7 @@ function __registerConnection(dataSource) {
                 const dbConnector = createDbConnection({
                     connectionString: source
                 })
-                __connections.set(name, {networkPassphrase, dbConnector, horizonUrls, type})
+                __connections.set(name, {networkPassphrase, dbConnector, sorobanRpc, type})
             }
             break
         case DataSourceTypes.API:
@@ -79,7 +79,7 @@ class DataSourcesManager extends IssuesContainer {
 
     /**
      * @param {string} name - source name
-     * @returns {{ networkPassphrase: string, horizonUrls: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }}
+     * @returns {{ networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }}
      */
     get(name) {
         if (!name)

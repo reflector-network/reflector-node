@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
@@ -24,10 +24,10 @@
     "jest": "^29.5.0"
   },
   "dependencies": {
-    "@reflector/oracle-client": "github:reflector-network/oracle-client#v3.2.2",
+    "@reflector/oracle-client": "github:reflector-network/oracle-client#v3.3.0",
     "@reflector/reflector-coinmarketcap-connector": "github:reflector-network/reflector-coinmarketcap-connector#v0.1.0",
     "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v1.3.0",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v1.2.1",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v1.3.0",
     "@stellar/stellar-sdk": "11.2.2",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",

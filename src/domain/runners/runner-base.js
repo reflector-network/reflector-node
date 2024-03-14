@@ -212,11 +212,11 @@ class RunnerBase {
         }
         try {
             this.__clearPendingTransaction() //clear pending transaction to avoid duplicate submission
-            const {networkPassphrase, horizonUrls} = this.__getBlockchainConnectorSettings()
-            await this.__submitTransaction(networkPassphrase, horizonUrls, tx, tx.getMajoritySignatures(currentNodesLength), this.oracleId)
+            const {networkPassphrase, sorobanRpc} = this.__getBlockchainConnectorSettings()
+            await this.__submitTransaction(networkPassphrase, sorobanRpc, tx, tx.getMajoritySignatures(currentNodesLength), this.oracleId)
             if (this.oracleId)
                 statisticsManager.incSubmittedTransactions(this.oracleId)
-            if (!this.oracleId)
+            else
                 settingsManager.applyPendingUpdate()
         } catch (e) {
             logger.error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx: ${tx.transaction.toXDR()}`)
@@ -233,23 +233,23 @@ class RunnerBase {
     __getBlockchainConnectorSettings() {
         const {settingsManager} = container
         const oraclesNetwork = settingsManager.config.network
-        const {networkPassphrase, horizonUrls, dbConnector} = networkConnectionManager.get(oraclesNetwork) || {}
+        const {networkPassphrase, sorobanRpc, dbConnector} = networkConnectionManager.get(oraclesNetwork) || {}
         if (!networkPassphrase)
             throw new Error(`Network passphrase not found: ${oraclesNetwork}`)
-        if (!horizonUrls)
-            throw new Error(`Horizon urls not found: ${oraclesNetwork}`)
+        if (!sorobanRpc)
+            throw new Error(`Soroban rpc urls not found: ${oraclesNetwork}`)
         if (!dbConnector)
             throw new Error(`Blockchain connector not found: ${oraclesNetwork}`)
-        return {networkPassphrase, horizonUrls, blockchainConnector: dbConnector}
+        return {networkPassphrase, sorobanRpc, blockchainConnector: dbConnector}
     }
 
     /**
      * @param {string} network - network
-     * @param {string[]} horizonUrls - horizon urls
+     * @param {string[]} sorobanRpc - soroban rpc urls
      * @param {PendingTransactionBase} pendingTx - transaction
      * @param {DecoratedSignature[]} signatures - signatures
      */
-    async __submitTransaction(network, horizonUrls, pendingTx, signatures) {
+    async __submitTransaction(network, sorobanRpc, pendingTx, signatures) {
         let attempts = 10
         const oracleId = this.oracleId
         function processResponse(response) {
@@ -270,8 +270,8 @@ class RunnerBase {
                 throw new Error('signatures is required')
             if (!network)
                 throw new Error('network is required')
-            if (!horizonUrls)
-                throw new Error('horizonUrls is required')
+            if (!sorobanRpc)
+                throw new Error('sorobanRpc is required')
 
             const txXdr = pendingTx.transaction.toXDR() //Get the raw XDR for the transaction to avoid modifying the transaction object
             const tx = new Transaction(txXdr, network) //Create a new transaction object from the XDR
@@ -279,33 +279,33 @@ class RunnerBase {
 
             const hash = tx.hash().toString('hex')
 
-            const getTransactionFn = async (horizonUrl) => {
-                const server = new SorobanRpc.Server(horizonUrl, {allowHttp: true})
+            const getTransactionFn = async (sorobanRpcUrl) => {
+                const server = new SorobanRpc.Server(sorobanRpcUrl, {allowHttp: true})
                 return await server.getTransaction(hash)
             }
 
-            let response = await makeServerRequest(horizonUrls, getTransactionFn)
+            let response = await makeServerRequest(sorobanRpc, getTransactionFn)
             if (response.status === 'SUCCESS') {
                 response.hash = hash
                 return response
             }
 
-            const sendTransactionFn = async (horizonUrl) => {
-                const server = new SorobanRpc.Server(horizonUrl, {allowHttp: true})
+            const sendTransactionFn = async (sorobanRpcUrl) => {
+                const server = new SorobanRpc.Server(sorobanRpcUrl, {allowHttp: true})
                 return await server.sendTransaction(tx)
             }
 
-            const submitResult = await makeServerRequest(horizonUrls, sendTransactionFn)
+            const submitResult = await makeServerRequest(sorobanRpc, sendTransactionFn)
             if (submitResult.status !== 'PENDING') {
                 await processResponse(response)
                 continue
             }
 
-            response = await makeServerRequest(horizonUrls, getTransactionFn)
+            response = await makeServerRequest(sorobanRpc, getTransactionFn)
             let getResultAttempts = 10
             while ((response.status === 'PENDING' || response.status === 'NOT_FOUND') && getResultAttempts > 0) {
                 await new Promise(resolve => setTimeout(resolve, 500))
-                response = await makeServerRequest(horizonUrls, getTransactionFn)
+                response = await makeServerRequest(sorobanRpc, getTransactionFn)
                 getResultAttempts--
             }
 

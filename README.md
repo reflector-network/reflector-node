@@ -28,7 +28,7 @@ Create `app.config.json` file in the `home` directory.
   "dataSources": { //data sources for price data
     "pubnet": {
       "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
-      "horizonUrls": ["https://soroban-testnet.stellar.org"],
+      "sorobanRpc": ["https://soroban-testnet.stellar.org"],
       "type": "db",
       "name": "testnet"
     }

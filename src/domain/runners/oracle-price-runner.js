@@ -20,7 +20,7 @@ class OracleRunner extends RunnerBase {
         const {baseAsset, decimals, timeframe, dataSource, admin, fee} = contractConfig
 
         //cluster network data
-        const {networkPassphrase: network, horizonUrls, blockchainConnector} = this.__getBlockchainConnectorSettings()
+        const {networkPassphrase: network, sorobanRpc, blockchainConnector} = this.__getBlockchainConnectorSettings()
 
         //get account info
         const {sequence} = await retrieveAccountProps(blockchainConnector, admin)
@@ -35,7 +35,7 @@ class OracleRunner extends RunnerBase {
 
         let tx = null
         if (contractState.uninitialized)
-            tx = await buildInitTransaction({account, network, horizonUrls, config: contractConfig})
+            tx = await buildInitTransaction({account, network, sorobanRpc, config: contractConfig})
         else if (isTimestampValid(timestamp, timeframe) && contractState.lastTimestamp < timestamp) {
             const assets = settingsManager.getAssets(this.oracleId, true)
             const prevPrices = [...contractState.prices, ...Array(assets.length - contractState.prices.length).fill(0n)]
@@ -52,7 +52,7 @@ class OracleRunner extends RunnerBase {
             tx = await buildPriceUpdateTransaction({
                 account,
                 network,
-                horizonUrls,
+                sorobanRpc,
                 admin,
                 prices,
                 timestamp,
