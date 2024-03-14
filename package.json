@@ -1,13 +1,13 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
   "scripts": {
-    "start": "node ./src/index.js",
-    "run-dev": "cross-env NODE_ENV=development nodemon ./src/index.js",
-    "run-docker-cluster": "node ./src/tests/run-cluster.js",
+    "start": "cd ./src && node ./index.js",
+    "run-dev": "cd ./src && cross-env NODE_ENV=development nodemon ./index.js",
+    "run-docker-cluster": "cd ./src && node ./tests/run-cluster.js",
     "build": "node ./build.js",
     "build-docker-stanalone-image": "docker build -f ./docker/Dockerfile -t reflector-node-dev .",
     "test": "jest"
@@ -24,10 +24,10 @@
     "jest": "^29.5.0"
   },
   "dependencies": {
-    "@reflector/oracle-client": "github:reflector-network/oracle-client#v3.2.1",
+    "@reflector/oracle-client": "github:reflector-network/oracle-client#v3.2.2",
     "@reflector/reflector-coinmarketcap-connector": "github:reflector-network/reflector-coinmarketcap-connector#v0.1.0",
     "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v1.3.0",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v1.2.0",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v1.2.1",
     "@stellar/stellar-sdk": "11.2.2",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",

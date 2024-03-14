@@ -258,7 +258,7 @@ class RunnerBase {
                 || error.errorName === 'TRY_AGAIN_LATER'
                 || error.errorName === 'NOT_FOUND') {
                 attempts--
-                logger.debug(`Attempt to submit transaction failed. Oracle id: ${oracleId ? oracleId : 'cluster'}. Status: ${error.status}, code: ${error.code ? error.code : 'N/A'}, hash: ${error.hash ? pendingTx.hashHex : 'N/A'}`)
+                logger.debug(`Attempt to submit transaction failed. Oracle id: ${oracleId ? oracleId : 'cluster'}. Status: ${error.status}, code: ${error.code ? error.code : 'N/A'}, hash: ${error.hash ? error.hash : pendingTx.hashHex}`)
                 return new Promise(resolve => setTimeout(resolve, 2000))
             }
             throw error

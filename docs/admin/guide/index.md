@@ -26,6 +26,7 @@
 }
 ```
 5. If you plan to run a new instance of Stellar Core sever, create a home directory for StellarCore database and server files. And start Stellar Core Docker image. 
+  For operators running Stellar Core validators on the public network it recommended to connect to a validator node instead of starting an additional Docker image.
 ```bash
 docker run -it -d -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v "STELLAR_WORKDIR:/opt/stellar" --name stellar stellar/quickstart:soroban-dev --testnet
 ```
