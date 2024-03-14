@@ -213,7 +213,7 @@ class RunnerBase {
         try {
             this.__clearPendingTransaction() //clear pending transaction to avoid duplicate submission
             const {networkPassphrase, horizonUrls} = this.__getBlockchainConnectorSettings()
-            await this.__submitTransaction(networkPassphrase, horizonUrls, tx, tx.getMajoritySignatures(currentNodesLength))
+            await this.__submitTransaction(networkPassphrase, horizonUrls, tx, tx.getMajoritySignatures(currentNodesLength), this.oracleId)
             if (this.oracleId)
                 statisticsManager.incSubmittedTransactions(this.oracleId)
             if (!this.oracleId)
@@ -251,13 +251,14 @@ class RunnerBase {
      */
     async __submitTransaction(network, horizonUrls, pendingTx, signatures) {
         let attempts = 10
+        const oracleId = this.oracleId
         function processResponse(response) {
             const error = getSubmissionError(response)
             if (error.code === -9 //insufficient fee
                 || error.errorName === 'TRY_AGAIN_LATER'
                 || error.errorName === 'NOT_FOUND') {
                 attempts--
-                logger.debug(`Attempt to submit transaction failed. Status: ${error.status}, code: ${error.code}, hash: ${error.hash}`)
+                logger.debug(`Attempt to submit transaction failed. Oracle id: ${oracleId ? oracleId : 'cluster'}. Status: ${error.status}, code: ${error.code ? error.code : 'N/A'}, hash: ${error.hash ? pendingTx.hashHex : 'N/A'}`)
                 return new Promise(resolve => setTimeout(resolve, 2000))
             }
             throw error
