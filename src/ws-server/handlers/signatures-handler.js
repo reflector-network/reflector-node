@@ -28,9 +28,6 @@ class SignaturesHandler extends BaseHandler {
         const keypair = Keypair.fromPublicKey(ws.pubkey)
         if (keypair.verify(Buffer.from(hash, 'hex'), decoratedSignature.signature())) {
             oracleRunner.addSignature(hash, xdr.DecoratedSignature.fromXDR(signatureBuffer, 'raw'))
-                .catch(err => {
-                    logger.error(err)
-                })
         }
     }
 }

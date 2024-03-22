@@ -1,7 +1,7 @@
 const {exec} = require('child_process')
 const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
 const Client = require('@reflector/oracle-client')
-const {getMajority} = require('@reflector/reflector-shared')
+const {getMajority, normalizeTimestamp} = require('@reflector/reflector-shared')
 const constants = require('./constants')
 
 const pathToContractProject = '../../reflector-contract'
@@ -78,7 +78,7 @@ function generateContractConfig(admin, oracleId, dataSource) {
     }
 }
 
-function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort, hasConnectionUrls) {
+function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort) {
     const nodeAddresses = {}
     for (let i = 0; i < nodes.length; i++) {
         const pubkey = nodes[i]
@@ -106,8 +106,12 @@ async function bumpContract(server, keypair, oracleId) {
     while (t) {
         try {
             const accountInfo = await server.getAccount(keypair.publicKey())
-            const client = new Client(constants.network, constants.rpcUrl, oracleId)
-            const bumpTx = await client.bump(accountInfo, bump, {fee: 10000000})
+            const client = new Client(constants.network, [constants.rpcUrl], oracleId)
+            const bumpTx = await client.bump(accountInfo, bump,
+                {
+                    fee: 10000000,
+                    timebounds: {minTime: 0, maxTime: normalizeTimestamp(Date.now(), 1000) / 1000 + 15}
+                })
 
             const res = await client.submitTransaction(bumpTx, [keypair.signDecorated(bumpTx.hash())])
             if (res.status !== 'SUCCESS')
