@@ -401,7 +401,7 @@ class RunnerBase {
 
             ensureIsNotTimedOut()
             const submitResult = await makeServerRequest(sorobanRpc, sendTransactionFn)
-            if (submitResult.status !== 'PENDING') {
+            if (!['PENDING', 'DUPLICATE'].includes(submitResult.status)) {
                 logger.trace(`Transaction is not pending. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
                 await processResponse(submitResult)
                 continue
