@@ -16,14 +16,10 @@ class OutgoingChannel extends OutgoingChannelBase {
         super.__connect()
     }
 
-    async __onOpen() {
-        //we need to send the handshake request after the connection is established
-        try {
-            await this.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {payload: this.authPayload}})
-            super.__onOpen()
-        } catch (err) {
-            logger.error(err)
-        }
+    __onOpen() {
+        super.__onOpen()
+        this.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {payload: this.authPayload}})
+            .catch(err => logger.error(err))
     }
 }
 

@@ -61,12 +61,11 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
-     * @param {string} dockerDbPassword - docker db password
      */
-    setDataSources(dataSources, dockerDbPassword) {
+    setDataSources(dataSources) {
         for (const source of dataSources) {
             try {
-                __registerConnection(source, dockerDbPassword)
+                __registerConnection(source)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))

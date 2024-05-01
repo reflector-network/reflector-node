@@ -1,5 +1,7 @@
 const {WebSocket} = require('ws')
+const {v4: uuidv4} = require('uuid')
 const container = require('../../domain/container')
+const logger = require('../../logger')
 const ChannelBase = require('./channel-base')
 
 /**
@@ -13,7 +15,7 @@ class OutgoingChannelBase extends ChannelBase {
     constructor(pubkey, url) {
         super(pubkey)
         if (this.constructor === OutgoingChannelBase)
-            throw new Error('OutgoingWebSocketChannelBase is abstract class')
+            throw new Error('OutgoingChannelBase is abstract class')
         if (!url)
             throw new Error('url is required')
         this.url = url
@@ -25,18 +27,20 @@ class OutgoingChannelBase extends ChannelBase {
     }
 
     __connect() {
-        const ws = new WebSocket(this.url, {headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers}})
+        const ws = new WebSocket(this.url,
+            {
+                headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers},
+                handshakeTimeout: container.settingsManager.appConfig.handshakeTimeout
+            })
+        ws.id = uuidv4()
         this.__ws = ws
         this.__assignListeners()
-        this.__ws.connectionTimeout = setTimeout(() => {
-            if (ws.readyState === WebSocket.CONNECTING)
-                ws.close(1001, 'Connection timeout')
-        }, container.settingsManager.appConfig.handshakeTimeout)
     }
 
     close(code, reason, terminate = true) {
         //eslint-disable-next-line no-unused-expressions
-        this.__connectionTimeoutId && clearTimeout(this.__connectionTimeoutId)
+        logger.trace(`Close ${this.__getConnectionInfo()} ${code} ${reason}`)
+        this.__clearTimeouts()
         super.close(code, reason, terminate)
     }
 
@@ -46,18 +50,30 @@ class OutgoingChannelBase extends ChannelBase {
 
     __connectionAttempts = 0
 
-    async __onOpen() {
+    __assignListeners() {
+        return super.__assignListeners()
+            .addListener('open', () => this.__onOpen())
+    }
+
+    __onOpen() {
+        this.__clearTimeouts()
         this.__resetConnectionAttempts()
     }
 
     __onClose(code, reason) {
+        this.__clearTimeouts()
         super.__onClose(code, reason)
         this.__incConnectionAttempts()
-        if (this.__termination)
+        if (this.__termination) {
+            logger.trace(`Termination ${this.__getConnectionInfo()}`)
             return
-        this.__connectionTimeoutId = setTimeout(() => {
+        }
+        const timeout = this.__getTimeout()
+        this.__reconnectionTimeoutId = this.__reconnectionTimeoutId || setTimeout(() => {
+            logger.trace(`Reconnection ${this.__getConnectionInfo()}`)
             this.__connect()
-        }, this.__getTimeout())
+        }, timeout)
+        logger.trace(`Reconnection timeout set ${timeout}. ${this.__getConnectionInfo()}`)
     }
 
     __onError(error) {
@@ -80,11 +96,11 @@ class OutgoingChannelBase extends ChannelBase {
         return timeout
     }
 
-    __assignListeners() {
-        super.__assignListeners()
-        this.__ws
-            .addListener('open', () => this.__onOpen())
-            .addListener('ping', () => this.__ws.pong())
+    __clearTimeouts() {
+        this.__connectionTimeoutId && clearTimeout(this.__connectionTimeoutId)
+        this.__reconnectionTimeoutId && clearTimeout(this.__reconnectionTimeoutId)
+        this.__connectionTimeoutId = null
+        this.__reconnectionTimeoutId = null
     }
 
     type = 'outgoing'

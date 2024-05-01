@@ -3,9 +3,8 @@ const {v4: uuidv4} = require('uuid')
 const logger = require('../../logger')
 const container = require('../../domain/container')
 const MessageTypes = require('../handlers/message-types')
+const {isDebugging} = require('../../utils')
 const ChannelTypes = require('./channel-types')
-
-const isDev = process.env.NODE_ENV === 'development'
 
 class ChannelBase {
 
@@ -64,10 +63,6 @@ class ChannelBase {
         return this.isOpen && this.isValidated
     }
 
-    removeAllListeners() {
-        this.__ws?.removeAllListeners()
-    }
-
     /**
      * @param {any} message - message to send
      * @returns {Promise<any>}
@@ -76,12 +71,13 @@ class ChannelBase {
         return new Promise((resolve, reject) => {
             if (!message.responseId) {
                 message.requestId = uuidv4()
+                const timeout = isDebugging() ? 60 * 1000 * 60 : 5000
                 const responseTimeout = setTimeout(() => {
                     delete this.__requests[message.requestId]
-                    const error = new Error('Request timed out')
+                    const error = new Error(`Request timed out after ${timeout}. Message: ${message.type}. ${this.__getConnectionInfo()}`)
                     error.timeout = true
                     reject(error)
-                }, isDev ? 50000000 : 5000)
+                }, timeout)
                 this.__requests[message.requestId] = {
                     resolve,
                     reject,
@@ -105,36 +101,33 @@ class ChannelBase {
 
     close(code, reason, terminate = true) {
         this.__termination = terminate
-        if (this.__ws) {
-            this.__ws.removeAllListeners()
-            this.__ws.closeTimeout = setTimeout(() => {
-                if (this.__ws.readyState !== WebSocket.CLOSED) {
-                    logger.debug('Server did not close connection in time, forcefully closing')
-                    this.__ws.terminate()
-                }
+        const ws = this.__ws
+        if (ws) {
+            ws.closeTimeout = setTimeout(() => {
+                ws.close(code, reason)
             }, 5000)
-            if (this.__ws.readyState === WebSocket.CONNECTING || this.__ws.readyState === WebSocket.OPEN) {
-                this.__ws.close(code, reason)
+            if (ws.readyState === WebSocket.CONNECTING) {
+                ws.removeAllListeners('open')
+                ws.on('open', () => {
+                    ws.close(code, reason)
+                })
+            } else if (ws.readyState === WebSocket.OPEN) {
+                ws.close(code, reason)
+            } else if (ws.readyState === WebSocket.CLOSED) {
+                this.__closeAndInvalidate(ws, code, reason)
             }
         }
-        this.__isValidated = false
     }
 
     /**
      * @protected
+     * @returns {WebSocket.WebSocket}
      */
     __assignListeners() {
-        this.__ws
+        return this.__ws
             .addListener('close', (code, reason) => this.__onClose(code, reason))
             .addListener('error', (error) => this.__onError(error))
             .addListener('message', async (message) => await this.__onMessage(message))
-    }
-
-    /**
-     * @protected
-     */
-    __onOpen() {
-        this.__assignListeners()
     }
 
     /**
@@ -163,9 +156,8 @@ class ChannelBase {
             if (message.requestId) { //message requires response
                 if (!result)
                     result = {type: MessageTypes.ERROR, error: 'No response'}
-                else if (result.type === undefined) {
+                else if (result.type === undefined)
                     result = {type: MessageTypes.OK, data: result}
-                }
                 result.responseId = message.requestId
                 await this.send(result)
                 return
@@ -187,18 +179,32 @@ class ChannelBase {
     }
 
     __onClose(code, reason) {
-        if (this.__ws) {
-            this.__ws.closeTimeout && clearTimeout(this.__ws.closeTimeout)
-            this.__ws.terminate()
+        this.__closeAndInvalidate(this.__ws, code, reason)
+    }
+
+    __closeAndInvalidate(ws, code, reason) {
+        if (!ws)
+            return
+        ws.closeTimeout && clearTimeout(ws.closeTimeout)
+        if (ws.readyState !== WebSocket.CLOSED) {
+            logger.warn(`${this.__getConnectionInfo()} was not closed properly (${ws.readyState}). Terminating...`)
+            try {
+                ws.terminate()
+            } catch (e) {
+                logger.error(e)
+            }
+        }
+        if (this.__ws === ws) {
             this.__ws = null
             this.__isValidated = false
         }
-        logger.debug(`${this.__getConnectionInfo()} closed with code ${code} and reason ${reason}`)
+        logger.debug(`${this.__getConnectionInfo()} closed with code ${code} and reason ${reason || 'abnormal'}`)
     }
 
     __onError(error) {
-        if (error.code === 'ECONNREFUSED' || error.code === 'EAI_AGAIN') {
-            if (error.connectionAttempts > 0 && error.connectionAttempts % 20 === 0)
+        logger.trace(`${this.__getConnectionInfo()} websocket error. ${error.code}`)
+        if (error.code === 'ECONNREFUSED' || error.code === 'EAI_AGAIN' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+            if (error.connectionAttempts > 0 && error.connectionAttempts % 100 === 0)
                 logger.debug(`${this.__getConnectionInfo()} websocket error ${error.code}. Connection attempts: ${error.connectionAttempts}`)
         } else {
             logger.debug(`${this.__getConnectionInfo()} websocket error`)
@@ -207,9 +213,7 @@ class ChannelBase {
     }
 
     __getConnectionInfo() {
-        if (this.type === ChannelTypes.ORCHESTRATOR)
-            return 'Orchestrator'
-        return `${this.pubkey} ${this.type}`
+        return `${this.type === ChannelTypes.ORCHESTRATOR ? 'Orchestrator' : this.pubkey} ${this.type} ${this.__ws?.id || 'N/A'}`
     }
 }
 

@@ -59,7 +59,7 @@ class AppConfig extends IssuesContainer {
             this.publicKey = this.keypair.publicKey()
             this.secret = secret
         } catch (e) {
-            this.__addConfigIssue(`secret: ${e.message}`)
+            this.__addIssue(`secret: ${e.message}`)
         }
     }
 
@@ -79,11 +79,11 @@ class AppConfig extends IssuesContainer {
                     const rawSource = dataSources[sourceKey]
                     this.dataSources.set(sourceKey, new DataSource(rawSource))
                 } catch (e) {
-                    this.__addConfigIssue(`dataSources.${sourceKey}: ${e.message}`)
+                    this.__addIssue(`dataSources.${sourceKey}: ${e.message}`)
                 }
             }
         } catch (e) {
-            this.__addConfigIssue(`dataSources: ${e.message}`)
+            this.__addIssue(`dataSources: ${e.message}`)
         }
     }
 
@@ -93,7 +93,7 @@ class AppConfig extends IssuesContainer {
                 return
             this.orchestratorUrl = orchestratorUrl
         } catch (e) {
-            this.__addConfigIssue(`orchestratorUrl: ${e.message}`)
+            this.__addIssue(`orchestratorUrl: ${e.message}`)
         }
     }
 
@@ -103,7 +103,7 @@ class AppConfig extends IssuesContainer {
                 return
             this.dbSyncDelay = dbSyncDelay
         } catch (e) {
-            this.__addConfigIssue(`dbSyncDelay: ${e.message}`)
+            this.__addIssue(`dbSyncDelay: ${e.message}`)
         }
     }
 
@@ -113,7 +113,7 @@ class AppConfig extends IssuesContainer {
                 return
             this.port = port
         } catch (e) {
-            this.__addConfigIssue(`port: ${e.message}`)
+            this.__addIssue(`port: ${e.message}`)
         }
     }
 

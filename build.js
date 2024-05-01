@@ -40,6 +40,6 @@ copyFolderRecursive(srcDir, distAppDir)
 
 fs.copyFileSync(path.resolve(__dirname, 'package.json'), path.resolve(distDir, 'package.json'))
 
-execSync('npm install --production', {cwd: distDir, stdio: 'inherit'})
+execSync('npm install --omit=dev', {cwd: distDir, stdio: 'inherit'})
 
 console.log('Build completed successfully!')

@@ -16,6 +16,7 @@ class HandshakeRequestHandler extends BaseHandler {
     /**
      * @param {ChannelBase} channel - channel
      * @param {any} message - message to handle
+     * @returns {any}
      */
     handle(channel, message) {
         const authPayload = message.data?.payload
