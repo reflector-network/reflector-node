@@ -18,7 +18,7 @@ const networks = {
 }
 
 /**
- * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }>}
+ * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string }>}
  */
 const __connections = new Map()
 
@@ -36,13 +36,13 @@ function __registerConnection(dataSource) {
                 const dbConnector = createDbConnection({
                     connectionString: source
                 })
-                __connections.set(name, {networkPassphrase, dbConnector, sorobanRpc, type})
+                __connections.set(name, {networkPassphrase, dbConnector, sorobanRpc, type, name})
             }
             break
         case DataSourceTypes.API:
-            if (!secret)
+            if (!secret && name === 'coinmarketcap')
                 throw new ValidationError('secret is required')
-            __connections.set(name, {type, secret})
+            __connections.set(name, {type, secret, name})
             break
         default:
             throw new ValidationError(`invalid dataSource type: ${type}`)
@@ -78,7 +78,7 @@ class DataSourcesManager extends IssuesContainer {
 
     /**
      * @param {string} name - source name
-     * @returns {{ networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string] }}
+     * @returns {{ networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string}}
      */
     get(name) {
         if (!name)

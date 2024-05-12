@@ -69,7 +69,7 @@ class DataSource {
     }
 
     __setSecret(secret) {
-        if (!secret && this.type === DataSourceTypes.API) {
+        if (!secret && this.type === DataSourceTypes.API && this.name === 'coinmarketcap') {
             throw new Error('DataSource secret is undefined. It is required for API data sources')
         }
         this.secret = secret

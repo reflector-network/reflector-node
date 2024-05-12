@@ -99,34 +99,6 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
     }
 }
 
-async function bumpContract(server, keypair, oracleId) {
-
-    const t = true
-    let bump = 5_000_000
-    while (t) {
-        try {
-            const accountInfo = await server.getAccount(keypair.publicKey())
-            const client = new Client(constants.network, [constants.rpcUrl], oracleId)
-            const bumpTx = await client.bump(accountInfo, bump,
-                {
-                    fee: 10000000,
-                    timebounds: {minTime: 0, maxTime: normalizeTimestamp(Date.now(), 1000) / 1000 + 15}
-                })
-
-            const res = await client.submitTransaction(bumpTx, [keypair.signDecorated(bumpTx.hash())])
-            if (res.status !== 'SUCCESS')
-                throw new Error(`Bump failed with status ${res.status}`)
-            console.log(`Bumped to ${bump} ledgers.`)
-            return
-        } catch (e) {
-            console.log(e)
-            bump /= 2
-            if (bump < 100_000)
-                throw e
-        }
-    }
-}
-
 /**
  *@param {Server} server
  *@param {string} admin
@@ -205,6 +177,5 @@ module.exports = {
     generateAppConfig,
     generateConfig,
     generateContractConfig,
-    updateAdminToMultiSigAccount,
-    bumpContract
+    updateAdminToMultiSigAccount
 }

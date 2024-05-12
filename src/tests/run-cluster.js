@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
-const {buildContract, deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, bumpContract, generateAppConfig, generateConfig} = require('./utils')
+const {buildContract, deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig} = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
@@ -43,7 +43,7 @@ async function generateNewContract(server, nodes, dataSource) {
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
-    await bumpContract(server, admin, contractId)
+
     await updateAdminToMultiSigAccount(server, admin, nodes)
 
     const config = generateSingleConfig(admin.publicKey(), contractId, dataSource)
@@ -56,7 +56,7 @@ async function generateNewContract(server, nodes, dataSource) {
  */
 async function generateNewCluster(nodeConfigs, contractConfigs) {
 
-    const server = new SorobanRpc.Server(constants.rpcUrl)
+    const server = new SorobanRpc.Server(constants.rpcUrl, {allowHttp: true})
     //generate system account
     const systemAccount = Keypair.random()
     await createAccount(server, systemAccount.publicKey())
@@ -134,7 +134,8 @@ const nodeConfigs = [
 
 const contractConfigs = [
     {dataSource: constants.sources.pubnet},
-    {dataSource: constants.sources.coinmarketcap}
+    {dataSource: constants.sources.coinmarketcap},
+    {dataSource: constants.sources.exchanges}
 ]
 
 run(nodeConfigs, contractConfigs).catch(console.error)

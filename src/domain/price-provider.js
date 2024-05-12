@@ -1,3 +1,4 @@
+const {getPrices: getExchangePrices} = require('@reflector/exchanges-price-provider')
 const {fetchQuotes} = require('@reflector/reflector-coinmarketcap-connector')
 const {aggregateTrades} = require('@reflector/reflector-db-connector')
 const dataSourcesManager = require('../domain/data-sources-manager')
@@ -22,15 +23,8 @@ async function getPrices(sourceName, baseAsset, assets, decimals, from, period, 
         throw new Error(`Data source ${sourceName} not found`)
     const dataSource = dataSourcesManager.get(sourceName)
     switch (dataSource.type) {
-        case DataSourceTypes.API: {
-            if (sourceName !== 'coinmarketcap')
-                throw new Error(`Data source ${sourceName} not supported`)
-            const {secret} = dataSource
-            const quotesData = await fetchQuotes(assets.map(a => a.code), decimals, secret)
-            if (quotesData && quotesData.prices && quotesData.prices.length === assets.length)
-                return quotesData.prices
-            return prevPrices
-        }
+        case DataSourceTypes.API:
+            return await getApiPrices(dataSource, baseAsset, assets, decimals, from, period, prevPrices)
         case DataSourceTypes.DB: {
             const {dbConnector} = dataSource
             const prices = await aggregateTrades({db: dbConnector, baseAsset, assets, decimals, from, period, prevPrices})
@@ -40,6 +34,32 @@ async function getPrices(sourceName, baseAsset, assets, decimals, from, period, 
         }
         default:
             throw new Error(`Data source ${sourceName} not supported`)
+    }
+}
+
+async function getApiPrices(dataSource, baseAsset, assets, decimals, from, period, prevPrices) {
+    switch (dataSource.name) {
+        case 'exchanges': {
+            const prices = await getExchangePrices(
+                assets.map(asset => asset.code),
+                baseAsset.code,
+                from,
+                period,
+                decimals
+            )
+            if (prices && prices.length === assets.length)
+                return prices
+            return prevPrices
+        }
+        case 'coinmarketcap': {
+            const {secret} = dataSource
+            const quotesData = await fetchQuotes(assets.map(a => a.code), decimals, secret)
+            if (quotesData && quotesData.prices && quotesData.prices.length === assets.length)
+                return quotesData.prices
+            return prevPrices
+        }
+        default:
+            throw new Error(`Data source ${dataSource.name} not supported`)
     }
 }
 
