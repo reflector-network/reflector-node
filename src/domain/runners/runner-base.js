@@ -318,7 +318,7 @@ class RunnerBase {
                     fee,
                     maxTime
                 )
-                logger.trace(`Transaction is built. Oracle id: ${this.oracleId}, submitAttempt: ${submitAttempt}, tx type: ${tx.type}, hash: ${tx.hashHex}, syncTimestamp: ${syncTimestamp}`)
+                logger.trace(`Transaction is built. Oracle id: ${this.oracleId}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, hash: ${tx?.hashHex}, syncTimestamp: ${syncTimestamp}`)
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)
                     this.__trySubmitTransaction()

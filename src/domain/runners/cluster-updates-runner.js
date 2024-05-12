@@ -34,8 +34,8 @@ class ClusteUpdatesRunner extends RunnerBase {
         })
 
         const syncTimestamp = isPendingConfigExpired(pendingConfig)
-            ? pendingConfig.timestamp
-            : timestamp
+            ? timestamp
+            : pendingConfig.timestamp
 
         await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseUpdateFee, syncTimestamp)
     }
