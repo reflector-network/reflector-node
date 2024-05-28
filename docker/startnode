@@ -8,9 +8,6 @@ if ! mountpoint -q "$MOUNT_DIR"; then
     exit 1
 fi
 
-# Ensure /reflector-node/app/home/docker/logs/ exists
-mkdir -p /reflector-node/app/home/docker/logs/
-
 SUPERVISORD_CONFIG="/etc/supervisor/conf.d/supervisord.conf"
 
 # Start the services using the supervisord configuration

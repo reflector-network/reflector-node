@@ -8,7 +8,7 @@ const logger = require('./logger')
  * @param {Container} container - config object
  * @returns {Promise<{shutdown: function}>}
  */
-async function init(container) {
+function init(container) {
 
     function shutdown(code = 0) {
 
@@ -25,6 +25,12 @@ async function init(container) {
         process.on('unhandledRejection', (reason, p) => {
             logger.error('Unhandled Rejection at: Promise')
             logger.error(reason)
+        })
+
+        process.on('warning', (warning) => {
+            logger.warn(warning.name)
+            logger.warn(warning.message)
+            logger.warn(warning.stack)
         })
 
         if (!container)

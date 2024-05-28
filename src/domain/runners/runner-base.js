@@ -69,11 +69,23 @@ function getSubmissionError(submitResult, txXdr) {
     return error
 }
 
+/**
+ * @callback RequestFunction
+ * @param {SorobanRpc.Server} server - soroban rpc server
+ * @returns {Promise<any>}
+ */
+
+/**
+ * @param {string[]} urls - urls
+ * @param {RequestFunction} requestFn - request function
+ * @returns {Promise<any>}
+ */
 async function makeServerRequest(urls, requestFn) {
     const errors = []
     for (const url of urls) {
         try {
-            return await requestFn(url)
+            const server = new SorobanRpc.Server(url, {allowHttp: true})
+            return await requestFn(server)
         } catch (err) {
             logger.debug(`Request to ${url} failed. Error: ${err.message}`)
             errors.push(err)
@@ -98,7 +110,7 @@ function createPendingTransactionObject(tx, maxTime) {
 
         const timeout = (maxTime * 1000) - Date.now() + 3000 //Add 1 second to the max time
         const timeoutId = setTimeout(() => {
-            logger.trace(`Transaction timed out. Tx type: ${tx.type}, hash: ${tx.hashHex}, maxTime: ${maxTime}, submitted: ${tx.submitted}, current time: ${Math.floor(Date.now() / 1000)}`)
+            logger.debug(`Transaction timed out. Tx type: ${tx.type}, hash: ${tx.hashHex}, maxTime: ${maxTime}, submitted: ${tx.submitted}, current time: ${Math.floor(Date.now() / 1000)}`)
             tx.isTimedOut = true
             if (tx.submitted) //if the transaction is already submitted, we need to wait for the result
                 return
@@ -125,7 +137,7 @@ function createPendingTransactionObject(tx, maxTime) {
 }
 
 const maxSubmitAttempts = 4
-const maxSubmitTimeout = 20000
+const maxSubmitTimeout = 25000
 
 class RunnerBase {
 
@@ -151,11 +163,11 @@ class RunnerBase {
                 this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
             if (!signaturesData.signatures.find(s => s.hint().equals(signature.hint())))
                 signaturesData.signatures.push(signature)
-            logger.trace(`Signature added to the pending signatures. Oracle id: ${this.oracleId}, tx hash: ${txHash}`)
+            logger.debug(`Signature added to the pending signatures. Oracle id: ${this.oracleId}, tx hash: ${txHash}`)
             return
         }
         this.__pendingTransaction.tx.addSignature(signature)
-        logger.trace(`Signature added to the pending transaction. Oracle id: ${this.oracleId}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
+        logger.debug(`Signature added to the pending transaction. Oracle id: ${this.oracleId}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
         this.__trySubmitTransaction()
     }
 
@@ -205,7 +217,7 @@ class RunnerBase {
             let timeout = nextTimestamp - Date.now()
             if (this.oracleId)
                 timeout += this.__dbSyncDelay
-            logger.trace(`Worker timeout: ${timeout}, oracle id: ${this.oracleId}`)
+            logger.debug(`Worker timeout: ${timeout}, oracle id: ${this.oracleId}`)
             this.__workerTimeout = setTimeout(() => this.worker(nextTimestamp), timeout)
         }
     }
@@ -232,7 +244,7 @@ class RunnerBase {
         if (this.__pendingTransaction) {
             const {type, timestamp} = this.__pendingTransaction.tx
             const {reject} = this.__pendingTransaction
-            logger.error(`Pending transaction wasn't submitted. ContractId: ${this.oracleId}, tx type: ${type}, tx timestamp: ${timestamp}.`)
+            logger.warn(`Pending transaction wasn't submitted. ContractId: ${this.oracleId}, tx type: ${type}, tx timestamp: ${timestamp}.`)
             this.__clearPendingTransaction()
             reject(new Error('Pending transaction wasn\'t submitted'))
         }
@@ -304,7 +316,6 @@ class RunnerBase {
      */
     async __buildAndSubmitTransaction(buildTxFn, account, baseFee, syncTimestamp) {
         const errors = []
-        const {statisticsManager, settingsManager} = container
         let pendingTx = null
         if (this.__getMaxTime(syncTimestamp, maxSubmitAttempts) * 1000 < Date.now())
             throw new Error('Tx is too old.')
@@ -312,7 +323,7 @@ class RunnerBase {
             try {
                 const fee = baseFee * Math.pow(4, submitAttempt) //increase fee by 4 times on each try
                 const maxTime = this.__getMaxTime(syncTimestamp, submitAttempt + 1)
-                logger.trace(`Build transaction. Oracle id: ${this.oracleId}, submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}, syncTimestamp: ${syncTimestamp}`)
+                logger.debug(`Build transaction. Oracle id: ${this.oracleId}, submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}, syncTimestamp: ${syncTimestamp}`)
                 if (maxTime * 1000 < Date.now())
                     throw new Error(txTimeoutMessage)
                 const tx = await buildTxFn(
@@ -320,27 +331,20 @@ class RunnerBase {
                     fee,
                     maxTime
                 )
-                logger.trace(`Transaction is built. Oracle id: ${this.oracleId}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}, syncTimestamp: ${syncTimestamp}`)
+                logger.debug(`Transaction is built. Oracle id: ${this.oracleId}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}, syncTimestamp: ${syncTimestamp}`)
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)
                     this.__trySubmitTransaction()
                     await pendingTx.submitPromise
                 }
-                if (this.oracleId)
-                    statisticsManager.incSubmittedTransactions(this.oracleId)
-                else
-                    settingsManager.applyPendingUpdate()
                 return
             } catch (e) {
-                logger.info(e.message === txTimeoutMessage ? e.message : e)
+                logger.debug(e.message === txTimeoutMessage ? e.message : e)
                 errors.push(e)
             }
         }
         for (const e of errors)
             logger.error(e.message === txTimeoutMessage ? e.message : e)
-        //shutdown if the error and it's init or not price update tx
-        //if (![PendingTransactionType.INIT, PendingTransactionType.PRICE_UPDATE].includes(pendingTx?.tx.type))
-        //container.app.shutdown(13)
         throw new Error('Failed to submit transaction. See logs for details.')
     }
 
@@ -367,19 +371,25 @@ class RunnerBase {
         let attempts = 100
         const oracleId = this.oracleId
         const hash = pendingTx.hashHex
+        let badSeqRetryAttempts = 2
 
         const maxTime = Number(pendingTx.transaction.timeBounds.maxTime)
         const currentTimeInSeconds = normalizeTimestamp(Date.now(), 1000) / 1000
 
-        logger.trace(`Account: ${pendingTx.transaction.source}, sequence: ${pendingTx.transaction.sequence}, fee: ${pendingTx.transaction.fee}, maxTime: ${maxTime}, currentTime: ${currentTimeInSeconds}, transaction: ${hash}`)
+        logger.debug(`Account: ${pendingTx.transaction.source}, sequence: ${pendingTx.transaction.sequence}, fee: ${pendingTx.transaction.fee}, maxTime: ${maxTime}, currentTime: ${currentTimeInSeconds}, transaction: ${hash}`)
 
         const txXdr = pendingTx.transaction.toXDR() //Get the raw XDR for the transaction to avoid modifying the transaction object
         const tx = new Transaction(txXdr, network) //Create a new transaction object from the XDR
 
         function processResponse(response) {
             const error = getSubmissionError(response, txXdr)
-            if (error.errorName === 'TRY_AGAIN_LATER' || error.errorName === 'NOT_FOUND') {
-                attempts--
+            attempts--
+            if (error.errorName === 'TRY_AGAIN_LATER'
+                || error.errorName === 'NOT_FOUND') { //when tx is already submitted, but was not found, it throws txBadSeq error on submit
+                return
+            } else if (error.errorName === 'txBadSeq' && badSeqRetryAttempts > 0) {
+                logger.debug(`txBadSeq error. Retry attempt. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, attempts left: ${attempts}, badSeqRetryAttempts left: ${badSeqRetryAttempts}`)
+                badSeqRetryAttempts--
                 return
             }
             throw error
@@ -392,15 +402,14 @@ class RunnerBase {
 
         const ensureIsNotTimedOut = () => {
             if (isTxTooLate) {
-                logger.info(`Transaction is too late. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, maxTime: ${maxTime}, latestLedgerCloseTime: ${latestLedgerCloseTime}`)
+                logger.debug(`Transaction is too late. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, maxTime: ${maxTime}, latestLedgerCloseTime: ${latestLedgerCloseTime}`)
                 throw new Error(txTimeoutMessage)
             }
         }
 
         while (attempts > 0) {
 
-            const getTransactionFn = async (sorobanRpcUrl) => {
-                const server = new SorobanRpc.Server(sorobanRpcUrl, {allowHttp: true})
+            const getTransactionFn = async (server) => {
                 const response = await server.getTransaction(hash)
                 latestLedgerCloseTime = response.latestLedgerCloseTime
                 isTxTooLate = maxTime < latestLedgerCloseTime
@@ -417,12 +426,9 @@ class RunnerBase {
 
             if (response.status === 'NOT_FOUND') {
                 ensureIsNotTimedOut()
-                const sendTransactionFn = async (sorobanRpcUrl) => {
-                    const server = new SorobanRpc.Server(sorobanRpcUrl, {allowHttp: true})
-                    return await server.sendTransaction(tx)
-                }
+                const sendTransactionFn = async (server) => await server.sendTransaction(tx)
                 const submitResult = await makeServerRequest(sorobanRpc, sendTransactionFn)
-                logger.trace(`Transaction is sent. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
+                logger.debug(`Transaction is sent. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
                 if (!['PENDING', 'DUPLICATE'].includes(submitResult.status)) {
                     processResponse(submitResult)
                     await new Promise(resolve => setTimeout(resolve, 2000))
@@ -444,7 +450,7 @@ class RunnerBase {
             response.hash = hash //Add hash to response to avoid return new object
             if (response.status !== 'SUCCESS') {
                 processResponse(response)
-                logger.trace(`Transaction is not successful. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${response.status}, attempts left: ${attempts}`)
+                logger.debug(`Transaction is not successful. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${response.status}, attempts left: ${attempts}`)
                 continue
             }
             return response
@@ -464,11 +470,11 @@ class RunnerBase {
 
     /**
      * @param {string} account - account address
-     * @param {BigInt} sequence - account sequence
+     * @param {string[]} sorobanRpc - soroban rpc urls
      * @returns {Account}
      */
-    __getAccount(account, sequence) {
-        return new Account(account, sequence.toString())
+    async __getAccount(account, sorobanRpc) {
+        return await makeServerRequest(sorobanRpc, async (server) => await server.getAccount(account))
     }
 
     __getNextTimestamp(currentTimestamp) {

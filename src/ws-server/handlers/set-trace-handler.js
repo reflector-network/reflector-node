@@ -1,5 +1,5 @@
 const ChannelTypes = require('../channels/channel-types')
-const logger = require('../../logger')
+const container = require('../../domain/container')
 const BaseHandler = require('./base-handler')
 
 class SetTraceHandler extends BaseHandler {
@@ -10,7 +10,7 @@ class SetTraceHandler extends BaseHandler {
 
     handle(_, message) {
         const {data} = message
-        logger.setTrace(data.isTraceEnabled)
+        container.settingsManager.setTrace(data.isTraceEnabled)
     }
 }
 

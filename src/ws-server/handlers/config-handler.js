@@ -55,7 +55,7 @@ class ConfigHandler extends BaseHandler {
             if (!newCurrentConfig.config.equals(settingsManager.config))
                 settingsManager.setConfig(newCurrentConfig.config)
         } else {
-            logger.info('Current config is not verified')
+            logger.debug('Current config is not verified')
         }
 
         if (pendingConfig) {
@@ -64,7 +64,7 @@ class ConfigHandler extends BaseHandler {
                 if (!newPendingConfig.config.equals(settingsManager.pendingConfig?.config))
                     settingsManager.setPendingConfig(newPendingConfig)
             } else {
-                logger.info('Pending config is not verified')
+                logger.debug('Pending config is not verified')
             }
         } else {
             settingsManager.clearPendingConfig()

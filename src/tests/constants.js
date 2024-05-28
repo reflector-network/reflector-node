@@ -38,6 +38,10 @@ const sources = {
         secret: '********-****-****-****-***********',
         name: 'coinmarketcap'
     },
+    exchanges: {
+        type: 'api',
+        name: 'exchanges'
+    },
     pubnet: {
         dbConnection: 'postgres://stellar:pass@127.0.0.1:5432/stellar-pubnet-core',
         sorobanRpc: ['https://soroban-testnet.stellar.org'],

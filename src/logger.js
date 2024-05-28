@@ -3,13 +3,11 @@ const path = require('path')
 const pino = require('pino')
 const rfs = require('rotating-file-stream')
 const container = require('./domain/container')
+const {isDebugging} = require('./utils')
 
-const isDev = process.env.NODE_ENV === 'development'
 const traceLevel = 'trace'
 const infoLevel = 'info'
-const defaultLevel = isDev ? traceLevel : infoLevel
 const folder = `${container.homeDir}/logs/`
-
 const MAX_LOG_FILE_SIZE = '2M'
 const LOG_RETENTION_DAYS = '7d'
 
@@ -114,7 +112,7 @@ const msgSerializer = msg => {
 }
 
 const baseLogOptions = {
-    level: defaultLevel,
+    level: traceLevel,
     timestamp: () => `,"time":"${new Date().toISOString()}"`,
     serializers: {err: errorSerializer, msg: msgSerializer},
     formatters: {
@@ -145,26 +143,30 @@ const combinedLogStream = rfs.createStream('combined.log', rfsOptions)
 
 const streams = [
     {stream: errorLogStream, level: 'error'},
-    {stream: combinedLogStream, level: defaultLevel}
+    {stream: combinedLogStream, level: traceLevel, combined: true}
 ]
 
-if (isDev) {
+if (isDebugging()) {
     streams.push({
         stream: process.stdout,
-        level: defaultLevel
+        level: traceLevel,
+        combined: true
     })
 }
 
 const logger = pino(baseLogOptions, pino.multistream(streams))
+logger.level = infoLevel
 
-logger.setTrace = (isTraceEnabled) => {
-    if (isTraceEnabled) {
-        logger.level = traceLevel
-    } else {
-        logger.level = infoLevel
-    }
+logger.setTrace = (trace) => {
+    logger.level = trace ? traceLevel : infoLevel
+    streams.filter(s => s.combined)
+        .forEach(s => {
+            s.level = logger.level
+        })
+    if (trace)
+        logger.trace(`Logger level set to ${logger.level}`)
+    else
+        logger.info(`Logger level set to ${logger.level}`)
 }
-
-logger.isTraceEnabled = () => logger.level === traceLevel
 
 module.exports = logger

@@ -1,5 +1,5 @@
-const {buildInitTransaction, isTimestampValid, buildPriceUpdateTransaction} = require('@reflector/reflector-shared')
-const {retrieveAccountProps, retrieveContractState} = require('@reflector/reflector-db-connector')
+const {buildInitTransaction, isTimestampValid, buildPriceUpdateTransaction, getContractState} = require('@reflector/reflector-shared')
+const {retrieveAccountProps} = require('@reflector/reflector-db-connector')
 const container = require('../container')
 const {getPrices} = require('../price-provider')
 const logger = require('../../logger')
@@ -20,22 +20,22 @@ class OracleRunner extends RunnerBase {
         const {baseAsset, decimals, timeframe, dataSource, admin, fee: baseFee} = contractConfig
 
         //cluster network data
-        const {networkPassphrase: network, sorobanRpc, blockchainConnector} = this.__getBlockchainConnectorSettings()
+        const {networkPassphrase: network, sorobanRpc} = this.__getBlockchainConnectorSettings()
 
         //get account info
-        const {sequence} = await retrieveAccountProps(blockchainConnector, admin)
-        const sourceAccount = this.__getAccount(admin, sequence)
+        const sourceAccount = await this.__getAccount(admin, sorobanRpc)
 
+        logger.trace(`OracleRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
 
-        const contractState = await retrieveContractState(blockchainConnector, this.oracleId)
+        const contractState = await getContractState(this.oracleId, sorobanRpc)
 
         const {settingsManager, statisticsManager} = container
 
-        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${!contractState.uninitialized}, oracleId: ${this.oracleId}}`)
-        statisticsManager.setLastOracleData(this.oracleId, Number(contractState.lastTimestamp), !contractState.uninitialized)
+        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, oracleId: ${this.oracleId}}`)
+        statisticsManager.setLastOracleData(this.oracleId, Number(contractState.lastTimestamp), contractState.isInitialized)
 
         let updateTxBuilder = null
-        if (contractState.uninitialized) {
+        if (!contractState.isInitialized) {
             updateTxBuilder = async (account, fee, maxTime) => await buildInitTransaction({
                 account,
                 network,
@@ -75,6 +75,8 @@ class OracleRunner extends RunnerBase {
         }
 
         await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp + this.__dbSyncDelay)
+
+        statisticsManager.incSubmittedTransactions(this.oracleId)
     }
 
     __getCurrentContract() {

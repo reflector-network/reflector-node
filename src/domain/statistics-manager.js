@@ -94,7 +94,6 @@ class StatisticsManager {
             submittedTransactions: this.submittedTransactions,
             connectedNodes,
             oracleStatistics,
-            isTraceEnabled: logger.isTraceEnabled(),
             ...settingsStatistics
         }
     }

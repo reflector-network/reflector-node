@@ -80,6 +80,12 @@ class SettingsManager {
         }
     }
 
+    setTrace(trace) {
+        this.appConfig.trace = !!trace
+        logger.setTrace(this.appConfig.trace)
+        fs.writeFileSync(appConfigPath, JSON.stringify(this.appConfig.toPlainObject(), null, 2))
+    }
+
     applyPendingUpdate() {
         this.setConfig(this.pendingConfig.config)
         this.clearPendingConfig()
@@ -97,6 +103,7 @@ class SettingsManager {
      */
     setAppConfig(config) {
         this.appConfig = config
+        logger.setTrace(this.appConfig.trace)
         connectionManager.setDataSources([...config.dataSources.values()], config.dockerDbPassword)
     }
 
@@ -170,7 +177,8 @@ class SettingsManager {
             currentConfigHash: this.config ? this.config.getHash() : null,
             pendingConfigHash: this.pendingConfig ? this.pendingConfig.config.getHash() : null,
             connectionIssues,
-            version: container.version
+            version: container.version,
+            isTraceEnabled: this.appConfig.trace
         }
     }
 }

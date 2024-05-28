@@ -19,6 +19,7 @@ class AppConfig extends IssuesContainer {
         this.__assignOrchestratorUrl(config.orchestratorUrl)
         this.__assignDbSyncDelay(config.dbSyncDelay)
         this.__assignPort(config.port)
+        this.__assignTrace(config.trace)
     }
 
     /**
@@ -50,6 +51,11 @@ class AppConfig extends IssuesContainer {
      * @type {number}
      */
     port
+
+    /**
+     * @type {boolean}
+     */
+    trace = false
 
     __assignKeypair(secret) {
         try {
@@ -117,13 +123,18 @@ class AppConfig extends IssuesContainer {
         }
     }
 
+    __assignTrace(trace) {
+        this.trace = !!trace
+    }
+
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
             dbSyncDelay: this.dbSyncDelay,
             handshakeTimeout: this.handshakeTimeout,
             secret: this.secret,
-            orchestratorUrl: this.orchestratorUrl
+            orchestratorUrl: this.orchestratorUrl,
+            trace: this.trace
         }
     }
 }

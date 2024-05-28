@@ -1,3 +1,4 @@
+const logger = require('../../logger')
 const ClusteUpdatesRunner = require('./cluster-updates-runner')
 const OracleRunner = require('./oracle-price-runner')
 
@@ -50,6 +51,7 @@ class OracleRunnerManager {
         if (this.oracleRunners.has(oracleId))
             return
         const oracleRunner = new OracleRunner(oracleId)
+        logger.debug(`OracleRunnerManager -> add -> oracleRunner ${oracleId} started`)
         this.oracleRunners.set(oracleId, oracleRunner)
         return oracleRunner
     }

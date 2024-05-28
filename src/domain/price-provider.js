@@ -1,4 +1,4 @@
-const {getPrices: getExchangePrices} = require('@reflector/exchanges-price-provider')
+const {getPrices: getExchangePrices} = require('@reflector/reflector-exchanges-connector')
 const {fetchQuotes} = require('@reflector/reflector-coinmarketcap-connector')
 const {aggregateTrades} = require('@reflector/reflector-db-connector')
 const dataSourcesManager = require('../domain/data-sources-manager')

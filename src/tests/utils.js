@@ -1,11 +1,9 @@
 const {exec} = require('child_process')
 const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
-const Client = require('@reflector/oracle-client')
-const {getMajority, normalizeTimestamp} = require('@reflector/reflector-shared')
+const {getMajority} = require('@reflector/reflector-shared')
 const constants = require('./constants')
 
-const pathToContractProject = '../../reflector-contract'
-const pathToContractWasm = '../../reflector-contract/target/wasm32-unknown-unknown/release/reflector_oracle.wasm'
+const pathToContractWasm = './tests/reflector-oracle.wasm'
 
 async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
@@ -25,14 +23,6 @@ async function runCommand(command, args) {
     })
 }
 
-async function buildContract() {
-    const command = `cd "${pathToContractProject}" && cargo build --release --target wasm32-unknown-unknown`
-    await runCommand(command)
-
-    const optimizeCommand = `soroban contract optimize --wasm "${pathToContractWasm}" --wasm-out "${pathToContractWasm}"`
-    await runCommand(optimizeCommand)
-}
-
 async function deployContract(admin) {
     const command = `soroban contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 100000000`
     console.log(command)
@@ -50,6 +40,7 @@ function generateAppConfig(secret, dataSources) {
 function generateContractConfig(admin, oracleId, dataSource) {
     const assets = {}
     switch (dataSource.name) {
+        case 'exchanges':
         case 'coinmarketcap':
             assets.baseAsset = constants.baseGenericAsset
             assets.assets = constants.genericAssets
@@ -170,7 +161,6 @@ async function sendTransaction(server, tx) {
 }
 
 module.exports = {
-    buildContract,
     deployContract,
     createAccount,
     runCommand,

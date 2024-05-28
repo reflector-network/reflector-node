@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
-const {buildContract, deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig} = require('./utils')
+const {deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig} = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
@@ -71,10 +71,6 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 
     const nodes = nodeConfigs.filter(n => n.isInitNode).map(n => n.keypair.publicKey())
     await updateAdminToMultiSigAccount(server, systemAccount, nodes)
-
-
-    //build contract
-    await buildContract()
 
     //generate contract configs
     const contracts = {}
