@@ -1,5 +1,4 @@
 const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
-const logger = require('../logger')
 const nodesManager = require('../domain/nodes/nodes-manager')
 const container = require('./container')
 

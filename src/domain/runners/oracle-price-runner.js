@@ -1,9 +1,10 @@
 const {buildInitTransaction, isTimestampValid, buildPriceUpdateTransaction, getContractState} = require('@reflector/reflector-shared')
-const {retrieveAccountProps} = require('@reflector/reflector-db-connector')
+const {Transaction} = require('@stellar/stellar-sdk')
 const container = require('../container')
 const {getPrices} = require('../price-provider')
 const logger = require('../../logger')
 const RunnerBase = require('./runner-base')
+const {getAccount} = require('./rpc-helper')
 
 class OracleRunner extends RunnerBase {
     constructor(oracleId) {
@@ -23,7 +24,7 @@ class OracleRunner extends RunnerBase {
         const {networkPassphrase: network, sorobanRpc} = this.__getBlockchainConnectorSettings()
 
         //get account info
-        const sourceAccount = await this.__getAccount(admin, sorobanRpc)
+        const sourceAccount = await getAccount(admin, sorobanRpc)
 
         logger.trace(`OracleRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
 
@@ -74,9 +75,13 @@ class OracleRunner extends RunnerBase {
             return
         }
 
-        await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp + this.__dbSyncDelay)
-
-        statisticsManager.incSubmittedTransactions(this.oracleId)
+        const response = await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp + this.__dbSyncDelay)
+        //update last processed timestamp
+        statisticsManager.setLastProcessedTimestamp(this.oracleId, timestamp)
+        //check if transaction was signed by the current node
+        const tx = new Transaction(response.envelopeXdr, network)
+        if (tx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
+            statisticsManager.incSubmittedTransactions(this.oracleId)
     }
 
     __getCurrentContract() {

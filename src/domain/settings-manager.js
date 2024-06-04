@@ -104,7 +104,7 @@ class SettingsManager {
     setAppConfig(config) {
         this.appConfig = config
         logger.setTrace(this.appConfig.trace)
-        connectionManager.setDataSources([...config.dataSources.values()], config.dockerDbPassword)
+        connectionManager.setDataSources([...config.dataSources.values()])
     }
 
     /**

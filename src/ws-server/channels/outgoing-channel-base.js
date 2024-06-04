@@ -29,9 +29,13 @@ class OutgoingChannelBase extends ChannelBase {
     __connect() {
         const ws = new WebSocket(this.url,
             {
-                headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers},
-                handshakeTimeout: container.settingsManager.appConfig.handshakeTimeout
+                headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers}
             })
+        this.__connectionTimeoutId = setTimeout(() => {
+            if (ws.readyState !== WebSocket.OPEN) {
+                ws.close()
+            }
+        }, container.settingsManager.appConfig.handshakeTimeout)
         ws.id = uuidv4()
         this.__ws = ws
         this.__assignListeners()

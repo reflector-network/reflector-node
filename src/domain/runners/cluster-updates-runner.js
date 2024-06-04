@@ -1,6 +1,7 @@
 const {buildUpdateTransaction, normalizeTimestamp} = require('@reflector/reflector-shared')
 const container = require('../container')
 const RunnerBase = require('./runner-base')
+const {getAccount} = require('./rpc-helper')
 
 const idleWorkerTimeframe = 1000 * 60 * 2 //2 minute
 
@@ -19,7 +20,7 @@ class ClusteUpdatesRunner extends RunnerBase {
             return
 
         const {sorobanRpc, networkPassphrase} = this.__getBlockchainConnectorSettings()
-        const sourceAccount = await this.__getAccount(config.systemAccount, sorobanRpc)
+        const sourceAccount = await getAccount(config.systemAccount, sorobanRpc)
 
         let hasMoreTxns = false
 
