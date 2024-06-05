@@ -10,6 +10,7 @@ const infoLevel = 'info'
 const folder = `${container.homeDir}/logs/`
 const MAX_LOG_FILE_SIZE = '2M'
 const LOG_RETENTION_DAYS = '7d'
+const MAX_FILES = 20
 
 const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
 
@@ -134,7 +135,7 @@ const rfsOptions = {
     size: MAX_LOG_FILE_SIZE,
     interval: LOG_RETENTION_DAYS,
     path: folder,
-    maxFiles: 100
+    maxFiles: MAX_FILES
 }
 
 const errorLogStream = rfs.createStream('error.log', rfsOptions)

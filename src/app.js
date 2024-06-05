@@ -52,7 +52,7 @@ function init(container) {
     } catch (e) {
         logger.error(e)
         //some timeout to write logs
-        setTimeout(() => shutdown(13), 1000)
+        setTimeout(() => shutdown(13), 3000)
     }
 }
 

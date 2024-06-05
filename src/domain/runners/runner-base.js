@@ -125,11 +125,11 @@ class RunnerBase {
                 this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
             if (!signaturesData.signatures.find(s => s.hint().equals(signature.hint())))
                 signaturesData.signatures.push(signature)
-            logger.debug(`Signature added to the pending signatures. Oracle id: ${this.oracleId}, node: ${from}, tx hash: ${txHash}`)
+            logger.debug(`Signature added to the pending signatures. Oracle id: ${this.oracleId || 'cluster'}, node: ${from}, tx hash: ${txHash}`)
             return
         }
         this.__pendingTransaction.tx.addSignature(signature)
-        logger.debug(`Signature added to the pending transaction. Oracle id: ${this.oracleId}, node: ${from}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
+        logger.debug(`Signature added to the pending transaction. Oracle id: ${this.oracleId || 'cluster'}, node: ${from}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
         this.__trySubmitTransaction()
     }
 
@@ -172,14 +172,14 @@ class RunnerBase {
         try {
             await this.__workerFn(timestamp)
         } catch (e) {
-            logger.error(`Error in worker. Oracle id: ${this.oracleId}, timestamp: ${timestamp}, error: ${e.message}`)
+            logger.error(`Error in worker. Oracle id: ${this.oracleId || 'cluster'}, timestamp: ${timestamp}, error: ${e.message}`)
             logger.error(e)
         } finally {
             const nextTimestamp = this.__getNextTimestamp(timestamp)
             let timeout = nextTimestamp - Date.now()
             if (this.oracleId)
                 timeout += this.__dbSyncDelay
-            logger.debug(`Worker timeout: ${timeout}, oracle id: ${this.oracleId}`)
+            logger.debug(`Worker timeout: ${timeout}, oracle id: ${this.oracleId || 'cluster'}`)
             this.__workerTimeout = setTimeout(() => this.worker(nextTimestamp), timeout)
         }
     }
@@ -206,7 +206,7 @@ class RunnerBase {
         if (this.__pendingTransaction) {
             const {type, timestamp} = this.__pendingTransaction.tx
             const {reject} = this.__pendingTransaction
-            logger.warn(`Pending transaction wasn't submitted. ContractId: ${this.oracleId}, tx type: ${type}, tx timestamp: ${timestamp}.`)
+            logger.warn(`Pending transaction wasn't submitted. ContractId: ${this.oracleId || 'cluster'}, tx type: ${type}, tx timestamp: ${timestamp}.`)
             this.__clearPendingTransaction()
             reject(new Error('Pending transaction wasn\'t submitted'))
         }
@@ -225,7 +225,7 @@ class RunnerBase {
     }
 
     __clearPendingTransaction() {
-        logger.debug(`Clear pending transaction. Oracle id: ${this.oracleId}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
+        logger.debug(`Clear pending transaction. Oracle id: ${this.oracleId || 'cluster'}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
         this.__pendingTransaction = null
     }
 
@@ -249,7 +249,7 @@ class RunnerBase {
      * @returns {Promise<void>}
      */
     async __trySubmitTransaction() {
-        const {settingsManager, statisticsManager} = container
+        const {settingsManager} = container
         const currentNodesLength = settingsManager.nodes.size
         if (!this.__pendingTransaction || !this.__pendingTransaction.tx.isReadyToSubmit(currentNodesLength))
             return
@@ -260,7 +260,7 @@ class RunnerBase {
             tx.submitted = true
             const result = await submitTransaction(networkPassphrase, sorobanRpc, tx, tx.getMajoritySignatures(currentNodesLength))
             resolve(result)
-            logger.debug(`Transaction is processed ${this.oracleId}. ${tx.getDebugInfo()}`)
+            logger.debug(`Transaction is processed ${this.oracleId || 'cluster'}. ${tx.getDebugInfo()}`)
         } catch (e) {
             const error = new Error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx fee: ${tx?.transaction.fee}, tx: ${tx.transaction.toXDR()}`)
             error.originalError = e
@@ -286,7 +286,7 @@ class RunnerBase {
             try {
                 const fee = baseFee * Math.pow(4, submitAttempt) //increase fee by 4 times on each try
                 const maxTime = getMaxTime(syncTimestamp, submitAttempt + 1)
-                logger.debug(`Build transaction. Oracle id: ${this.oracleId}, syncTimestamp: ${syncTimestamp} , submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}`)
+                logger.debug(`Build transaction. Oracle id: ${this.oracleId || 'cluster'}, syncTimestamp: ${syncTimestamp} , submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}`)
 
                 if (maxTime * 1000 < Date.now()) //if the max time is already passed
                     throw new Error(txTimeoutMessage)
@@ -297,7 +297,7 @@ class RunnerBase {
                     fee,
                     maxTime
                 )
-                logger.debug(`Transaction is built. Oracle id: ${this.oracleId}, syncTimestamp: ${syncTimestamp}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}`)
+                logger.debug(`Transaction is built. Oracle id: ${this.oracleId || 'cluster'}, syncTimestamp: ${syncTimestamp}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}`)
                 logger.trace(tx?.transaction.toXDR())
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)

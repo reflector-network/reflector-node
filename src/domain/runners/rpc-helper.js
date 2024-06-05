@@ -146,7 +146,6 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
         response.hash = hash //Add hash to response to avoid return new object
         if (response.status !== 'SUCCESS') {
             processResponse(response)
-            logger.debug(`Transaction is not successful. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${response.status}`)
             continue
         }
         return response

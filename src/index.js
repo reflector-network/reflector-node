@@ -39,5 +39,5 @@ try {
         logger.error(e)
     else
         console.error(e)
-    setTimeout(() => process.exit(13), 1000)
+    setTimeout(() => process.exit(13), 3000)
 }
