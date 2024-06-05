@@ -20,7 +20,7 @@ const networks = {
 /**
  * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string }>}
  */
-const __connections = new Map()
+const __connections = new Map([['exchanges', {type: DataSourceTypes.API, name: 'exchanges'}]]) //exchanges is not required any configuration, so it is added by default
 
 /**
  * @param {DataSource} dataSource - data source
