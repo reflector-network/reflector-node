@@ -23,9 +23,14 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
       "sorobanRpc": ["https://soroban-testnet.stellar.org"],
       "type": "db",
       "name": "testnet"
+    },
+    "exchanges": {
+      "name": "exchanges",
+      "type": "api"
     }
   },
-  "dbSyncDelay": 15
+  "dbSyncDelay": 15,
+  "trace": false
 }
 ```
 
@@ -34,7 +39,7 @@ Where:
 - `dataSources` - price data sources cofigurations
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
  
-If you are joining the existing cluster, ask other node operators to share their basic config params, and use it as the base of override secr
+If you are joining the existing cluster, ask other node operators to share their basic config params, then override `secret` and data sources configuration parameters.
 
 ---
 
@@ -74,7 +79,7 @@ docker run -it -d \
 - `STELLAR_WORKDIR` - path to the working directory where Stellar will store data
 - `5432` - port of the local PostgreSQL database
 
-**_Note:_** You need to set dbConnection in `app.config.json` to `postgres://stellar:123456@127.0.0.1:5432/stellar-core` where `123456` is the
+**_Note:_** You need to set `dbConnection` in `app.config.json` to `postgres://stellar:123456@127.0.0.1:5432/stellar-core` where `123456` is the
 password for the PostgreSQL database.
 
 #### Default ports 
