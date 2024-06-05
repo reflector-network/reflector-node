@@ -32,7 +32,7 @@ docker run -it -d -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v "STELLAR_WORKDIR:/
 ```
 6. Start Reflector Docker image. By default it listens 30347 port.
 ```bash
-docker run -d -p 30347:30347-e NODE_ENV=development -v "/opt/reflector-node-home:/reflector-node/app/home" --name=reflector reflectornet/reflector-node:latest
+docker run -d -p 30347:30347 -v "/opt/reflector-node-home:/reflector-node/app/home" --name=reflector reflectornet/reflector-node:latest
 ```
 7. Open corresponding port in firewall (30347 by default).
 
