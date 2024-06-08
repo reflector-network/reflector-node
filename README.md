@@ -26,7 +26,14 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
     },
     "exchanges": {
       "name": "exchanges",
-      "type": "api"
+      "type": "api",
+      "proxy": {
+        "connectionString": [
+          "socks5://USER:PASSWORD@some-proxy.io:8001",
+          "socks5://USER:PASSWORD@some-proxy.io:8002"
+        ],
+        "useCurrent": true
+      }
     }
   },
   "dbSyncDelay": 15,
@@ -37,6 +44,7 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
 Where:
 - `secret` - the secret key of the node
 - `dataSources` - price data sources cofigurations
+- `dataSources.exchanges.proxy` - [optional] proxy configuration for the data source. `connectionString` is an array of proxy URLs. `useCurrent` - [optional] flag to use the current server for requests, along with the proxy.
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
  
 If you are joining the existing cluster, ask other node operators to share their basic config params, then override `secret` and data sources configuration parameters.

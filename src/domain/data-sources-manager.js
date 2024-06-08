@@ -1,4 +1,5 @@
 const {createDbConnection} = require('@reflector/reflector-db-connector')
+const {setProxy} = require('@reflector/reflector-exchanges-connector')
 const IssuesContainer = require('@reflector/reflector-shared/models/issues-container')
 const {ValidationError} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
@@ -17,10 +18,12 @@ const networks = {
     pubnet: 'Public Global Stellar Network ; September 2015'
 }
 
+const exchangesDataSourceName = 'exchanges'
+
 /**
  * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string }>}
  */
-const __connections = new Map([['exchanges', {type: DataSourceTypes.API, name: 'exchanges'}]]) //exchanges is not required any configuration, so it is added by default
+const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.API, name: exchangesDataSourceName}]]) //exchanges is not required any configuration, so it is added by default
 
 /**
  * @param {DataSource} dataSource - data source
@@ -28,7 +31,14 @@ const __connections = new Map([['exchanges', {type: DataSourceTypes.API, name: '
 function __registerConnection(dataSource) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
-    const {name, dbConnection: source, sorobanRpc, secret, type} = dataSource
+    const {
+        name,
+        dbConnection: source,
+        sorobanRpc,
+        secret,
+        type,
+        proxy
+    } = dataSource
     switch (type) {
         case DataSourceTypes.DB:
             {
@@ -40,9 +50,16 @@ function __registerConnection(dataSource) {
             }
             break
         case DataSourceTypes.API:
-            if (!secret && name === 'coinmarketcap')
-                throw new ValidationError('secret is required')
-            __connections.set(name, {type, secret, name})
+            {
+                if (!secret && name === 'coinmarketcap')
+                    throw new ValidationError('secret is required')
+                __connections.set(name, {type, secret, name})
+                if (proxy)
+                    if (name === exchangesDataSourceName)
+                        setProxy(proxy.connectionString, proxy.useCurrent)
+                    else
+                        logger.warn(`Proxy is not supported for ${name}`)
+            }
             break
         default:
             throw new ValidationError(`invalid dataSource type: ${type}`)
