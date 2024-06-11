@@ -28,8 +28,8 @@ class WsServer {
     async __onConnect(ws, req) {
         try {
             const pubkey = req.headers.pubkey
-            if (!pubkey || !StrKey.isValidEd25519PublicKey(pubkey))
-                throw new Error('pubkey is required')
+            if (!pubkey || !StrKey.isValidEd25519PublicKey(pubkey) || !nodesManager.hasNode(pubkey))
+                throw new Error('pubkey is undefined or invalid, or not present in the nodes list')
             const incomingConnection = new IncomingChannel(ws, pubkey)
             await incomingConnection.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {payload: incomingConnection.authPayload}})
             nodesManager.addConnection(incomingConnection)

@@ -134,7 +134,8 @@ class AppConfig extends IssuesContainer {
             handshakeTimeout: this.handshakeTimeout,
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,
-            trace: this.trace
+            trace: this.trace,
+            port: this.port
         }
     }
 }

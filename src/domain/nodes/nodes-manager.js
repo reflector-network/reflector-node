@@ -54,6 +54,14 @@ class NodesManager {
     }
 
     /**
+     * @param {string} pubkey - pubkey
+     * @returns {boolean}
+     */
+    hasNode(pubkey) {
+        return this.__nodes.has(pubkey)
+    }
+
+    /**
      * @param {Map<string, ConfigNode>}} nodes - nodes from settings
      */
     setNodes(configNodes) {
