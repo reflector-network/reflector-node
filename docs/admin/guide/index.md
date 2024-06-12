@@ -8,21 +8,21 @@
 4. Put the `app.config.json` file in the directory. 
 ```json
 {
-  "secret": "S...G", //secret key of the node
+  "secret": "SA5G...1DKG", //secret key of the node
   "dataSources": { //data sources for price data
-    "coinmarketcap": {
-      "type": "api",
-      "secret": "{coinmarketcap_api_key}",
-      "name": "coinmarketcap"
-    },
     "pubnet": {
       "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
       "sorobanRpc": ["https://soroban-testnet.stellar.org"],
       "type": "db",
       "name": "testnet"
+    },
+    "exchanges": {
+      "name": "exchanges",
+      "type": "api"
     }
   },
-  "dbSyncDelay": 15 //delay in seconds for database synchronization. Optional, default is 15
+  "dbSyncDelay": 15, //delay in seconds for database synchronization. Optional, default is 15
+  "port": 30447 //default port for inbound connections
 }
 ```
 5. If you plan to run a new instance of Stellar Core sever, create a home directory for StellarCore database and server files. And start Stellar Core Docker image. 
