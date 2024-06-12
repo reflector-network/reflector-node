@@ -19,33 +19,27 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
   "secret": "S...G",
   "dataSources": {
     "pubnet": {
-      "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
-      "sorobanRpc": ["https://soroban-testnet.stellar.org"],
+      "name": "pubnet",
       "type": "db",
-      "name": "testnet"
+      "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
+      "sorobanRpc": ["https://localhost:8003/", "https://soroban-rpc.mainnet.stellar.gateway.fm/"],
     },
     "exchanges": {
       "name": "exchanges",
-      "type": "api",
-      "proxy": {
-        "connectionString": [
-          "socks5://USER:PASSWORD@some-proxy.io:8001",
-          "socks5://USER:PASSWORD@some-proxy.io:8002"
-        ],
-        "useCurrent": true
-      }
+      "type": "api"
     }
   },
   "dbSyncDelay": 15,
-  "trace": false
+  "port": 30447
 }
 ```
 
 Where:
 - `secret` - the secret key of the node
 - `dataSources` - price data sources cofigurations
-- `dataSources.exchanges.proxy` - [optional] proxy configuration for the data source. `connectionString` is an array of proxy URLs. `useCurrent` - [optional] flag to use the current server for requests, along with the proxy.
+- `dataSources.exchanges.proxy` - [optional] proxy configuration for the data source (`connectionString` - array of socks5 proxy URLs).
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
+- `port` - [optional] custom TCP port for inbound connections
  
 If you are joining the existing cluster, ask other node operators to share their basic config params, then override `secret` and data sources configuration parameters.
 
