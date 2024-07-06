@@ -3,7 +3,7 @@
  * */
 const WebSocket = require('ws')
 const {v4: uuidv4} = require('uuid')
-const {isDebugging} = require('../../utils')
+const {isDebugging} = require('../../utils/utils')
 const ChannelBase = require('./channel-base')
 const ChannelTypes = require('./channel-types')
 

@@ -95,8 +95,7 @@ class Node {
             this.__incommingChannel?.close(1001, 'Node closed', true)
             this.__outgoingChannel?.close(1000, 'Node closed', true)
         } catch (err) {
-            logger.error(`${this.pubkey} websocket error on close`)
-            logger.error(err)
+            logger.error({err}, `${this.pubkey} websocket error on close`)
         }
     }
 

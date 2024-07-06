@@ -1,7 +1,7 @@
 const {buildUpdateTransaction, normalizeTimestamp} = require('@reflector/reflector-shared')
 const container = require('../container')
+const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
-const {getAccount} = require('./rpc-helper')
 
 const idleWorkerTimeframe = 1000 * 60 * 2 //2 minute
 
@@ -11,7 +11,7 @@ function isPendingConfigExpired(pendingConfig) {
     return pendingConfig.timestamp < Date.now()
 }
 
-class ClusteUpdatesRunner extends RunnerBase {
+class ClusterRunner extends RunnerBase {
 
     async __workerFn(timestamp) {
         const {settingsManager} = container
@@ -19,7 +19,7 @@ class ClusteUpdatesRunner extends RunnerBase {
         if (!pendingConfig || pendingConfig.timestamp > Date.now())
             return
 
-        const {sorobanRpc, networkPassphrase} = this.__getBlockchainConnectorSettings()
+        const {sorobanRpc, networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
         const sourceAccount = await getAccount(config.systemAccount, sorobanRpc)
 
         let hasMoreTxns = false
@@ -64,4 +64,4 @@ class ClusteUpdatesRunner extends RunnerBase {
     }
 }
 
-module.exports = ClusteUpdatesRunner
+module.exports = ClusterRunner

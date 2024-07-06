@@ -1,6 +1,6 @@
 const ChannelTypes = require('../channels/channel-types')
 const NodeStates = require('../../domain/nodes/node-states')
-const container = require('../../domain/container')
+const runnerManager = require('../../domain/runners/runner-manager')
 const BaseHandler = require('./base-handler')
 
 
@@ -12,7 +12,7 @@ class StateHandler extends BaseHandler {
         switch (message.data.state) {
             case NodeStates.READY: {
                 const promises = []
-                for (const oracleRunner of container.oracleRunnerManager.all()) {
+                for (const oracleRunner of runnerManager.all()) {
                     promises.push(oracleRunner.broadcastSignatureTo(ws.pubkey))
                 }
                 await Promise.allSettled(promises)

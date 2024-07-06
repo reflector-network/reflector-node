@@ -24,7 +24,6 @@ try {
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
     const StatisticsManager = require('./domain/statistics-manager')
-    const OracleRunnerManager = require('./domain/runners/oracle-runner-manager')
 
     logger.info('Starting reflector node')
 
@@ -32,7 +31,6 @@ try {
     container.statisticsManager = new StatisticsManager()
     container.handlersManager = new HandlersManager()
     container.webSocketServer = new WsServer()
-    container.oracleRunnerManager = new OracleRunnerManager()
     require('./app')(container)
 } catch (e) {
     if (logger)

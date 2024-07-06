@@ -6,7 +6,7 @@ const srcDir = path.resolve(__dirname, 'src')
 const distDir = path.resolve(__dirname, 'dist')
 const distAppDir = path.resolve(distDir, 'app')
 
-const foldersToIgnore = ['tests', 'home']
+const foldersToIgnore = ['tests', 'home', 'node_modules']
 
 if (fs.existsSync(distDir)) {
     fs.rmSync(distDir, {recursive: true})

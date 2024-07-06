@@ -3,7 +3,7 @@ const path = require('path')
 const pino = require('pino')
 const rfs = require('rotating-file-stream')
 const container = require('./domain/container')
-const {isDebugging} = require('./utils')
+const {isDebugging} = require('./utils/utils')
 
 const traceLevel = 'trace'
 const infoLevel = 'info'

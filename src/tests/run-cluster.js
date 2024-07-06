@@ -1,7 +1,8 @@
 const fs = require('fs')
 const path = require('path')
 const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
-const {deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig} = require('./utils')
+const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig, generateAssetContract} = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
@@ -33,20 +34,41 @@ async function closeEndRemoveIfExist(name) {
 /**
  * @param {SorobanRpc.Server} server
  * @param {string[]} nodes
- * @param {{type: string}} dataSource
+ * @param {string} contractType
+ * @param {string} dataSource
  */
-async function generateNewContract(server, nodes, dataSource) {
+async function generateNewContract(server, nodes, contractType, dataSource) {
     const admin = Keypair.random()
     await createAccount(server, admin.publicKey())
     console.log('Admin ' + admin.publicKey() + ' secret:' + admin.secret())
-    const contractId = await deployContract(admin.secret())
+    const contractId = await deployContract(admin.secret(), contractType)
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
 
+    const contractConfigData = {
+        contractId,
+        contractType,
+        dataSource,
+        admin: admin.publicKey()
+    }
+
+    if (contractType === ContractTypes.SUBSCRIPTIONS) {
+        contractConfigData.token = 'CBUYIP2JEH6PPUTQTILEMPQX7IKB34S5734XUUQE4M3RVEHOYAFOWFTI'
+        //const tokenAdmin = Keypair.random()
+        //await createAccount(server, tokenAdmin.publicKey())
+        //contractConfigData.token = await generateAssetContract(`SBS:${tokenAdmin.publicKey()}`, admin.secret())
+        ////save token admin secret
+        //if (!fs.existsSync(configsPath)) {
+        //fs.mkdirSync(configsPath, {recursive: true})
+        //}
+        //const tokenAdminSecretPath = path.join(configsPath, `${contractConfigData.token}.token.secret`)
+        //fs.writeFileSync(tokenAdminSecretPath, tokenAdmin.secret(), {encoding: 'utf-8'})
+    }
+
     await updateAdminToMultiSigAccount(server, admin, nodes)
 
-    const config = generateSingleConfig(admin.publicKey(), contractId, dataSource)
+    const config = generateSingleConfig(contractConfigData)
     return config
 }
 
@@ -75,9 +97,13 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     //generate contract configs
     const contracts = {}
     for (const contractConfig of contractConfigs) {
-        const config = await generateNewContract(server, nodes, contractConfig.dataSource)
+        const {dataSource} = contractConfig
+        const config = await generateNewContract(server, nodes, ContractTypes.ORACLE, dataSource)
         contracts[config.oracleId] = config
     }
+
+    const subscriptionsContract = await generateNewContract(server, nodes, ContractTypes.SUBSCRIPTIONS)
+    contracts[subscriptionsContract.contractId] = subscriptionsContract
 
     const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, false)
     fs.mkdirSync(configsPath, {recursive: true})
@@ -104,7 +130,7 @@ async function startNodes(nodesCount) {
         const port = 30347 + (i * 100)
         //closeEndRemoveIfExist(nodeName)
 
-        const startCommand = `docker run -d -p ${port}:30347 -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
+        const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
 
         console.log(startCommand)
         await runCommand(startCommand)
@@ -125,12 +151,12 @@ async function run(nodes, contractConfigs) {
 const nodeConfigs = [
     {isInitNode: true},
     {isInitNode: true},
-    {isInitNode: false}
+    {isInitNode: true}
 ]
 
 const contractConfigs = [
     {dataSource: constants.sources.pubnet},
-    {dataSource: constants.sources.coinmarketcap},
+    //{dataSource: constants.sources.coinmarketcap},
     {dataSource: constants.sources.exchanges}
 ]
 

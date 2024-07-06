@@ -3,7 +3,7 @@ const {v4: uuidv4} = require('uuid')
 const logger = require('../../logger')
 const container = require('../../domain/container')
 const MessageTypes = require('../handlers/message-types')
-const {isDebugging} = require('../../utils')
+const {isDebugging} = require('../../utils/utils')
 const ChannelTypes = require('./channel-types')
 
 class ChannelBase {

@@ -35,8 +35,7 @@ class NodesManager {
             if (node.isReady(ChannelTypes.OUTGOING))
                 await node.send(message, ChannelTypes.OUTGOING)
         } catch (err) {
-            logger.error(`Error sending message ${message.type} to ${pubkey}`)
-            logger.error(err)
+            logger.error({err}, `Error sending message ${message.type} to ${pubkey}`)
         }
     }
 
