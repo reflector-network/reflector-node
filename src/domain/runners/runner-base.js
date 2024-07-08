@@ -105,9 +105,6 @@ class RunnerBase {
 
     constructor(contractId) {
         this.contractId = contractId
-        const {networkPassphrase, sorobanRpc} = container.settingsManager.getBlockchainConnectorSettings()
-        this.networkPassphrase = networkPassphrase
-        this.sorobanRpc = sorobanRpc
     }
 
     start() {
@@ -179,7 +176,8 @@ class RunnerBase {
         try {
             await this.__workerFn(timestamp)
             //update last processed timestamp
-            statisticsManager.setLastProcessedTimestamp(this.contractId, timestamp)
+            if (this.contractId)
+                statisticsManager.setLastProcessedTimestamp(this.contractId, timestamp)
         } catch (err) {
             logger.error({err}, `Error in worker. Oracle id: ${this.contractId || 'cluster'}, timestamp: ${timestamp}, error: ${err.message}`)
         } finally {
@@ -259,14 +257,15 @@ class RunnerBase {
         if (!this.__pendingTransaction || !this.__pendingTransaction.tx.isReadyToSubmit(currentNodesLength))
             return
         const {tx, reject, resolve} = this.__pendingTransaction
+        const {networkPassphrase, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
         try {
             this.__clearPendingTransaction() //clear pending transaction to avoid duplicate submission
             tx.submitted = true
             //sleep for random time from 0 to 1 seconds to avoid simultaneous submissions
-            await setTimeout(() => {}, Math.floor(Math.random() * 1000))
+            await setTimeout(() => { }, Math.floor(Math.random() * 1000))
             const result = await submitTransaction(
-                this.networkPassphrase,
-                this.sorobanRpc,
+                networkPassphrase,
+                sorobanRpc,
                 tx,
                 tx.getMajoritySignatures(currentNodesLength),
                 this.__contractInfo
@@ -321,8 +320,11 @@ class RunnerBase {
                     this.__trySubmitTransaction()
                     response = await pendingTx.submitPromise
 
+
+                    const {networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
+
                     //check if transaction was signed by the current node
-                    const resultTx = new Transaction(response.envelopeXdr, this.networkPassphrase)
+                    const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
                     if (resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
                         statisticsManager.incSubmittedTransactions(this.contractId)
                 }

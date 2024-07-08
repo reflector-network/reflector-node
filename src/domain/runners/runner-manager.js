@@ -46,7 +46,7 @@ class RunnerManager {
     /**
      * @param {Map<string, string>} contracts - contracts id -> contract type
      */
-    setContractsIds(contracts) {
+    setContracts(contracts) {
         const allRunnerIds = [...this.runners.keys()]
         const allKeys = new Set([...allRunnerIds, ...contracts.keys()])
         for (const contractId of allKeys) {

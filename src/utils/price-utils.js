@@ -16,32 +16,31 @@ function calcCrossPrice(price1, price2, decimals) {
 }
 
 /**
- * Convert price to BigInt value with given decimals
- * @param {number} price - price value
+ * Convert value to BigInt with specified number of decimals
+ * @param {BigInt} value - value
  * @param {number} decimals - number of decimals
  * @returns {BigInt}
  */
-function getBigIntPrice(price, decimals) {
-    price = Number(price)
-    if (typeof price !== 'number' || isNaN(price))
-        throw new Error('Price should be expressed as Number')
+function getPreciseValue(value, decimals) {
+    if (typeof value !== 'bigint')
+        throw new Error('Value should be expressed as BigInt')
     if (typeof decimals !== 'number' || isNaN(decimals))
         throw new Error('Decimals should be expressed as Number')
-    return BigInt(Math.round(price * Math.pow(10, decimals)))
+    if (value === 0n)
+        return 0n
+    return value * (10n ** BigInt(decimals))
 }
 
 /**
  * Calculate price from volume and quote volume
- * @param {number} volume - volume
- * @param {number} quoteVolume - quote volume
+ * @param {BigInt} volume - volume
+ * @param {BigInt} quoteVolume - quote volume
  * @param {number} decimals - number of decimals
  * @returns {BigInt}
  */
 function getVWAP(volume, quoteVolume, decimals) {
-    if (isNaN(volume) || isNaN(quoteVolume))
-        return 0n
-    const totalVolumeBigInt = getBigIntPrice(volume, decimals)
-    const totalQuoteVolumeBigInt = getBigIntPrice(quoteVolume, decimals * 2) //multiply decimals by 2 to get correct price
+    const totalVolumeBigInt = getPreciseValue(volume, decimals)
+    const totalQuoteVolumeBigInt = getPreciseValue(quoteVolume, decimals * 2) //multiply decimals by 2 to get correct price
     if (totalQuoteVolumeBigInt === 0n || totalVolumeBigInt === 0n)
         return 0n
     return totalQuoteVolumeBigInt / totalVolumeBigInt
@@ -86,7 +85,7 @@ function getMedianPrice(range) {
 }
 
 module.exports = {
-    getBigIntPrice,
+    getPreciseValue,
     calcCrossPrice,
     getVWAP,
     getMedianPrice

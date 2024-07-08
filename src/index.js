@@ -23,12 +23,10 @@ try {
     const SettingsManager = require('./domain/settings-manager')
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
-    const StatisticsManager = require('./domain/statistics-manager')
 
     logger.info('Starting reflector node')
 
     container.settingsManager = new SettingsManager()
-    container.statisticsManager = new StatisticsManager()
     container.handlersManager = new HandlersManager()
     container.webSocketServer = new WsServer()
     require('./app')(container)

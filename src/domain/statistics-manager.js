@@ -152,6 +152,18 @@ class StatisticsManager {
     remove(contractId) {
         this.__contractStatistics.delete(contractId)
     }
+
+    /**
+     * Remove all not in list contract statistics
+     * @param {string[]} contractIds - contract id
+     */
+    setContractIds(contractIds) {
+        const allKeys = [...this.__contractStatistics.keys()]
+        for (const contractId of allKeys) {
+            if (contractIds.indexOf(contractId) === -1)
+                this.remove(contractId)
+        }
+    }
 }
 
 module.exports = new StatisticsManager()

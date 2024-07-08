@@ -2,7 +2,7 @@ const {normalizeTimestamp, getOracleContractState} = require('@reflector/reflect
 const {getTradesData} = require('@reflector/reflector-exchanges-connector')
 const {aggregateTrades} = require('@reflector/reflector-db-connector')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
-const {getMedianPrice, getVWAP, getBigIntPrice, calcCrossPrice} = require('../utils/price-utils')
+const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../utils/price-utils')
 const DataSourceTypes = require('../models/data-source-types')
 const dataSourcesManager = require('../domain/data-sources-manager')
 const logger = require('../logger')
@@ -21,12 +21,12 @@ function getCount(lastTimestemp, targetTimestamp) {
 }
 
 /**
- * @param {{volume: number, quoteVolume: number}[][]} volumes - volumes
+ * @param {{volume: BigInt, quoteVolume: BigInt}[][]} volumes - volumes
  * @param {number} decimals - decimals
  * @param {BigInt[]} prevPrices - previous prices
  * @returns {BigInt[]}
  */
-function computePrice(volumes, decimals, prevPrices) {
+function calcPrice(volumes, decimals, prevPrices) {
 
     const prices = Array(volumes.length).fill(0n)
     for (let i = 0; i < volumes.length; i++) {
@@ -155,7 +155,7 @@ class PriceManager {
         let currentVolumeTimestamp = timestamp - ((timeframe || contract.timeframe) / 1000) //default timeframe is contract timeframe
         //get volumes for the contract
         const contractVolumes = this.tradesData.get(contractId)
-        const totalVolumes = Array(assets.length).fill(0).map(() => new Map())
+        const totalVolumes = Array(assets.length).fill(0n).map(() => new Map())
         while (currentVolumeTimestamp < timestamp) {
             const currentVolumes = contractVolumes.get(currentVolumeTimestamp)
             if (!currentVolumes) {
@@ -168,7 +168,7 @@ class PriceManager {
                 for (const tradeData of currentVolumes[i]) {
                     let sourceTotalVolume = totalAssetVolumes.get(tradeData.source)
                     if (!sourceTotalVolume) {
-                        sourceTotalVolume = {volume: 0, quoteVolume: 0}
+                        sourceTotalVolume = {volume: 0n, quoteVolume: 0n}
                         totalAssetVolumes.set(tradeData.source, sourceTotalVolume)
                     }
                     if (tradeData.ts !== currentVolumeTimestamp) {
@@ -181,7 +181,7 @@ class PriceManager {
             currentVolumeTimestamp += minute
         }
         //compute price
-        const prices = computePrice(totalVolumes.map(v => [...v.values()]), contract.decimals, prevPrices)
+        const prices = calcPrice(totalVolumes.map(v => [...v.values()]), contract.decimals, prevPrices)
         return prices
     }
 
@@ -224,7 +224,7 @@ class PriceManager {
             throw new Error(`Asset ${asset2.asset} not found in contract ${contract2.contractId}`)
 
         if (asset1.source === asset2.source && asset1.asset.equals(asset2.asset, networkPassphrase)) {
-            return getBigIntPrice(1n, decimals1)
+            return getPreciseValue(1n, decimals1)
         }
 
         //normalize timestamp

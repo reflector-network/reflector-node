@@ -8,6 +8,7 @@ const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
 const dataSourceManager = require('./data-sources-manager')
+const statisticsManager = require('./statistics-manager')
 
 const appConfigPath = `${container.homeDir}/app.config.json`
 const clusterConfigPath = `${container.homeDir}/.config.json`
@@ -133,8 +134,9 @@ class SettingsManager {
         if (!this.config.isValid)
             return
         const contracts = new Map([...config.contracts.values()].map(c => ([c.contractId, c.type])))
-        runnerManager.setContractsIds(contracts)
+        runnerManager.setContracts(contracts)
         nodesManager.setNodes(config.nodes)
+        statisticsManager.setContractIds([...config.contracts.keys()])
         runnerManager.start()
         if (save)
             fs.writeFileSync(clusterConfigPath, JSON.stringify(config.toPlainObject(), null, 2))
