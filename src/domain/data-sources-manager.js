@@ -27,8 +27,9 @@ const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.
 
 /**
  * @param {DataSource} dataSource - data source
+ * @param {{ connectionString: string, useCurrent: boolean }} proxy - proxy
  */
-function __registerConnection(dataSource) {
+function __registerConnection(dataSource, proxy) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
     const {
@@ -36,8 +37,7 @@ function __registerConnection(dataSource) {
         dbConnection: source,
         sorobanRpc,
         secret,
-        type,
-        proxy
+        type
     } = dataSource
     switch (type) {
         case DataSourceTypes.DB:
@@ -78,11 +78,12 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
+     * @param {{ connectionString: string, useCurrent: boolean }} proxy - proxy
      */
-    setDataSources(dataSources) {
+    setDataSources(dataSources, proxy) {
         for (const source of dataSources) {
             try {
-                __registerConnection(source)
+                __registerConnection(source, proxy)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))

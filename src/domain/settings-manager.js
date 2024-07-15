@@ -1,9 +1,10 @@
-
 const fs = require('fs')
 const {ValidationError, ConfigEnvelope, buildUpdates, Config} = require('@reflector/reflector-shared')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const AppConfig = require('../models/app-config')
 const logger = require('../logger')
+const {setProxy} = require('../utils/requests-helper')
+const {importRSAKey} = require('../utils/crypto-helper')
 const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
@@ -46,6 +47,12 @@ function __hasContractConfig(config, contractId, type = null) {
     return true
 }
 
+async function normalizeAppConfig(config) {
+    if (!config || !config.rsaKey)
+        return
+    config.rsaKeyObject = await importRSAKey(Buffer.from(config.rsaKey, 'base64'))
+}
+
 class SettingsManager {
     /**
      * @type {AppConfig}
@@ -62,11 +69,13 @@ class SettingsManager {
      */
     config
 
-    init() {
+    async init() {
         //set app config
         if (!fs.existsSync(appConfigPath))
             throw new Error('Config file not found')
         const rawAppConfig = JSON.parse(fs.readFileSync(appConfigPath).toString().trim())
+        //need to import rsa key here, because it requires async operation
+        await normalizeAppConfig(rawAppConfig)
         this.appConfig = new AppConfig(rawAppConfig)
         if (!this.appConfig.isValid) {
             //shutdown the app if app config is invalid
@@ -122,7 +131,8 @@ class SettingsManager {
     setAppConfig(config) {
         this.appConfig = config
         logger.setTrace(this.appConfig.trace)
-        dataSourceManager.setDataSources([...config.dataSources.values()])
+        setProxy(config.proxy?.connectionString)
+        dataSourceManager.setDataSources([...config.dataSources.values()], config.proxy)
     }
 
     /**

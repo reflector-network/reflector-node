@@ -20,6 +20,8 @@ class AppConfig extends IssuesContainer {
         this.__assignDbSyncDelay(config.dbSyncDelay)
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
+        this.__assignRSAKey(config.rsaKey, config.rsaKeyObject)
+        this.__assignProxy(config.proxy, config.dataSources)
     }
 
     /**
@@ -56,6 +58,26 @@ class AppConfig extends IssuesContainer {
      * @type {boolean}
      */
     trace = false
+
+    /**
+     * @type {string}
+     */
+    orchestratorUrl
+
+    /**
+     * @type {string} - base64 encoded RSA private key
+     */
+    rsaKey
+
+    /**
+     * @type {KeyObject} - RSA private key object
+     */
+    rsaKeyObject
+
+    /**
+     * @type {{connectionString: string, useCurrent: boolean}}
+     */
+    proxy = null
 
     __assignKeypair(secret) {
         try {
@@ -127,6 +149,33 @@ class AppConfig extends IssuesContainer {
         this.trace = !!trace
     }
 
+    __assignRSAKey(rsaKey, rsaKeyObject) {
+        try {
+            if (!rsaKey)
+                throw new Error(IssuesContainer.notDefined)
+            this.rsaKey = rsaKey
+            this.rsaKeyObject = rsaKeyObject
+        } catch (e) {
+            this.__addIssue(`cryptoPrivateKey: ${e.message}`)
+        }
+    }
+
+    __assignProxy(proxy, rawDataSources) {
+        try {
+            if (proxy && proxy.connectionString) {
+                this.proxy = proxy
+                return
+            }
+            //legacy support
+            const proxySource = Object.values(rawDataSources).find(ds => ds.proxy)
+            if (!proxySource)
+                return
+            this.proxy = proxySource.proxy
+        } catch (e) {
+            this.__addIssue(`proxy: ${e.message}`)
+        }
+    }
+
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
@@ -135,7 +184,9 @@ class AppConfig extends IssuesContainer {
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,
             trace: this.trace,
-            port: this.port
+            port: this.port,
+            rsaKey: this.rsaKey,
+            proxy: this.proxy
         }
     }
 }

@@ -10,7 +10,6 @@ class DataSource {
         this.__setDbConnection(raw.dbConnection)
         this.__setSorobanRpc(raw.sorobanRpc)
         this.__setSecret(raw.secret)
-        this.__setProxy(raw.proxy)
     }
 
     /**
@@ -37,11 +36,6 @@ class DataSource {
      * @type {string}
      */
     name = null
-
-    /**
-     * @type {{ connectionString: string, useCurrent: boolean }}
-     */
-    proxy = null
 
     __setType(type) {
         switch (type) {
@@ -79,12 +73,6 @@ class DataSource {
             throw new Error('DataSource secret is undefined. It is required for API data sources')
         }
         this.secret = secret
-    }
-
-    __setProxy(proxy) {
-        if (!proxy || !proxy.connectionString)
-            return
-        this.proxy = {connectionString: proxy.connectionString, useCurrent: !!proxy.useCurrent}
     }
 }
 

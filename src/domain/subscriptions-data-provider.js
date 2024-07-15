@@ -1,10 +1,56 @@
-const {getSubscriptions, Asset, AssetType, normalizeTimestamp} = require('@reflector/reflector-shared')
+const {getSubscriptions, Asset, AssetType, normalizeTimestamp, sortObjectKeys} = require('@reflector/reflector-shared')
 const {scValToNative} = require('@stellar/stellar-sdk')
-const {getSubscriptionById, getSubscriptionsContractState} = require('@reflector/reflector-shared/helpers/entries-helper')
+const {getSubscriptionsContractState} = require('@reflector/reflector-shared/helpers/entries-helper')
 const {getLastContractEvents} = require('../utils/rpc-helper')
+const {sha256, decrypt} = require('../utils/crypto-helper')
 const logger = require('../logger')
 const container = require('./container')
 const priceManager = require('./price-manager')
+
+class TriggerEvent {
+    constructor(id, diff, price, lastPrice, timestamp, webhook) {
+        this.id = id
+        this.webhook = webhook
+        this.update = {
+            id: this.id.toString(),
+            diff,
+            price: price.toString(),
+            lastPrice: lastPrice.toString(),
+            timestamp
+        }
+    }
+
+    async computeHash() {
+        this.hash = Buffer.from(await sha256(Buffer.from(JSON.stringify(sortObjectKeys(this.update)))))
+    }
+}
+
+class EventsContainer {
+
+    constructor(timestamp) {
+        this.timestamp = timestamp
+        this.events = []
+        this.charges = []
+    }
+
+    async addEvent(id, diff, price, lastPrice, timestamp, webhook) {
+        const event = new TriggerEvent(id, diff, price, lastPrice, timestamp, webhook)
+        await event.computeHash()
+        this.events.push(event)
+    }
+
+    addCharge(id) {
+        this.charges.push(id)
+    }
+
+    async finish() {
+        this.events.sort((a, b) => a.id < b.id ? -1 : 1)
+        this.eventHashes = this.events.map(t => t.hash)
+        this.eventHexHashes = this.eventHashes.map(h => h.toString('hex'))
+        this.root = Buffer.from(await sha256(Buffer.concat(this.eventHashes)))
+        this.rootHex = this.root.toString('hex')
+    }
+}
 
 function getNormalizedAsset(raw) {
     const tickerAsset = {
@@ -15,6 +61,26 @@ function getNormalizedAsset(raw) {
         )
     }
     return tickerAsset
+}
+
+async function getWebhook(id, webhookBuffer) {
+    const verifiedWebhook = []
+    if (!webhookBuffer || !webhookBuffer.length)
+        return verifiedWebhook
+    try {
+        //decrypt webhook
+        const decrypted = await decrypt(container.settingsManager.appConfig.rsaKeyObject, new Uint8Array(webhookBuffer))
+        const webhook = decrypted ? JSON.parse(Buffer.from(decrypted)) : null
+        if (webhook && !Array.isArray(webhook))
+            throw new Error('Invalid webhook data')
+        for (const webhookItem of webhook) {
+            if (webhookItem.url)
+                verifiedWebhook.push(webhookItem)
+        }
+    } catch (e) {
+        logger.error(`Error decrypting webhook: ${e.message}. Subscription ${id?.toString()}`)
+    }
+    return verifiedWebhook
 }
 
 function isValidSources(contractId, asset1, asset2) {
@@ -87,14 +153,14 @@ class SubscriptionContractManager {
 
     /**
      * @param {number} timestamp - timestamp
-     * @returns {Promise<{triggers: any[], heartbeats: any[], charges: any[]}>}
+     * @returns {Promise<EventsContainer>}
      */
     async getSubscriptionActions(timestamp) {
         await this.__processLastEvents()
-        const triggers = []
-        const heartbeats = []
-        const charges = []
+        const container = new EventsContainer(timestamp)
         for (const subscription of this.__subscriptions.values()) {
+            if (subscription.status !== 0) //only active subscriptions
+                continue
             try {
                 const {
                     id,
@@ -109,7 +175,7 @@ class SubscriptionContractManager {
                 } = subscription
 
                 if (timestamp - lastCharge >= 1000 * 60 * 60 * 24)
-                    charges.push(subscription.id)
+                    container.addCharge(subscription.id)
 
                 if (!isValidSources(this.contractId, asset1, asset2)) {
                     logger.debug(`Datasource ${asset1.source} or/and ${asset2.source} not supported. Subscription ${id}.`)
@@ -117,12 +183,8 @@ class SubscriptionContractManager {
                 }
                 const price = await priceManager.getPriceForPair(asset1, asset2, timestamp)
                 const diff = getDiff(lastPrice, price)
-                if (diff >= threshold) {
-                    triggers.push({id, diff, price, lastPrice, timestamp, webhook})
-                    //set last price and current timestamp
-                    subscription.lastNotification = timestamp
-                } else if (timestamp - lastNotification >= heartbeat * 60 * 1000) {
-                    heartbeats.push(subscription.id)
+                if (diff >= threshold || timestamp - lastNotification >= heartbeat * 60 * 1000) {
+                    await container.addEvent(id, diff, price, lastPrice, timestamp, webhook)
                     //set last price and current timestamp
                     subscription.lastNotification = timestamp
                 }
@@ -132,8 +194,8 @@ class SubscriptionContractManager {
                 logger.error({err}, `Error processing subscription ${subscription.id}`)
             }
         }
-
-        return {triggers, heartbeats, charges}
+        await container.finish()
+        return container
     }
 
     async __loadSubscriptionsData() {
@@ -142,24 +204,30 @@ class SubscriptionContractManager {
         const {lastSubscriptionId} = await getSubscriptionsContractState(this.contractId, sorobanRpc)
         const rawData = await getSubscriptions(this.contractId, sorobanRpc, lastSubscriptionId)
         for (const raw of rawData)
-            this.__addSubscription(raw)
+            try {
+                if (raw.status === 0) //only active subscriptions
+                    await this.__addSubscription(raw)
+            } catch (err) {
+                logger.error({err}, `Error on adding subscription ${raw.id?.toString()}`)
+            }
     }
 
-    __addSubscription(raw, force = false) {
-        if (this.__subscriptions.has(raw.id) && !force)
+    async __addSubscription(raw) {
+        if (this.__subscriptions.has(raw.id))
             return
         const asset1 = getNormalizedAsset(raw.asset1)
         const asset2 = getNormalizedAsset(raw.asset2)
+        const webhook = await getWebhook(raw.id, raw.webhook)
         const subscription = {
             asset1,
             asset2,
             balance: raw.balance,
-            isActive: raw.is_active,
+            status: raw.status,
             id: raw.id,
             lastCharge: Number(raw.last_charge),
             owner: raw.owner,
             threshold: raw.threshold,
-            webhook: raw.webhook,
+            webhook,
             lastNotification: 0,
             lastPrice: 0n,
             heartbeat: raw.heartbeat
@@ -171,9 +239,6 @@ class SubscriptionContractManager {
         const {events, pagingToken} = await loadLastEvents(this.contractId, this.__pagingToken)
         this.__pagingToken = pagingToken
 
-        const {settingsManager} = container
-        const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
-
         const normalizedTimestamp = normalizeTimestamp(Date.now(), 60 * 1000)
         const triggerEvents = events
         for (const event of triggerEvents) {
@@ -183,20 +248,17 @@ class SubscriptionContractManager {
                     case 'created':
                     case 'deposit':
                         {
-                            const subscriptionId = event.value
-                            if (this.__subscriptions.has(subscriptionId))
-                                continue
-                            const rawSubscription = await getSubscriptionById(this.contractId, sorobanRpc, subscriptionId)
-                            this.__addSubscription(rawSubscription)
+                            const [subscriptionId, rawSubscription] = event.value
+                            rawSubscription.id = subscriptionId
+                            await this.__addSubscription(rawSubscription)
                         }
                         break
                     case 'suspended':
+                    case 'cancelled':
                         {
-                            for (const id in event.value) {
-                                if (this.__subscriptions.has(id)) {
+                            for (const id in event.value)
+                                if (this.__subscriptions.has(id))
                                     this.__subscriptions.delete(id)
-                                }
-                            }
                         }
                         break
                     case 'charged':
@@ -211,22 +273,7 @@ class SubscriptionContractManager {
                             }
                         }
                         break
-                    case 'triggered':
-                    case 'heartbeat':
-                        {
-                            const timestamp = event.value[0]
-                            const ids = event.value[1]
-                            for (const id of ids) {
-                                if (!this.__subscriptions.has(id)) {
-                                    logger.warn(`Subscription ${id} for last trigger not found`)
-                                }
-                                const subscription = this.__subscriptions.get(id)
-                                if (subscription.lastNotification < timestamp) {
-                                    subscription.lastNotification = Number(timestamp)
-                                    subscription.lastPrice = 0n
-                                }
-                            }
-                        }
+                    case 'trigger': //do nothing
                         break
                     default:
                         logger.error(`Unknown event type: ${eventTopic}`)

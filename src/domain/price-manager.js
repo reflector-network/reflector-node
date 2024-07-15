@@ -98,8 +98,6 @@ async function loadDbTradesData(dataSource, baseAsset, assets, from, count) {
         let ts = from
         for (let j = 0; j < tradesData.length; j++) {
             const tradeData = tradesData[j][i]
-            tradeData.quoteVolume = Number(tradeData.quoteVolume)
-            tradeData.volume = Number(tradeData.volume)
             tradeData.source = dataSource.name
             tradeData.ts = ts
             assetTradesData.push(tradeData)

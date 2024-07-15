@@ -8,7 +8,7 @@ const logger = require('./logger')
  * @param {Container} container - config object
  * @returns {Promise<{shutdown: function}>}
  */
-function init(container) {
+async function init(container) {
 
     function shutdown(code = 0) {
 
@@ -43,7 +43,7 @@ function init(container) {
         })
 
 
-        container.settingsManager.init()
+        await container.settingsManager.init()
         container.webSocketServer.init()
 
         container.app = {shutdown}

@@ -1,8 +1,9 @@
-const {buildSubscriptionTriggerTransaction, buildSubscriptionsInitTransaction, getContractState, buildSubscriptionChargeTransaction} = require('@reflector/reflector-shared')
+const {buildSubscriptionTriggerTransaction, buildSubscriptionsInitTransaction, getContractState, buildSubscriptionChargeTransaction, sortObjectKeys} = require('@reflector/reflector-shared')
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const {getManager, removeManager} = require('../subscriptions-data-provider')
+const {makeRequest} = require('../../utils/requests-helper')
 const statisticsManager = require('../statistics-manager')
 const RunnerBase = require('./runner-base')
 
@@ -56,16 +57,26 @@ class SubscriptionsRunner extends RunnerBase {
             if (!subscriptionsContractManager.isInitialized)
                 await subscriptionsContractManager.init()
 
-            const {triggers, charges, heartbeats} = await subscriptionsContractManager.getSubscriptionActions(timestamp)
+            const {
+                events,
+                charges,
+                eventHexHashes,
+                root,
+                rootHex
+            } = await subscriptionsContractManager.getSubscriptionActions(timestamp)
 
-            if (triggers.length > 0 || heartbeats.length > 0) {
+            if (events.length > 0) {
+                for (let i = 0; i < events.length; i++) {
+                    const event = events[i]
+                    this.__processTriggerData(timestamp, event, eventHexHashes, rootHex)
+                }
+
                 updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
                     account,
                     network,
                     sorobanRpc,
                     admin,
-                    triggerIds: (triggers || []).map(t => t.id),
-                    heartbeatIds: heartbeats || [],
+                    triggerHash: root,
                     timestamp,
                     contractId: this.contractId,
                     fee,
@@ -73,11 +84,6 @@ class SubscriptionsRunner extends RunnerBase {
                 })
 
                 await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
-
-                for (const trigger of triggers) {
-                    const {webhook, id, diff, price, lastPrice} = trigger
-                    logger.trace(`Trigger ${id} webhook: ${webhook}, timestamp: ${timestamp}, contractId: ${this.contractId}, diff: ${diff}, price: ${price}, lastPrice: ${lastPrice}`)
-                }
 
                 sourceAccount.incrementSequenceNumber()
             }
@@ -100,6 +106,43 @@ class SubscriptionsRunner extends RunnerBase {
         }
     }
 
+    /**
+     * @param {number} timestamp - current timestamp
+     * @param {any} event - trigger item data
+     * @param {string[]} events - trigger event hashes
+     * @param {string} root - composed trigger events hash
+     */
+    __processTriggerData(timestamp, event, events, root) {
+        try {
+            const {webhook} = event
+            if (webhook && webhook.length > 0) {
+                const update = {
+                    timestamp,
+                    contract: this.contractId,
+                    events,
+                    event: event.update,
+                    root
+                }
+                const signature = container.settingsManager.appConfig.keypair.sign(JSON.stringify(sortObjectKeys(update))).toString('hex')
+                const envelope = {
+                    update,
+                    signature,
+                    verifier: container.settingsManager.appConfig.publicKey
+                }
+                for (let j = 0; j < Math.min(events.length, 3); j++) {
+                    const currentWebhook = webhook[j]?.url
+                    if (currentWebhook)
+                        makeRequest(currentWebhook, {method: 'POST', data: envelope, timeout: 5000})
+                            .catch(e => {
+                                logger.debug(`Failed to send webhook to ${currentWebhook}: ${e.message}`)
+                            })
+                }
+            }
+        } catch (e) {
+            logger.error(`Failed to process trigger ${event.id}: ${e.message}`)
+        }
+    }
+
     get __timeframe() {
         return 60000
     }
@@ -110,6 +153,11 @@ class SubscriptionsRunner extends RunnerBase {
 
     get __dbSyncDelay() {
         return (container.settingsManager.appConfig.dbSyncDelay || 15) * 1000
+    }
+
+    stop() {
+        super.stop()
+        removeManager(this.contractId)
     }
 }
 
