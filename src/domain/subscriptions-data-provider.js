@@ -1,4 +1,4 @@
-const {getSubscriptions, Asset, AssetType, normalizeTimestamp, sortObjectKeys} = require('@reflector/reflector-shared')
+const {getSubscriptions, Asset, AssetType, sortObjectKeys} = require('@reflector/reflector-shared')
 const {scValToNative} = require('@stellar/stellar-sdk')
 const {getSubscriptionsContractState} = require('@reflector/reflector-shared/helpers/entries-helper')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
@@ -98,7 +98,12 @@ async function getWebhook(id, webhookBuffer) {
     try {
         //decrypt webhook
         const decrypted = await decrypt(container.settingsManager.appConfig.rsaKeyObject, new Uint8Array(webhookBuffer))
-        const webhook = decrypted ? JSON.parse(Buffer.from(decrypted)) : null
+        if (!decrypted)
+            return null
+        const rawWebhook = Buffer.from(decrypted).toString()
+        if (!rawWebhook || !rawWebhook.length)
+            return null
+        const webhook = rawWebhook.startsWith('[') ? JSON.parse(rawWebhook) :  rawWebhook.split(',').map(url => ({url}))
         if (webhook && !Array.isArray(webhook))
             throw new Error('Invalid webhook data')
         for (const webhookItem of webhook) {

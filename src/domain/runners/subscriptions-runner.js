@@ -1,4 +1,4 @@
-const {buildSubscriptionTriggerTransaction, buildSubscriptionsInitTransaction, getContractState, buildSubscriptionChargeTransaction, sortObjectKeys} = require('@reflector/reflector-shared')
+const {buildSubscriptionTriggerTransaction, buildSubscriptionsInitTransaction, getContractState, buildSubscriptionChargeTransaction, sortObjectKeys, normalizeTimestamp} = require('@reflector/reflector-shared')
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
@@ -65,6 +65,8 @@ class SubscriptionsRunner extends RunnerBase {
                 rootHex
             } = await subscriptionsContractManager.getSubscriptionActions(timestamp)
 
+            let chargeTimestamp = timestamp
+
             if (events.length > 0) {
                 for (let i = 0; i < events.length; i++) {
                     const event = events[i]
@@ -83,7 +85,15 @@ class SubscriptionsRunner extends RunnerBase {
                     maxTime
                 })
 
-                await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
+                const txResponse = await this.__buildAndSubmitTransaction(
+                    updateTxBuilder,
+                    sourceAccount,
+                    baseFee,
+                    timestamp,
+                    this.__dbSyncDelay
+                )
+
+                chargeTimestamp = normalizeTimestamp(txResponse.createdAt * 1000 + 5000 - 1, 5000) //round to 5 seconds
 
                 //increment sequence number for changes
                 sourceAccount.incrementSequenceNumber()
@@ -105,7 +115,7 @@ class SubscriptionsRunner extends RunnerBase {
                     maxTime
                 })
 
-                await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
+                await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, chargeTimestamp, 0)
             }
         }
     }
