@@ -29,11 +29,11 @@ class SubscriptionsRunner extends RunnerBase {
         //get account info
         const sourceAccount = await getAccount(admin, sorobanRpc)
 
-        logger.trace(`OracleRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
+        logger.trace(`SubscriptionsRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
 
         const contractState = await getContractState(this.contractId, sorobanRpc)
 
-        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastSubscriptionsId)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
+        logger.trace(`Contract state: lastSubscriptionsId: ${Number(contractState.lastSubscriptionsId)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
         statisticsManager.setLastSubscriptionData(
             this.contractId,
             Number(contractState.lastSubscriptionsId),
@@ -54,8 +54,8 @@ class SubscriptionsRunner extends RunnerBase {
         } else {
 
             const subscriptionsContractManager = getManager(this.contractId)
-            if (!subscriptionsContractManager.isInitialized)
-                await subscriptionsContractManager.init()
+            if (!subscriptionsContractManager.isRunning)
+                await subscriptionsContractManager.start()
 
             const {
                 events,
@@ -85,7 +85,11 @@ class SubscriptionsRunner extends RunnerBase {
 
                 await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
 
+                //increment sequence number for changes
                 sourceAccount.incrementSequenceNumber()
+
+                //set notification timestamp for processed events
+                subscriptionsContractManager.setNotificationTimestamp(timestamp, events.map(e => e.id))
             }
 
             if (charges.length > 0) {
@@ -94,7 +98,7 @@ class SubscriptionsRunner extends RunnerBase {
                     network,
                     sorobanRpc,
                     admin,
-                    ids: charges,
+                    ids: charges.slice(0, Math.min(15, charges.length)),
                     timestamp,
                     contractId: this.contractId,
                     fee,
@@ -148,7 +152,11 @@ class SubscriptionsRunner extends RunnerBase {
     }
 
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + this.__timeframe
+        let nextTimestamp = currentTimestamp + this.__timeframe
+        while (nextTimestamp < Date.now()) {
+            nextTimestamp += this.__timeframe
+        }
+        return nextTimestamp
     }
 
     get __dbSyncDelay() {

@@ -30,7 +30,7 @@ const clusterPendingConfigPath = `${container.homeDir}/.pending.config.json`
 function __getContractConfig(config, contractId) {
     const contractConfig = config.contracts.get(contractId)
     if (!contractConfig)
-        throw new ValidationError('Contract not found')
+        throw new ValidationError(`Contract ${contractId} not found`)
     return contractConfig
 }
 

@@ -32,7 +32,7 @@ class OracleRunner extends RunnerBase {
 
         const contractState = await getContractState(this.contractId, sorobanRpc)
 
-        logger.trace(`Contract state: lastSubpcriptionId: ${Number(contractState.lastSubscriptionsId)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
+        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
         statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
 
         let updateTxBuilder = null

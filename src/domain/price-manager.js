@@ -40,8 +40,7 @@ function calcPrice(volumes, decimals, prevPrices) {
 
 const minute = 60
 const minuteMs = minute * 1000
-const maxLimit = 100
-
+const maxLimit = 15
 
 /**
  * @param {any} dataSource - source
@@ -183,62 +182,6 @@ class PriceManager {
         return prices
     }
 
-    /**
-     * @param {{asset: Asset, source: string}} asset1 - asset1
-     * @param {{asset: Asset, source: string}} asset2 - asset2
-     * @param {number} timestamp - timestamp
-     * @returns {Promise<BigInt>}
-     */
-    async getPriceForPair(asset1, asset2, timestamp) {
-
-        const {settingsManager} = container
-        const contract1 = settingsManager.getContractConfig(asset1.source)
-        if (!contract1 || contract1.type !== ContractTypes.ORACLE)
-            throw new Error(`Contract ${asset1.source} is not found in oracle contracts`)
-        const contract2 = settingsManager.getContractConfig(asset2.source)
-        if (!contract2 || contract2.type !== ContractTypes.ORACLE)
-            throw new Error(`Contract ${asset2.source} is not found in oracle contracts`)
-
-        const {baseAsset: baseAsset1, decimals: decimals1, dataSource: dataSource1} = contract1
-        const {baseAsset: baseAsset2, decimals: decimals2, dataSource: dataSource2} = contract2
-
-        if (!baseAsset1.equals(baseAsset2) || decimals1 !== decimals2 || dataSource1 !== dataSource2)
-            throw new Error(`Assets ${asset1.source}-${asset1.asset} and ${asset2.source}-${asset2.asset} are not compatible`)
-
-        const {networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
-
-        const tryGetAssetIndex = (contractId, asset) => {
-            const assets = settingsManager.getAssets(contractId, true)
-            return assets.findIndex(a => a.equals(asset, networkPassphrase))
-        }
-
-        const isBaseAsset = (baseAsset, asset) => baseAsset.equals(asset, networkPassphrase)
-
-        const assets1Index = tryGetAssetIndex(contract1.contractId, asset1.asset)
-        if (assets1Index < 0 && !isBaseAsset(baseAsset1, asset1.asset))
-            throw new Error(`Asset ${asset1.asset} not found in contract ${contract1.contractId}`)
-        const assets2Index = tryGetAssetIndex(contract2.contractId, asset2.asset)
-        if (assets2Index < 0 && !isBaseAsset(baseAsset2, asset2.asset))
-            throw new Error(`Asset ${asset2.asset} not found in contract ${contract2.contractId}`)
-
-        if (asset1.source === asset2.source && asset1.asset.equals(asset2.asset, networkPassphrase)) {
-            return getPreciseValue(1n, decimals1)
-        }
-
-        //normalize timestamp
-        timestamp = timestamp - minuteMs
-        //get volumes for the contract
-        const asset1Prices = await this.getPrices(asset1.source, timestamp, minuteMs)
-        const asset2Prices = asset1.source === asset2.source ? asset1Prices : (await this.getPrices(asset2.source, timestamp, minuteMs))
-
-        if (assets1Index < 0) //asset index less than 0 can only be for base asset
-            return asset2Prices[assets2Index]
-        else if (assets2Index < 0)
-            return asset1Prices[assets1Index]
-        else
-            return calcCrossPrice(asset1Prices[assets1Index], asset2Prices[assets2Index], decimals1)
-    }
-
     async loadTradesDataForContract(contractId, timestamp) {
         try {
             const {settingsManager} = container
@@ -317,10 +260,11 @@ class PriceManager {
         const oracleContractIds = [...settingsManager.config.contracts.values()]
             .filter(c => c.type === ContractTypes.ORACLE)
             .map(c => c.contractId)
+        const promises = []
         for (const contractId of oracleContractIds) {
-            this.requests.set(contractId, this.getTradesForContractPromise(contractId, timestamp))
+            promises.push(this.getTradesForContractPromise(contractId, timestamp))
         }
-        await Promise.all([...this.requests.values()])
+        await Promise.all(promises)
     }
 
     getTradesForContractPromise(contractId, timestamp) {

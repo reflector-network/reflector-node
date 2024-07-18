@@ -98,8 +98,8 @@ function createPendingTransactionObject(tx, maxTime) {
     return pendingTxObject
 }
 
-const maxSubmitAttempts = 4
-const maxSubmitTimeout = 25000
+const maxSubmitAttempts = 3
+const maxSubmitTimeout = 20000
 
 class RunnerBase {
 
