@@ -5,6 +5,7 @@ const AppConfig = require('../models/app-config')
 const logger = require('../logger')
 const {setProxy} = require('../utils/requests-helper')
 const {importRSAKey} = require('../utils/crypto-helper')
+const nonceManager = require('../ws-server/nonce-manager')
 const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
@@ -92,7 +93,7 @@ class SettingsManager {
             if (!clusterConfig.isValid) {
                 logger.error(`Invalid config. Config will not be assigned. Issues: ${clusterConfig.issuesString}`)
             } else
-                this.setConfig(clusterConfig, false)
+                this.setConfig(clusterConfig, null, false)
         }
         //set pending updates
         const rawPendingConfig = fs.existsSync(clusterPendingConfigPath)
@@ -103,7 +104,7 @@ class SettingsManager {
             if (!clusterPendingConfig.config.isValid) {
                 logger.error(`Invalid pending config. Config will not by assigned. Issues: ${clusterPendingConfig.issuesString}`)
             } else
-                this.setPendingConfig(clusterPendingConfig, false)
+                this.setPendingConfig(clusterPendingConfig, null, false)
         }
     }
 
@@ -113,8 +114,8 @@ class SettingsManager {
         fs.writeFileSync(appConfigPath, JSON.stringify(this.appConfig.toPlainObject(), null, 2))
     }
 
-    applyPendingUpdate() {
-        this.setConfig(this.pendingConfig.config)
+    applyPendingUpdate(nonce) {
+        this.setConfig(this.pendingConfig.config, nonce)
         this.clearPendingConfig()
     }
 
@@ -137,9 +138,10 @@ class SettingsManager {
 
     /**
      * @param {Config} config - config
+     * @param {number} nonce - nonce for the config
      * @param {boolean} [save] - save config to file
      */
-    setConfig(config, save = true) {
+    setConfig(config, nonce, save = true) {
         this.config = config
         if (!this.config.isValid)
             return
@@ -148,21 +150,26 @@ class SettingsManager {
         nodesManager.setNodes(config.nodes)
         statisticsManager.setContractIds([...config.contracts.keys()])
         runnerManager.start()
+        if (nonce) //set nonce on config update
+            nonceManager.setNonce(nonceManager.nonceTypes.CONFIG, nonce)
         if (save)
             fs.writeFileSync(clusterConfigPath, JSON.stringify(config.toPlainObject(), null, 2))
     }
 
     /**
      * @param {ConfigEnvelope} envelope - config
+     * @param {number} nonce - nonce for the pending config
      * @param {boolean} [save] - save config to file
      */
-    setPendingConfig(envelope, save = true) {
-        if (this.pendingConfig)
+    setPendingConfig(envelope, nonce, save = true) {
+        if (this.pendingConfig && this.pendingConfig.config.getHash() !== envelope.config.getHash())//allow update current config
             throw new Error('Pending config already exists')
         const updates = buildUpdates(envelope.timestamp, this.config, envelope.config)
         if (updates.size === 0)
             throw new Error('No updates found in pending config')
         this.pendingConfig = envelope
+        if (nonce)
+            nonceManager.setNonce(nonceManager.nonceTypes.PENDING_CONFIG, nonce)
         if (save)
             fs.writeFileSync(clusterPendingConfigPath, JSON.stringify(envelope.toPlainObject(), null, 2))
     }

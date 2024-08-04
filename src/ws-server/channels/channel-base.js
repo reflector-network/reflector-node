@@ -202,7 +202,7 @@ class ChannelBase {
     }
 
     __onError(error) {
-        logger.trace(`${this.__getConnectionInfo()} websocket error. ${error.code}`)
+        logger.trace(`${this.__getConnectionInfo()} websocket error. ${error.code || error.message}`)
         if (error.code === 'ECONNREFUSED' || error.code === 'EAI_AGAIN' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
             if (error.connectionAttempts > 0 && error.connectionAttempts % 100 === 0)
                 logger.debug(`${this.__getConnectionInfo()} websocket error ${error.code}. Connection attempts: ${error.connectionAttempts}`)

@@ -1,4 +1,11 @@
-const {buildSubscriptionTriggerTransaction, buildSubscriptionsInitTransaction, getContractState, buildSubscriptionChargeTransaction, sortObjectKeys, normalizeTimestamp} = require('@reflector/reflector-shared')
+const {
+    buildSubscriptionTriggerTransaction,
+    buildSubscriptionsInitTransaction,
+    getContractState,
+    buildSubscriptionChargeTransaction,
+    sortObjectKeys,
+    normalizeTimestamp
+} = require('@reflector/reflector-shared')
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
@@ -70,7 +77,7 @@ class SubscriptionsRunner extends RunnerBase {
             if (events.length > 0) {
                 for (let i = 0; i < events.length; i++) {
                     const event = events[i]
-                    this.__processTriggerData(timestamp, event, eventHexHashes, rootHex)
+                    this.__processTriggerData(event, eventHexHashes, rootHex)
                 }
 
                 updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
@@ -121,23 +128,21 @@ class SubscriptionsRunner extends RunnerBase {
     }
 
     /**
-     * @param {number} timestamp - current timestamp
      * @param {any} event - trigger item data
      * @param {string[]} events - trigger event hashes
      * @param {string} root - composed trigger events hash
      */
-    __processTriggerData(timestamp, event, events, root) {
+    __processTriggerData(event, events, root) {
         try {
             const {webhook} = event
             if (webhook && webhook.length > 0) {
                 const update = {
-                    timestamp,
                     contract: this.contractId,
                     events,
                     event: event.update,
                     root
                 }
-                const signature = container.settingsManager.appConfig.keypair.sign(JSON.stringify(sortObjectKeys(update))).toString('hex')
+                const signature = container.settingsManager.appConfig.keypair.sign(JSON.stringify(sortObjectKeys(update))).toString('base64')
                 const envelope = {
                     update,
                     signature,
