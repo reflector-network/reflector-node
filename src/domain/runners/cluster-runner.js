@@ -52,7 +52,7 @@ class ClusterRunner extends RunnerBase {
             return tx
         }
 
-        const syncTimestamp = isPendingConfigExpired(pendingConfig)
+        const syncTimestamp = (isPendingConfigExpired(pendingConfig) || pendingConfig.allowEarlySubmission)
             ? timestamp
             : pendingConfig.timestamp
 

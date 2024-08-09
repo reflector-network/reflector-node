@@ -11,6 +11,7 @@ const MessageTypes = {
     CONFIG: 3,
     CONFIG_REQUEST: 4,
     SIGNATURE: 5,
+    SYNC: 6,
     STATISTICS_REQUEST: 20,
     SET_TRACE: 22,
     LOGS_REQUEST: 23,

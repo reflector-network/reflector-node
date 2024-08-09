@@ -6,13 +6,38 @@ const {
     sortObjectKeys,
     normalizeTimestamp
 } = require('@reflector/reflector-shared')
+const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
-const {getManager, removeManager} = require('../subscriptions-data-provider')
+const {getManager, removeManager} = require('../subscriptions/subscriptions-data-manager')
 const {makeRequest} = require('../../utils/requests-helper')
 const statisticsManager = require('../statistics-manager')
+const nodesManager = require('../nodes/nodes-manager')
+const MessageTypes = require('../../ws-server/handlers/message-types')
 const RunnerBase = require('./runner-base')
+
+/**
+ * @typedef {import('../subscriptions/subscriptions-sync-data')} SubscriptionsSyncData
+ */
+
+/**
+ * @param {string} contractId - contract id
+ * @param {SubscriptionsSyncData} data - sync data
+ */
+async function broadcastSyncData(contractId, data) {
+    const plainObject = data.toPlainObject()
+    const message = {
+        type: MessageTypes.SYNC,
+        data: {
+            type: ContractTypes.SUBSCRIPTIONS,
+            contractId,
+            ...plainObject
+        }
+    }
+    await nodesManager.broadcast(message)
+    logger.debug(`Signature broadcasted. Contract id: ${contractId}, hash: ${data.hashBase64}`)
+}
 
 class SubscriptionsRunner extends RunnerBase {
     constructor(contractId) {
@@ -38,13 +63,21 @@ class SubscriptionsRunner extends RunnerBase {
 
         logger.trace(`SubscriptionsRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
 
+        //get contract state
         const contractState = await getContractState(this.contractId, sorobanRpc)
+
+        //get contract manager
+        const subscriptionsContractManager = getManager(this.contractId)
+        //broadcast last processed data if available
+        if (subscriptionsContractManager.lastSyncData)
+            broadcastSyncData(this.contractId, subscriptionsContractManager.lastSyncData)
 
         logger.trace(`Contract state: lastSubscriptionsId: ${Number(contractState.lastSubscriptionsId)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
         statisticsManager.setLastSubscriptionData(
             this.contractId,
             Number(contractState.lastSubscriptionsId),
-            contractState.isInitialized
+            contractState.isInitialized,
+            subscriptionsContractManager.lastSyncData?.hashBase64 || null
         )
 
         let updateTxBuilder = null
@@ -60,7 +93,6 @@ class SubscriptionsRunner extends RunnerBase {
             await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
         } else {
 
-            const subscriptionsContractManager = getManager(this.contractId)
             if (!subscriptionsContractManager.isRunning)
                 await subscriptionsContractManager.start()
 
@@ -68,6 +100,7 @@ class SubscriptionsRunner extends RunnerBase {
                 events,
                 charges,
                 eventHexHashes,
+                syncData,
                 root,
                 rootHex
             } = await subscriptionsContractManager.getSubscriptionActions(timestamp)
@@ -106,7 +139,10 @@ class SubscriptionsRunner extends RunnerBase {
                 sourceAccount.incrementSequenceNumber()
 
                 //set notification timestamp for processed events
-                subscriptionsContractManager.setNotificationTimestamp(timestamp, events.map(e => e.id))
+                subscriptionsContractManager.trySetSyncData(syncData)
+
+                //broadcast sync data
+                broadcastSyncData(this.contractId, syncData)
             }
 
             if (charges.length > 0) {

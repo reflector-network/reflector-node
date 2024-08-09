@@ -63,15 +63,17 @@ class SubscriptionsStatistics extends ContractStatistics {
         this.lastSubscrioptionId = 0
     }
 
-    setLastSubscriptionsData(lastSubscrioptionId, isInitialized) {
+    setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash) {
         this.setLastContractData(isInitialized)
         this.lastSubscrioptionId = lastSubscrioptionId
+        this.syncDataHash = syncDataHash
     }
 
     getStatistics() {
         return {
             ...super.getStatistics(),
-            lastSubscrioptionId: this.lastSubscrioptionId
+            lastSubscrioptionId: this.lastSubscrioptionId,
+            syncDataHash: this.syncDataHash
         }
     }
 }
@@ -125,9 +127,9 @@ class StatisticsManager {
         oracleStatistics.setLastOracleData(lastOracleTimestamp, isInitialized)
     }
 
-    setLastSubscriptionData(contractId, lastSubscrioptionId, isInitialized) {
+    setLastSubscriptionData(contractId, lastSubscrioptionId, isInitialized, syncDataHash) {
         const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.SUBSCRIPTIONS)
-        contractStatistics.setLastSubscriptionsData(lastSubscrioptionId, isInitialized)
+        contractStatistics.setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash)
     }
 
     getStatistics() {

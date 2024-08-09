@@ -325,7 +325,8 @@ class RunnerBase {
 
                     //check if transaction was signed by the current node
                     const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
-                    if (resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
+                    if (this.contractId
+                        && resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
                         statisticsManager.incSubmittedTransactions(this.contractId)
                 }
                 return response
