@@ -113,6 +113,15 @@ class DataSourcesManager extends IssuesContainer {
             throw new Error('name is required')
         return __connections.has(name)
     }
+
+    getNetwork(name) {
+        if (!name)
+            throw new Error('name is required')
+        const connection = __connections.get(name)
+        if (!connection)
+            return null
+        return connection.networkPassphrase
+    }
 }
 
 module.exports = new DataSourcesManager()

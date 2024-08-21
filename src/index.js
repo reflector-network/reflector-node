@@ -20,6 +20,7 @@ try {
 
     logger = require('./logger')
 
+    const TradesManager = require('./domain/prices/trades-manager')
     const SettingsManager = require('./domain/settings-manager')
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
@@ -29,6 +30,7 @@ try {
     container.settingsManager = new SettingsManager()
     container.handlersManager = new HandlersManager()
     container.webSocketServer = new WsServer()
+    container.tradesManager = new TradesManager()
     require('./app')(container)
 } catch (e) {
     if (logger)

@@ -1,7 +1,7 @@
 const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState} = require('@reflector/reflector-shared')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
-const priceManager = require('../price-manager')
+const {getPricesForContract} = require('../prices/price-manager')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
@@ -47,7 +47,7 @@ class OracleRunner extends RunnerBase {
             })
         } else if (isTimestampValid(timestamp, timeframe) && contractState.lastTimestamp < timestamp) {
 
-            const prices = await priceManager.getPrices(this.contractId, timestamp)
+            const prices = await getPricesForContract(this.contractId, timestamp)
 
             updateTxBuilder = async (account, fee, maxTime) => await buildOraclePriceUpdateTransaction({
                 account,

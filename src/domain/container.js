@@ -3,6 +3,7 @@
  * @typedef {import('../ws-server')} WsServer
  * @typedef {import('../ws-server/handlers/handlers-manager')} HandlersManager
  * @typedef {import('./contract-manager')} ContractManager
+ * @typedef {import('./prices/trades-manager')} TradesManager
  */
 
 const packageInfo = require('../../package.json')
@@ -22,6 +23,11 @@ class Container {
      * @type {HandlersManager}
      * */
     handlersManager
+
+    /**
+     * @type {TradesManager}
+     */
+    tradesManager
 
     /**
      * @type {{shutdown: function(): void}}

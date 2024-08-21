@@ -1,13 +1,13 @@
 const container = require('../container')
 const logger = require('../../logger')
-const priceManager = require('../price-manager')
 const RunnerBase = require('./runner-base')
 
 const timeframe = 1000 * 60 //1 minute
 
 class PriceRunner extends RunnerBase {
     async __workerFn(timestamp) {
-        await priceManager.loadTradesData(timestamp)
+        const {tradesManager} = container
+        await tradesManager.loadTradesData(timestamp)
         logger.debug(`PriceRunner -> __workerFn -> timestamp: ${timestamp}`)
     }
 

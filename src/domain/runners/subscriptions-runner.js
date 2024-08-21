@@ -10,11 +10,12 @@ const ContractTypes = require('@reflector/reflector-shared/models/configs/contra
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
-const {getManager, removeManager} = require('../subscriptions/subscriptions-data-manager')
+const {addManager, getManager, removeManager} = require('../subscriptions/subscriptions-data-manager')
 const {makeRequest} = require('../../utils/requests-helper')
 const statisticsManager = require('../statistics-manager')
 const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
+const SubscriptionProcessor = require('../subscriptions/subscriptions-processor')
 const RunnerBase = require('./runner-base')
 
 /**
@@ -44,6 +45,8 @@ class SubscriptionsRunner extends RunnerBase {
         if (!contractId)
             throw new Error('contractId is required')
         super(contractId)
+        this.__subscriptionsManager = addManager(contractId)
+        this.__subscriptionsProcessor = new SubscriptionProcessor(contractId, this.__subscriptionsManager)
     }
 
     async __workerFn(timestamp) {
@@ -93,8 +96,8 @@ class SubscriptionsRunner extends RunnerBase {
             await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
         } else {
 
-            if (!subscriptionsContractManager.isRunning)
-                await subscriptionsContractManager.start()
+            if (!this.__subscriptionsManager.isInitialized)
+                await this.__subscriptionsManager.init()
 
             const {
                 events,
@@ -103,7 +106,7 @@ class SubscriptionsRunner extends RunnerBase {
                 syncData,
                 root,
                 rootHex
-            } = await subscriptionsContractManager.getSubscriptionActions(timestamp)
+            } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp)
 
             let chargeTimestamp = timestamp
 
