@@ -1,6 +1,8 @@
 const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const nodesManager = require('../domain/nodes/nodes-manager')
+const logger = require('../logger')
+const {makeRequest} = require('../utils/requests-helper')
 const container = require('./container')
 
 class ContractStatistics {
@@ -84,6 +86,41 @@ class StatisticsManager {
         this.lastProcessedTimestamp = 0
         this.totalProcessed = 0
         this.submittedTransactions = 0
+        this.proxyMetrics = []
+        this.__metricsWorker()
+    }
+
+    async __metricsWorker() {
+        try {
+            if (!container?.settingsManager?.appConfig?.proxy)
+                return
+            const {proxy} = container.settingsManager.appConfig
+
+            const proxyMetrics = []
+            const requests = []
+            for (let i = 0; i < proxy.connectionString.length; i++) {
+                const currentProxy = proxy.connectionString[i]
+                requests[i] =
+                    makeRequest(`${currentProxy}/metrics`,
+                        {
+                            headers: {'x-proxy-validation': proxy.proxyValidationKey},
+                            timeout: 5000
+                        })
+                        .then(response => {
+                            proxyMetrics[i] = response.data
+                        })
+                        .catch(e => {
+                            proxyMetrics[i] = 'n/a'
+                            logger.debug(`Failed to send metrics data to ${currentProxy}: ${e.message}`)
+                        })
+            }
+            await Promise.all(requests)
+            this.proxyMetrics = proxyMetrics
+        } catch (err) {
+            logger.error(err, 'Metrics worker error')
+        } finally {
+            setTimeout(() => this.__metricsWorker(), 60000)
+        }
     }
 
     /**
@@ -147,6 +184,7 @@ class StatisticsManager {
             connectedNodes,
             oracleStatistics: contractStatistics, //legacy
             contractStatistics,
+            proxyMetrics: this.proxyMetrics,
             ...settingsStatistics
         }
     }

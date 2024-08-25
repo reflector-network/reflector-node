@@ -1,7 +1,6 @@
 const {getOracleContractState, Asset, AssetType} = require('@reflector/reflector-shared')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
-const dataSourcesManager = require('../data-sources-manager')
 const logger = require('../../logger')
 const container = require('../container')
 
@@ -19,9 +18,9 @@ const container = require('../container')
 function calcPrice(volumes, decimals, prevPrices) {
     const prices = Array(volumes.length).fill(0n)
     for (let i = 0; i < volumes.length; i++) {
-        const assetVolumes = volumes[i]
+        const assetVolumes = volumes[i] || []
         const vwaps = assetVolumes.map(v => getVWAP(v.volume, v.quoteVolume, decimals))
-        prices[i] = getMedianPrice(vwaps) || prevPrices[i]
+        prices[i] = getMedianPrice(vwaps) || prevPrices[i] || 0n
     }
 
     return prices
@@ -71,9 +70,6 @@ async function getPricesForContract(contractId, timestamp) {
     //start of the current timeframe
     let currentVolumeTimestamp = timestamp - contract.timeframe //default timeframe is contract timeframe
 
-    const baseAsset = contract.baseAsset.code
-    const assetCodes = assets.map(a => a.code)
-
     //make sure we have the latest trades data
     await tradesManager.loadTradesData(timestamp)
 
@@ -83,12 +79,12 @@ async function getPricesForContract(contractId, timestamp) {
         //load volumes for the current timestamp
         const tradesData = await tradesManager.getTradesData(
             contract.dataSource,
-            baseAsset,
-            assetCodes,
+            contract.baseAsset,
+            assets,
             currentVolumeTimestamp
         )
         if (!tradesData)
-            throw new Error(`Volumes not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${baseAsset}`)
+            throw new Error(`Volumes not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
         //aggregate volumes
         for (let i = 0; i < assets.length; i++) {
             if (tradesData.length <= i) //if the asset was added recently, we don't have volumes for it yet
@@ -105,7 +101,7 @@ async function getPricesForContract(contractId, timestamp) {
                     totalAssetVolumes.set(sourceTradeData.source, sourceTotalVolume)
                 }
                 if (sourceTradeData.ts * 1000 !== currentVolumeTimestamp) {
-                    logger.warn(`Volume for source ${sourceTradeData.source} not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${baseAsset}`)
+                    logger.warn(`Volume for source ${sourceTradeData.source} not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
                     continue
                 }
                 sourceTotalVolume.volume += sourceTradeData.volume
@@ -125,6 +121,7 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     if (!tradesData || tradesData.length === 0)
         throw new Error(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
     const price = calcPrice(tradesData, defaultDecimals, [0n])[0]
+    logger.trace(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals: defaultDecimals}
 }
 
@@ -139,13 +136,14 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 
     const baseAssetPrice = isBaseAsset(defaultBaseAsset, baseAsset)
         ? defaultPrice
-        : await getPriceForAsset(baseSource, defaultBaseAsset.code, [baseAsset.code], timestamp)
+        : await getPriceForAsset(baseSource, defaultBaseAsset, baseAsset, timestamp)
 
     const quoteAssetPrice = isBaseAsset(defaultQuoteAsset, quoteAsset)
         ? defaultPrice
-        : await getPriceForAsset(quoteSource, defaultQuoteAsset.code, [quoteAsset.code], timestamp)
+        : await getPriceForAsset(quoteSource, defaultQuoteAsset, quoteAsset, timestamp)
 
     const price = calcCrossPrice(baseAssetPrice.price, quoteAssetPrice.price, defaultDecimals)
+    logger.trace(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals: defaultDecimals}
 }
 

@@ -172,6 +172,8 @@ class SubscriptionsRunner extends RunnerBase {
      * @param {string} root - composed trigger events hash
      */
     __processTriggerData(event, events, root) {
+        const notifications = []
+        const {proxy} = container.settingsManager.appConfig
         try {
             const {webhook} = event
             if (webhook && webhook.length > 0) {
@@ -187,13 +189,38 @@ class SubscriptionsRunner extends RunnerBase {
                     signature,
                     verifier: container.settingsManager.appConfig.publicKey
                 }
-                for (let j = 0; j < Math.min(events.length, 3); j++) {
-                    const currentWebhook = webhook[j]?.url
-                    if (currentWebhook)
-                        makeRequest(currentWebhook, {method: 'POST', data: envelope, timeout: 5000})
-                            .catch(e => {
-                                logger.debug(`Failed to send webhook to ${currentWebhook}: ${e.message}`)
+                //get 3 first webhooks
+                const urls = webhook.slice(0, 3).map(w => w.url)
+                notifications.push({urls, data: envelope})
+            }
+            if (proxy) {
+                for (let i = 0; i < proxy.connectionString.length; i++) {
+                    const currentProxy = proxy.connectionString[i]
+                    makeRequest(`${currentProxy}/notifications`,
+                        {
+                            method: 'POST',
+                            headers: {'x-proxy-validation': proxy.proxyValidationKey},
+                            data: {notifications},
+                            timeout: 5000
+                        })
+                        .catch(e => {
+                            logger.debug(`Failed to send webhook data to ${currentProxy}: ${e.message}`)
+                        })
+                }
+            } else {
+                for (let i = 0; i < notifications.length; i++) {
+                    const {urls, data} = notifications[i]
+                    for (let j = 0; j < urls.length; j++) {
+                        makeRequest(urls[j],
+                            {
+                                method: 'POST',
+                                data,
+                                timeout: 5000
                             })
+                            .catch(e => {
+                                logger.debug(`Failed to send webhook data to ${urls[j]}: ${e.message}`)
+                            })
+                    }
                 }
             }
         } catch (e) {

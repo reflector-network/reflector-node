@@ -27,7 +27,8 @@ const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.
 
 /**
  * @param {DataSource} dataSource - data source
- * @param {{ connectionString: string, useCurrent: boolean }} proxy - proxy
+ * @param {{ connectionString: string[], proxyValidationKey, useCurrent: boolean }} proxy - proxy
+ * @param {string} proxyValidationKey - proxy validation key
  */
 function __registerConnection(dataSource, proxy) {
     if (!dataSource)
@@ -56,7 +57,7 @@ function __registerConnection(dataSource, proxy) {
                 __connections.set(name, {type, secret, name})
                 if (proxy)
                     if (name === exchangesDataSourceName)
-                        setProxy(proxy.connectionString, proxy.useCurrent)
+                        setProxy(proxy.connectionString, proxy.proxyValidationKey, proxy.useCurrent)
                     else
                         logger.warn(`Proxy is not supported for ${name}`)
             }
@@ -78,7 +79,7 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
-     * @param {{ connectionString: string, useCurrent: boolean }} proxy - proxy
+     * @param {{ connectionString: string[], useCurrent: boolean, proxyValidationKey: string }} proxy - proxy
      */
     setDataSources(dataSources, proxy) {
         for (const source of dataSources) {
@@ -121,6 +122,15 @@ class DataSourcesManager extends IssuesContainer {
         if (!connection)
             return null
         return connection.networkPassphrase
+    }
+
+    isStellarSource(name) {
+        if (!name)
+            throw new Error('name is required')
+        const connection = __connections.get(name)
+        if (!connection)
+            return false
+        return connection.type === DataSourceTypes.DB
     }
 }
 

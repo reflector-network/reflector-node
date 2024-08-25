@@ -145,7 +145,7 @@ function getAssetsMap() {
 
     //add asset to the map function
     const addAssetToMap = (source, baseAsset, assets) => {
-        const key = getSourcePricesKey(source, baseAsset.code)
+        const key = getSourcePricesKey(source, baseAsset)
         if (!assetsMap.hasOwnProperty(key)) //if the key doesn't exist, create a new map
             assetsMap[key] = new AssetMap(source, baseAsset)
         assetsMap[key].push(assets)
@@ -167,17 +167,17 @@ function getAssetsMap() {
             continue
         }
 
-        if (baseAsset.equals(subscription.base.asset)) //if the base asset is not the same as the default one
-            addAssetToMap(subscription.base.source, baseAsset.code, [subscription.base.asset.code])
+        if (!baseAsset.equals(subscription.base.asset)) //if the base asset is not the same as the default one
+            addAssetToMap(subscription.base.source, baseAsset, [subscription.base.asset])
 
-        if (quoteBaseAsset.equals(subscription.quote.asset)) //if the quote asset is not the same as the default one
-            addAssetToMap(subscription.quote.source, quoteBaseAsset.code, [subscription.quote.asset.code])
+        if (!quoteBaseAsset.equals(subscription.quote.asset)) //if the quote asset is not the same as the default one
+            addAssetToMap(subscription.quote.source, quoteBaseAsset, [subscription.quote.asset])
     }
     return Object.values(assetsMap)
 }
 
 function getSourcePricesKey(source, baseAsset) {
-    return `${source}_${baseAsset}`
+    return `${source}_${baseAsset.code}`
 }
 
 class TradesManager {
@@ -203,7 +203,7 @@ class TradesManager {
 
             const {source, assets, baseAsset} = assetMap
 
-            const key = getSourcePricesKey(source, baseAsset.code)
+            const key = getSourcePricesKey(source, baseAsset)
             const lastTimestamp = this.trades.getLastTimestamp(key)
 
             const count = getCount(lastTimestamp, lastCompleteTimestamp)
@@ -213,7 +213,7 @@ class TradesManager {
 
             const from = lastCompleteTimestamp - ((count - 1) * minute)
 
-            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}, from ${from}, count ${count}`)
+            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset.code}, timestamp ${timestamp}, from ${from}, count ${count}`)
 
             const dataSource = dataSourcesManager.get(source)
             //load volumes

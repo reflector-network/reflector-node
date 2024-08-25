@@ -1,7 +1,19 @@
 const {Keypair, StrKey} = require('@stellar/stellar-sdk')
 const {IssuesContainer} = require('@reflector/reflector-shared')
 const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
+const shajs = require('sha.js')
+const logger = require('../logger')
 const DataSource = require('./data-source')
+
+const defaultProxyAuthMessage = 'proxy_validation'
+
+function proxyToPlainObject(proxy) {
+    return {
+        connectionString: proxy.connectionString,
+        useCurrent: proxy.useCurrent,
+        proxyAuthMessage: proxy.proxyAuthMessage === defaultProxyAuthMessage ? undefined : proxy.proxyAuthMessage
+    }
+}
 
 class AppConfig extends IssuesContainer {
     /**
@@ -21,7 +33,7 @@ class AppConfig extends IssuesContainer {
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
         this.__assignRSAKey(config.rsaKey, config.rsaKeyObject)
-        this.__assignProxy(config.proxy, config.dataSources)
+        this.__assignProxy(config.proxy)
     }
 
     /**
@@ -75,7 +87,7 @@ class AppConfig extends IssuesContainer {
     rsaKeyObject
 
     /**
-     * @type {{connectionString: string, useCurrent: boolean}}
+     * @type {{connectionString: string[], proxyValidationKey: string, useCurrent: boolean}}
      */
     proxy = null
 
@@ -160,17 +172,18 @@ class AppConfig extends IssuesContainer {
         }
     }
 
-    __assignProxy(proxy, rawDataSources) {
+    __assignProxy(proxy) {
         try {
             if (proxy && proxy.connectionString) {
-                this.proxy = proxy
-                return
-            }
-            //legacy support
-            const proxySource = Object.values(rawDataSources).find(ds => ds.proxy)
-            if (!proxySource)
-                return
-            this.proxy = proxySource.proxy
+                this.proxy = {
+                    useCurrent: !!proxy.useCurrent,
+                    connectionString: Array.isArray(proxy.connectionString) ? proxy.connectionString : [proxy.connectionString]
+                }
+                if (!this.proxy.proxyAuthMessage) //set default value
+                    this.proxy.proxyAuthMessage = defaultProxyAuthMessage
+                this.proxy.proxyValidationKey = shajs('sha512').update(this.secret + this.proxy.proxyAuthMessage).digest('hex')
+            } else
+                logger.warn('Proxy is not defined')
         } catch (e) {
             this.__addIssue(`proxy: ${e.message}`)
         }
@@ -186,7 +199,7 @@ class AppConfig extends IssuesContainer {
             trace: this.trace,
             port: this.port,
             rsaKey: this.rsaKey,
-            proxy: this.proxy
+            proxy: proxyToPlainObject(this.proxy)
         }
     }
 }

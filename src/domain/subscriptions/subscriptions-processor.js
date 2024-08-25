@@ -141,7 +141,7 @@ class SubscriptionProcessor {
         const subscriptions = this.__subscriptionManager?.subscriptions || []
 
         //get last sync data copy
-        const syncData = this.__lastSyncData?.getSyncDataCopy() || {}
+        const syncData = this.__subscriptionManager.lastSyncData?.getSyncDataCopy() || {}
 
         const eventsContainer = new EventsContainer(this.contractId, timestamp, syncData)
         for (const subscription of subscriptions) {

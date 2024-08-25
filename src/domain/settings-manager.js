@@ -3,7 +3,6 @@ const {ValidationError, ConfigEnvelope, buildUpdates, Config} = require('@reflec
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const AppConfig = require('../models/app-config')
 const logger = require('../logger')
-const {setProxy} = require('../utils/requests-helper')
 const {importRSAKey} = require('../utils/crypto-helper')
 const nonceManager = require('../ws-server/nonce-manager')
 const runnerManager = require('./runners/runner-manager')
@@ -132,7 +131,6 @@ class SettingsManager {
     setAppConfig(config) {
         this.appConfig = config
         logger.setTrace(this.appConfig.trace)
-        setProxy(config.proxy?.connectionString)
         dataSourceManager.setDataSources([...config.dataSources.values()], config.proxy)
     }
 

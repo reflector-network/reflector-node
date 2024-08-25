@@ -5,6 +5,7 @@ const {getLastContractEvents} = require('../../utils/rpc-helper')
 const {decrypt} = require('../../utils/crypto-helper')
 const logger = require('../../logger')
 const container = require('../container')
+const dataSourceManager = require('../data-sources-manager')
 const PendingSyncDataCache = require('./pending-notifications-cache')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
@@ -35,11 +36,17 @@ const SubscriptionsSyncData = require('./subscriptions-sync-data')
  */
 
 function getNormalizedAsset(raw) {
+    if (raw.asset.constructor.name !== 'String')
+        throw new Error('Invalid asset data')
+    const splittedCode = raw.asset.split(':')
+    const assetType = (splittedCode.length === 2 || splittedCode[0] === 'XLM' && dataSourceManager.isStellarSource(raw.source))
+        ? AssetType.STELLAR
+        : AssetType.OTHER
     const tickerAsset = {
         source: raw.source,
         asset: new Asset(
-            AssetType.getType(raw.asset[0]),
-            raw.asset[1]
+            assetType,
+            raw.asset
         )
     }
     return tickerAsset
@@ -122,7 +129,7 @@ class SubscriptionContractManager {
     __subscriptions = new Map()
 
     /**
-     * @type {SubscriptionSyncData}
+     * @type {SubscriptionsSyncData}
      */
     __lastSyncData = null
 

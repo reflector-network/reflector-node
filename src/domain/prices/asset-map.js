@@ -2,6 +2,8 @@
  * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
 
+const {AssetType} = require('@reflector/reflector-shared')
+
 class AssetsMap {
     /**
      * @param {string} source - source
