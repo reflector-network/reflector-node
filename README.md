@@ -26,16 +26,17 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
     },
     "exchanges": {
       "name": "exchanges",
-      "type": "api",
-      "proxy": {
-        "connectionString": [
-          "socks5://USER:PASSWORD@some-proxy.io:8001",
-          "socks5://USER:PASSWORD@some-proxy.io:8002"
-        ],
-        "useCurrent": true
-      }
+      "type": "api"
     }
   },
+  "proxy": {
+    "connectionString": [ //reflector-proxy urls
+      "https://proxy.com:8081",
+      "https://proxy.com:8082"
+    ],
+    "proxyAuthMessage": "Proxy authorization phrase", //default: "proxy_validation"
+  },
+  "rsaKey": "MIIE...Hss=", //RSA secret key for subscription webhook decryption
   "dbSyncDelay": 15,
   "trace": false
 }
