@@ -1,5 +1,5 @@
 const {createDbConnection} = require('@reflector/reflector-db-connector')
-const {setProxy} = require('@reflector/reflector-exchanges-connector')
+const {setGateway} = require('@reflector/reflector-exchanges-connector')
 const IssuesContainer = require('@reflector/reflector-shared/models/issues-container')
 const {ValidationError} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
@@ -27,10 +27,9 @@ const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.
 
 /**
  * @param {DataSource} dataSource - data source
- * @param {{ connectionString: string[], proxyValidationKey, useCurrent: boolean }} proxy - proxy
- * @param {string} proxyValidationKey - proxy validation key
+ * @param {{ connectionString: string[], gatewayValidationKey, useCurrent: boolean }} gateway - gateway
  */
-function __registerConnection(dataSource, proxy) {
+function __registerConnection(dataSource, gateway) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
     const {
@@ -55,11 +54,11 @@ function __registerConnection(dataSource, proxy) {
                 if (!secret && name === 'coinmarketcap')
                     throw new ValidationError('secret is required')
                 __connections.set(name, {type, secret, name})
-                if (proxy)
+                if (gateway)
                     if (name === exchangesDataSourceName)
-                        setProxy(proxy.connectionString, proxy.proxyValidationKey, proxy.useCurrent)
+                        setGateway(gateway.connectionString, gateway.gatewayValidationKey, gateway.useCurrent)
                     else
-                        logger.warn(`Proxy is not supported for ${name}`)
+                        logger.warn(`Gateway is not supported for ${name}`)
             }
             break
         default:
@@ -79,12 +78,12 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
-     * @param {{ connectionString: string[], useCurrent: boolean, proxyValidationKey: string }} proxy - proxy
+     * @param {{ connectionString: string[], useCurrent: boolean, gatewayValidationKey: string }} gateway - gateway
      */
-    setDataSources(dataSources, proxy) {
+    setDataSources(dataSources, gateway) {
         for (const source of dataSources) {
             try {
-                __registerConnection(source, proxy)
+                __registerConnection(source, gateway)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))

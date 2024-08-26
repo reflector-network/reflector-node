@@ -5,13 +5,13 @@ const shajs = require('sha.js')
 const logger = require('../logger')
 const DataSource = require('./data-source')
 
-const defaultProxyAuthMessage = 'proxy_validation'
+const defaultGatewayAuthMessage = 'gateway_validation'
 
-function proxyToPlainObject(proxy) {
+function gatewayToPlainObject(gateway) {
     return {
-        connectionString: proxy.connectionString,
-        useCurrent: proxy.useCurrent,
-        proxyAuthMessage: proxy.proxyAuthMessage === defaultProxyAuthMessage ? undefined : proxy.proxyAuthMessage
+        connectionString: gateway.connectionString,
+        useCurrent: gateway.useCurrent,
+        gatewayAuthMessage: gateway.gatewayAuthMessage === defaultGatewayAuthMessage ? undefined : gateway.gatewayAuthMessage
     }
 }
 
@@ -33,7 +33,7 @@ class AppConfig extends IssuesContainer {
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
         this.__assignRSAKey(config.rsaKey, config.rsaKeyObject)
-        this.__assignProxy(config.proxy)
+        this.__assignGateway(config.gateway)
     }
 
     /**
@@ -87,9 +87,9 @@ class AppConfig extends IssuesContainer {
     rsaKeyObject
 
     /**
-     * @type {{connectionString: string[], proxyValidationKey: string, useCurrent: boolean}}
+     * @type {{connectionString: string[], gatewayValidationKey: string, useCurrent: boolean}}
      */
-    proxy = null
+    gateway = null
 
     __assignKeypair(secret) {
         try {
@@ -172,20 +172,21 @@ class AppConfig extends IssuesContainer {
         }
     }
 
-    __assignProxy(proxy) {
+    __assignGateway(gateway) {
         try {
-            if (proxy && proxy.connectionString) {
-                this.proxy = {
-                    useCurrent: !!proxy.useCurrent,
-                    connectionString: Array.isArray(proxy.connectionString) ? proxy.connectionString : [proxy.connectionString]
+            if (gateway && gateway.connectionString) {
+                this.gateway = {
+                    useCurrent: !!gateway.useCurrent,
+                    connectionString: Array.isArray(gateway.connectionString) ? gateway.connectionString : [gateway.connectionString]
                 }
-                if (!this.proxy.proxyAuthMessage) //set default value
-                    this.proxy.proxyAuthMessage = defaultProxyAuthMessage
-                this.proxy.proxyValidationKey = shajs('sha512').update(this.secret + this.proxy.proxyAuthMessage).digest('hex')
+                if (!this.gateway.gatewayAuthMessage) //set default value
+                    this.gateway.gatewayyAuthMessage = defaultGatewayAuthMessage
+                this.gateway.gatewayValidationKey = shajs('sha512').update(this.secret + this.gateway.gatewayAuthMessage).digest('hex')
+                logger.info(`Gateway validation key: ${this.gateway.gatewayValidationKey}`)
             } else
-                logger.warn('Proxy is not defined')
+                logger.warn('Gateway is not defined')
         } catch (e) {
-            this.__addIssue(`proxy: ${e.message}`)
+            this.__addIssue(`gateway: ${e.message}`)
         }
     }
 
@@ -199,7 +200,7 @@ class AppConfig extends IssuesContainer {
             trace: this.trace,
             port: this.port,
             rsaKey: this.rsaKey,
-            proxy: proxyToPlainObject(this.proxy)
+            gateway: gatewayToPlainObject(this.gateway)
         }
     }
 }

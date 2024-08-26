@@ -121,7 +121,8 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     if (!tradesData || tradesData.length === 0)
         throw new Error(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
     const price = calcPrice(tradesData, defaultDecimals, [0n])[0]
-    logger.trace(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
+    if (price === 0n)
+        logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals: defaultDecimals}
 }
 
@@ -143,7 +144,8 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
         : await getPriceForAsset(quoteSource, defaultQuoteAsset, quoteAsset, timestamp)
 
     const price = calcCrossPrice(baseAssetPrice.price, quoteAssetPrice.price, defaultDecimals)
-    logger.trace(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp}: ${price}`)
+    if (price === 0n)
+        logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals: defaultDecimals}
 }
 

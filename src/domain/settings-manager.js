@@ -131,7 +131,7 @@ class SettingsManager {
     setAppConfig(config) {
         this.appConfig = config
         logger.setTrace(this.appConfig.trace)
-        dataSourceManager.setDataSources([...config.dataSources.values()], config.proxy)
+        dataSourceManager.setDataSources([...config.dataSources.values()], config.gateway)
     }
 
     /**

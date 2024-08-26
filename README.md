@@ -29,12 +29,12 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
       "type": "api"
     }
   },
-  "proxy": {
-    "connectionString": [ //reflector-proxy urls
-      "https://proxy.com:8081",
-      "https://proxy.com:8082"
+  "gateway": {
+    "connectionString": [ //reflector-gateway urls
+      "https://174.85.0.32:8081",
+      "https://174.85.0.32:8082"
     ],
-    "proxyAuthMessage": "Proxy authorization phrase", //default: "proxy_validation"
+    "gatewayAuthMessage": "Gateway authorization phrase", //default: "gateway_validation"
   },
   "rsaKey": "MIIE...Hss=", //RSA secret key for subscription webhook decryption
   "dbSyncDelay": 15,
@@ -45,7 +45,7 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
 Where:
 - `secret` - the secret key of the node
 - `dataSources` - price data sources cofigurations
-- `dataSources.exchanges.proxy` - [optional] proxy configuration for the data source. `connectionString` is an array of proxy URLs. `useCurrent` - [optional] flag to use the current server for requests, along with the proxy.
+- `gateway` - gateway configuration. `connectionString` is an array of gateway URLs. `gatewayAuthMessage` - [optional] message to encrypt for getting a validation key.
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
  
 If you are joining the existing cluster, ask other node operators to share their basic config params, then override `secret` and data sources configuration parameters.

@@ -86,36 +86,36 @@ class StatisticsManager {
         this.lastProcessedTimestamp = 0
         this.totalProcessed = 0
         this.submittedTransactions = 0
-        this.proxyMetrics = []
+        this.gatewayMetrics = []
         this.__metricsWorker()
     }
 
     async __metricsWorker() {
         try {
-            if (!container?.settingsManager?.appConfig?.proxy)
+            if (!container?.settingsManager?.appConfig?.gateway)
                 return
-            const {proxy} = container.settingsManager.appConfig
+            const {gateway} = container.settingsManager.appConfig
 
-            const proxyMetrics = []
+            const gatewayMetrics = []
             const requests = []
-            for (let i = 0; i < proxy.connectionString.length; i++) {
-                const currentProxy = proxy.connectionString[i]
+            for (let i = 0; i < gateway.connectionString.length; i++) {
+                const currentGateway = gateway.connectionString[i]
                 requests[i] =
-                    makeRequest(`${currentProxy}/metrics`,
+                    makeRequest(`${currentGateway}/metrics`,
                         {
-                            headers: {'x-proxy-validation': proxy.proxyValidationKey},
+                            headers: {'x-gateway-validation': gateway.gatewayValidationKey},
                             timeout: 5000
                         })
                         .then(response => {
-                            proxyMetrics[i] = response.data
+                            gatewayMetrics[i] = response.data
                         })
                         .catch(e => {
-                            proxyMetrics[i] = 'n/a'
-                            logger.debug(`Failed to send metrics data to ${currentProxy}: ${e.message}`)
+                            gatewayMetrics[i] = 'n/a'
+                            logger.debug(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
                         })
             }
             await Promise.all(requests)
-            this.proxyMetrics = proxyMetrics
+            this.gatewayMetrics = gatewayMetrics
         } catch (err) {
             logger.error(err, 'Metrics worker error')
         } finally {
@@ -184,7 +184,7 @@ class StatisticsManager {
             connectedNodes,
             oracleStatistics: contractStatistics, //legacy
             contractStatistics,
-            proxyMetrics: this.proxyMetrics,
+            gatewayMetrics: this.gatewayMetrics,
             ...settingsStatistics
         }
     }

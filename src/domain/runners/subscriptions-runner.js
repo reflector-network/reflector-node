@@ -173,7 +173,7 @@ class SubscriptionsRunner extends RunnerBase {
      */
     __processTriggerData(event, events, root) {
         const notifications = []
-        const {proxy} = container.settingsManager.appConfig
+        const {gateway} = container.settingsManager.appConfig
         try {
             const {webhook} = event
             if (webhook && webhook.length > 0) {
@@ -193,18 +193,18 @@ class SubscriptionsRunner extends RunnerBase {
                 const urls = webhook.slice(0, 3).map(w => w.url)
                 notifications.push({urls, data: envelope})
             }
-            if (proxy) {
-                for (let i = 0; i < proxy.connectionString.length; i++) {
-                    const currentProxy = proxy.connectionString[i]
-                    makeRequest(`${currentProxy}/notifications`,
+            if (gateway) {
+                for (let i = 0; i < gateway.connectionString.length; i++) {
+                    const currentGateway = gateway.connectionString[i]
+                    makeRequest(`${currentGateway}/notifications`,
                         {
                             method: 'POST',
-                            headers: {'x-proxy-validation': proxy.proxyValidationKey},
+                            headers: {'x-gateway-validation': gateway.gatewayValidationKey},
                             data: {notifications},
                             timeout: 5000
                         })
                         .catch(e => {
-                            logger.debug(`Failed to send webhook data to ${currentProxy}: ${e.message}`)
+                            logger.debug(`Failed to send webhook data to ${currentGateway}: ${e.message}`)
                         })
                 }
             } else {
