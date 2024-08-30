@@ -111,8 +111,6 @@ function getDiff(oldPrice, newPrice) {
 
 const day = 24 * 60 * 60 * 1000
 
-const minute = 60 * 1000
-
 class SubscriptionProcessor {
 
     /**
@@ -163,7 +161,7 @@ class SubscriptionProcessor {
                     eventsContainer.addCharge(subscription.id)
 
                 //get price for the pair from the last minute
-                const {price, decimals} = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp - minute)
+                const {price, decimals} = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp)
                 const diff = getDiff(lastPrice, price)
                 const lastNotification = eventsContainer.syncData[id]?.lastNotification || 0
                 if (diff >= threshold || timestamp - lastNotification >= heartbeat * 60 * 1000) {

@@ -64,8 +64,6 @@ class SubscriptionsRunner extends RunnerBase {
         //get account info
         const sourceAccount = await getAccount(admin, sorobanRpc)
 
-        logger.trace(`SubscriptionsRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
-
         //get contract state
         const contractState = await getContractState(this.contractId, sorobanRpc)
 
@@ -93,77 +91,78 @@ class SubscriptionsRunner extends RunnerBase {
                 fee,
                 maxTime
             })
-            await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__dbSyncDelay)
-        } else {
-
-            if (!this.__subscriptionsManager.isInitialized)
-                await this.__subscriptionsManager.init()
-
-            const {
-                events,
-                charges,
-                eventHexHashes,
-                syncData,
-                root,
-                rootHex
-            } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp)
-
-            let chargeTimestamp = timestamp
-
-            if (events.length > 0) {
-                for (let i = 0; i < events.length; i++) {
-                    const event = events[i]
-                    this.__processTriggerData(event, eventHexHashes, rootHex)
-                }
-
-                updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
-                    account,
-                    network,
-                    sorobanRpc,
-                    admin,
-                    triggerHash: root,
-                    timestamp,
-                    contractId: this.contractId,
-                    fee,
-                    maxTime
-                })
-
-                const txResponse = await this.__buildAndSubmitTransaction(
-                    updateTxBuilder,
-                    sourceAccount,
-                    baseFee,
-                    timestamp,
-                    this.__dbSyncDelay
-                )
-
-                chargeTimestamp = normalizeTimestamp(txResponse.createdAt * 1000 + 5000 - 1, 5000) //round to 5 seconds
-
-                //increment sequence number for changes
-                sourceAccount.incrementSequenceNumber()
-
-                //set notification timestamp for processed events
-                subscriptionsContractManager.trySetSyncData(syncData)
-
-                //broadcast sync data
-                broadcastSyncData(this.contractId, syncData)
-            }
-
-            if (charges.length > 0) {
-                updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionChargeTransaction({
-                    account,
-                    network,
-                    sorobanRpc,
-                    admin,
-                    ids: charges.slice(0, Math.min(15, charges.length)),
-                    timestamp,
-                    contractId: this.contractId,
-                    fee,
-                    maxTime
-                })
-
-                await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, chargeTimestamp, 0)
-            }
+            await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, timestamp, this.__delay)
+            return true
         }
+
+        if (!this.__subscriptionsManager.isInitialized)
+            await this.__subscriptionsManager.init()
+
+        const {
+            events,
+            charges,
+            eventHexHashes,
+            syncData,
+            root,
+            rootHex
+        } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp - this.__timeframe) //get actions for the completed timeframe
+
+        let chargeTimestamp = timestamp
+
+        if (events.length > 0) {
+            for (let i = 0; i < events.length; i++) {
+                const event = events[i]
+                this.__processTriggerData(event, eventHexHashes, rootHex)
+            }
+
+            updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
+                account,
+                network,
+                sorobanRpc,
+                admin,
+                triggerHash: root,
+                timestamp,
+                contractId: this.contractId,
+                fee,
+                maxTime
+            })
+
+            const txResponse = await this.__buildAndSubmitTransaction(
+                updateTxBuilder,
+                sourceAccount,
+                baseFee,
+                timestamp,
+                this.__delay
+            )
+
+            chargeTimestamp = normalizeTimestamp(txResponse.createdAt * 1000 + 5000 - 1, 5000) //round to 5 seconds
+
+            //increment sequence number for changes
+            sourceAccount.incrementSequenceNumber()
+
+            //set notification timestamp for processed events
+            subscriptionsContractManager.trySetSyncData(syncData)
+
+            //broadcast sync data
+            broadcastSyncData(this.contractId, syncData)
+        }
+
+        if (charges.length > 0) {
+            updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionChargeTransaction({
+                account,
+                network,
+                sorobanRpc,
+                admin,
+                ids: charges.slice(0, Math.min(15, charges.length)),
+                timestamp,
+                contractId: this.contractId,
+                fee,
+                maxTime
+            })
+
+            await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, chargeTimestamp, 0)
+        }
+        return true
     }
 
     /**
@@ -240,13 +239,21 @@ class SubscriptionsRunner extends RunnerBase {
         return nextTimestamp
     }
 
-    get __dbSyncDelay() {
-        return (container.settingsManager.appConfig.dbSyncDelay || 15) * 1000
+    get __delay() {
+        //try to load subscriptions eyrlier than price worker, to have time to process events
+        const syncDelay = container.settingsManager.appConfig.dbSyncDelay - 2000
+        if (syncDelay >= 0)
+            return syncDelay
+        return container.settingsManager.appConfig.dbSyncDelay
     }
 
     stop() {
         super.stop()
         removeManager(this.contractId)
+    }
+
+    get __contractType() {
+        return ContractTypes.SUBSCRIPTIONS
     }
 }
 

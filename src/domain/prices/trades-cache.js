@@ -89,10 +89,17 @@ class TradesCache {
     }
 
     getLastTimestamp(key) {
-        const timestamps = Object.keys(this.__trades[key] ?? {}).sort((a, b) => b - a)
+        const timestamps = Object.keys(this.__trades[key] ?? {}).map(Number).sort((a, b) => a - b)
         if (timestamps.length === 0)
             return 0
-        return Number(timestamps[0])
+        return timestamps[timestamps.length - 1]
+    }
+
+    isAssetInCache(key, timestamp, asset) {
+        const cacheItem = this.__trades[key]?.[timestamp]
+        if (!cacheItem)
+            return false
+        return cacheItem.assetsMap.assets[asset.code] !== undefined
     }
 }
 

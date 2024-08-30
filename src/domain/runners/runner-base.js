@@ -110,7 +110,8 @@ class RunnerBase {
     start() {
         const timestamp = normalizeTimestamp(Date.now(), this.__timeframe)
         this.isRunning = true
-        this.worker(timestamp)
+        //awoid starting before sync time
+        setTimeout(() => this.worker(timestamp), this.__getWorkerTimeout(timestamp))
         this.__clearPendingSignatures()
     }
 
@@ -164,27 +165,33 @@ class RunnerBase {
 
     /**
      * @param {number} timestamp - timestamp
-     * @returns {Promise}
+     * @returns {Promise<boolean>} - true if the tx is processed
      */
     __workerFn(timestamp) {
         throw new Error('Not implemented')
+    }
+
+    __getWorkerTimeout(timestamp) {
+        let timeout = timestamp - Date.now()
+        timeout += this.__delay
+        return timeout
     }
 
     async worker(timestamp) {
         if (!this.isRunning)
             return
         try {
-            await this.__workerFn(timestamp)
+            logger.info(`${this.__contractInfo} -> worker, timestamp: ${timestamp}`)
+            const isTxProcessed = await this.__workerFn(timestamp)
             //update last processed timestamp
-            if (this.contractId)
-                statisticsManager.setLastProcessedTimestamp(this.contractId, timestamp)
+            if (isTxProcessed && this.contractId)
+                statisticsManager.setLastProcessedTimestamp(this.contractId, this.__contractType, timestamp)
         } catch (err) {
-            logger.error({err}, `Error in worker. Oracle id: ${this.contractId || 'cluster'}, timestamp: ${timestamp}, error: ${err.message}`)
+            logger.error({err}, `Error in worker, ${this.__contractInfo}, timestamp: ${timestamp}`)
         } finally {
             const nextTimestamp = this.__getNextTimestamp(timestamp)
-            let timeout = nextTimestamp - Date.now()
-            timeout += this.__dbSyncDelay || 0
-            logger.debug(`Worker timeout: ${timeout}, oracle id: ${this.contractId || 'cluster'}`)
+            const timeout = this.__getWorkerTimeout(nextTimestamp)
+            logger.debug(`Worker timeout: ${timeout}, ${this.__contractInfo}`)
             this.__workerTimeout = setTimeout(() => this.worker(nextTimestamp), timeout)
         }
     }
@@ -296,8 +303,6 @@ class RunnerBase {
 
         const syncTimestamp = timestamp + syncDelay
 
-        if (getMaxTime(syncTimestamp, maxSubmitAttempts) * 1000 < Date.now())
-            throw new Error('Timestamp is too old.')
         for (let submitAttempt = 0; submitAttempt < maxSubmitAttempts; submitAttempt++) {
             try {
                 const fee = baseFee * Math.pow(4, submitAttempt) //increase fee by 4 times on each try
@@ -340,6 +345,11 @@ class RunnerBase {
         throw new Error('Failed to submit transaction. See logs for details.')
     }
 
+    __isTxExpired(timestamp, syncDelay) {
+        const syncTimestamp = timestamp + syncDelay
+        return getMaxTime(syncTimestamp, maxSubmitAttempts) * 1000 < Date.now()
+    }
+
     __getNextTimestamp(currentTimestamp) {
         throw new Error('Not implemented')
     }
@@ -348,8 +358,12 @@ class RunnerBase {
         throw new Error('Not implemented')
     }
 
-    get __dbSyncDelay() {
+    get __delay() {
         return 0
+    }
+
+    get __contractType() {
+        return undefined
     }
 
     get __contractInfo() {

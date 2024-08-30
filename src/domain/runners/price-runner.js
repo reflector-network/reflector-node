@@ -7,8 +7,9 @@ const timeframe = 1000 * 60 //1 minute
 class PriceRunner extends RunnerBase {
     async __workerFn(timestamp) {
         const {tradesManager} = container
-        await tradesManager.loadTradesData(timestamp)
         logger.debug(`PriceRunner -> __workerFn -> timestamp: ${timestamp}`)
+        await tradesManager.loadTradesData(timestamp - timeframe) //load last completed timeframe
+        return false
     }
 
     get __timeframe() {
@@ -19,8 +20,8 @@ class PriceRunner extends RunnerBase {
         return currentTimestamp + timeframe //1 minute
     }
 
-    get __dbSyncDelay() {
-        return (container.settingsManager.appConfig.dbSyncDelay || 15) * 1000
+    get __delay() {
+        return container.settingsManager.appConfig.dbSyncDelay
     }
 }
 

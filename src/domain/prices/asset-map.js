@@ -48,6 +48,14 @@ class AssetsMap {
      * Asset code to index map
      */
     assets = {}
+
+    toPlainObject() {
+        return {
+            source: this.source,
+            baseAsset: this.baseAsset.code,
+            assets: Object.keys(this.assets)
+        }
+    }
 }
 
 module.exports = AssetsMap

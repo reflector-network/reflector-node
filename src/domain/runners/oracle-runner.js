@@ -1,4 +1,5 @@
 const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState} = require('@reflector/reflector-shared')
+const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
 const {getPricesForContract} = require('../prices/price-manager')
@@ -28,11 +29,9 @@ class OracleRunner extends RunnerBase {
         //get account info
         const sourceAccount = await getAccount(admin, sorobanRpc)
 
-        logger.trace(`OracleRunner -> __workerFn -> sourceAccount: ${sourceAccount.accountId()}: ${sourceAccount.sequenceNumber()}`)
-
         const contractState = await getContractState(this.contractId, sorobanRpc)
 
-        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
+        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
         statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
 
         let updateTxBuilder = null
@@ -45,9 +44,11 @@ class OracleRunner extends RunnerBase {
                 fee,
                 maxTime
             })
-        } else if (isTimestampValid(timestamp, timeframe) && contractState.lastTimestamp < timestamp) {
+        } else if (isTimestampValid(timestamp, timeframe)
+            && contractState.lastTimestamp < timestamp
+            && !this.__isTxExpired(timestamp, this.__delay)) {
 
-            const prices = await getPricesForContract(this.contractId, timestamp)
+            const prices = await getPricesForContract(this.contractId, timestamp - timeframe) //last completed timeframe
 
             updateTxBuilder = async (account, fee, maxTime) => await buildOraclePriceUpdateTransaction({
                 account,
@@ -62,7 +63,7 @@ class OracleRunner extends RunnerBase {
             })
         } else {
             //nothing to do
-            return
+            return false
         }
 
         await this.__buildAndSubmitTransaction(
@@ -70,8 +71,10 @@ class OracleRunner extends RunnerBase {
             sourceAccount,
             baseFee,
             timestamp,
-            this.__dbSyncDelay
+            this.__delay
         )
+
+        return true
     }
 
     __getCurrentContract() {
@@ -91,8 +94,12 @@ class OracleRunner extends RunnerBase {
         return currentTimestamp + Math.min(1000 * 60, this.__timeframe / 2) //1 minute or half of timeframe (whichever is smaller)
     }
 
-    get __dbSyncDelay() {
+    get __delay() {
         return 20 * 1000
+    }
+
+    get __contractType() {
+        return ContractTypes.ORACLE
     }
 }
 

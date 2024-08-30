@@ -6,13 +6,22 @@ const logger = require('../logger')
 const DataSource = require('./data-source')
 
 const defaultGatewayAuthMessage = 'gateway_validation'
+const defaultDbSyncDelay = 15_000
 
 function gatewayToPlainObject(gateway) {
+    if (!gateway)
+        return undefined
     return {
         connectionString: gateway.connectionString,
         useCurrent: gateway.useCurrent,
         gatewayAuthMessage: gateway.gatewayAuthMessage === defaultGatewayAuthMessage ? undefined : gateway.gatewayAuthMessage
     }
+}
+
+function getNormalizedDbSyncDelay(dbSyncDelay) {
+    if (dbSyncDelay === defaultDbSyncDelay)
+        return undefined
+    return dbSyncDelay / 1000
 }
 
 class AppConfig extends IssuesContainer {
@@ -139,9 +148,7 @@ class AppConfig extends IssuesContainer {
 
     __assignDbSyncDelay(dbSyncDelay) {
         try {
-            if (!dbSyncDelay || isNaN(dbSyncDelay))
-                return
-            this.dbSyncDelay = dbSyncDelay
+            this.dbSyncDelay = !dbSyncDelay || isNaN(dbSyncDelay) ? defaultDbSyncDelay : dbSyncDelay * 1000
         } catch (e) {
             this.__addIssue(`dbSyncDelay: ${e.message}`)
         }
@@ -193,7 +200,7 @@ class AppConfig extends IssuesContainer {
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
-            dbSyncDelay: this.dbSyncDelay,
+            dbSyncDelay: getNormalizedDbSyncDelay(this.dbSyncDelay),
             handshakeTimeout: this.handshakeTimeout,
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,

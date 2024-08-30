@@ -68,14 +68,14 @@ async function getPricesForContract(contractId, timestamp) {
     const prevPrices = [...contractState.prices, ...Array(assets.length - contractState.prices.length).fill(0n)]
 
     //start of the current timeframe
-    let currentVolumeTimestamp = timestamp - contract.timeframe //default timeframe is contract timeframe
+    let currentVolumeTimestamp = timestamp
 
     //make sure we have the latest trades data
     await tradesManager.loadTradesData(timestamp)
 
     //get volumes
     const totalVolumes = Array(assets.length).fill(0n).map(() => new Map())
-    while (currentVolumeTimestamp < timestamp) {
+    while (currentVolumeTimestamp <= timestamp) {
         //load volumes for the current timestamp
         const tradesData = await tradesManager.getTradesData(
             contract.dataSource,
@@ -118,8 +118,10 @@ async function getPricesForContract(contractId, timestamp) {
 async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     const {tradesManager} = container
     const tradesData = await tradesManager.getTradesData(source, baseAsset, [asset], timestamp)
-    if (!tradesData || tradesData.length === 0)
-        throw new Error(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
+    if (!tradesData || tradesData.length === 0) {
+        logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
+        return defaultPrice
+    }
     const price = calcPrice(tradesData, defaultDecimals, [0n])[0]
     if (price === 0n)
         logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)

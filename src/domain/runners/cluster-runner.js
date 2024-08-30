@@ -1,4 +1,4 @@
-const {buildUpdateTransaction, normalizeTimestamp, filterRemovedValidators} = require('@reflector/reflector-shared')
+const {buildUpdateTransaction, normalizeTimestamp, areAllSignaturesPresent} = require('@reflector/reflector-shared')
 const container = require('../container')
 const {getAccount} = require('../../utils')
 const nonceManager = require('../../ws-server/nonce-manager')
@@ -19,16 +19,15 @@ class ClusterRunner extends RunnerBase {
         const {pendingConfig, config} = settingsManager
         const updateTimeReached = pendingConfig?.timestamp < timestamp
         if (!(updateTimeReached || pendingConfig?.allowEarlySubmission))
-            return
+            return false
 
         if (!updateTimeReached) { //if update time is not reached, check if all signatures are present
-            const requiredNodes = filterRemovedValidators([...config.nodes.keys()], [...pendingConfig.config.nodes.keys()])
-            const areAllSignaturesPresent = requiredNodes
-                .every(node =>
-                    pendingConfig.signatures.some(signature => signature.pubkey === node)
-                )
-            if (!areAllSignaturesPresent)
-                return
+            if (!areAllSignaturesPresent(
+                [...config.nodes.keys()],
+                [...pendingConfig.config.nodes.keys()],
+                pendingConfig.signatures
+            ))
+                return false
         }
 
         const {sorobanRpc, networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
@@ -59,9 +58,10 @@ class ClusterRunner extends RunnerBase {
         await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseUpdateFee, syncTimestamp)
 
         if (hasMoreTxns) //if true, the config has more transactions to be submitted
-            return
+            return true
 
         settingsManager.applyPendingUpdate(nonceManager.getNonce(nonceManager.nonceTypes.PENDING_CONFIG))
+        return true
     }
 
     __getNextTimestamp(currentTimestamp) {

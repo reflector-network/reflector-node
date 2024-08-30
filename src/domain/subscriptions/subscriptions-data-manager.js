@@ -155,6 +155,7 @@ class SubscriptionContractManager {
             } catch (err) {
                 logger.error({err}, `Error on adding subscription ${raw.id?.toString()}`)
             }
+        logger.trace(`Loaded ${this.__subscriptions.size} subscriptions for contract ${this.contractId}`)
     }
 
     /**

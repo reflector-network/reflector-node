@@ -191,13 +191,12 @@ class TradesManager {
     async loadTradesDataForSource(assetMap, timestamp) {
         try {
             const currentNormalizedTimestamp = normalizeTimestamp(Date.now(), minute)
-            logger.trace(`Loading trades data for source ${assetMap.source} and base asset ${assetMap.baseAsset} at timestamp ${timestamp}. Current timestamp ${currentNormalizedTimestamp}`)
-            const lastCompleteTimestamp = timestamp - minute
-            if (lastCompleteTimestamp % minute !== 0) {
+            logger.trace({assetMap: assetMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${timestamp}. Current timestamp ${currentNormalizedTimestamp}`)
+            if (timestamp % minute !== 0) {
                 throw new Error('Timestamp should be whole minutes')
-            } else if (lastCompleteTimestamp >= currentNormalizedTimestamp) {
+            } else if (timestamp >= currentNormalizedTimestamp) {
                 throw new Error('Timestamp should be less than current time')
-            } else if (lastCompleteTimestamp < currentNormalizedTimestamp - minute * maxLimit) {
+            } else if (timestamp < currentNormalizedTimestamp - minute * maxLimit) {
                 throw new Error('Timestamp should be within last 60 minutes')
             }
 
@@ -206,27 +205,27 @@ class TradesManager {
             const key = getSourcePricesKey(source, baseAsset)
             const lastTimestamp = this.trades.getLastTimestamp(key)
 
-            const count = getCount(lastTimestamp, lastCompleteTimestamp)
+            const count = getCount(lastTimestamp, timestamp)
             //if count is greater than 0, then we need to load volumes
-            if (count === 0)
+            if (count === 0) {
+                logger.trace(`No need to load trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}`)
                 return
+            }
 
-            const from = lastCompleteTimestamp - ((count - 1) * minute)
+            const from = timestamp - ((count - 1) * minute)
 
-            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset.code}, timestamp ${timestamp}, from ${from}, count ${count}`)
+            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}, from ${from}, count ${count}`)
 
             const dataSource = dataSourcesManager.get(source)
             //load volumes
             const normalizedAssets = Object.values(assets).map(a => a.asset)
             const tradesData = await loadTradesData(dataSource, baseAsset, normalizedAssets, from, count)
-
             //push volumes to the cache
             for (let j = 0; j < tradesData.length; j++) {
                 const currentTimestamp = from + j * minute
                 this.trades.push(key, assetMap, currentTimestamp, tradesData[j])
-                logger.trace(`Pushed trades data for source ${source}, base asset ${baseAsset}, timestamp ${currentTimestamp}`)
             }
-
+            logger.trace(`Pushed trades data for source ${source}, base asset ${baseAsset}, from ${from}, to ${from + (count - 1) * minute}`)
         } catch (err) {
             logger.error({err}, `Error loading prices for source ${assetMap.source} and base asset ${assetMap.baseAsset}`)
         }
@@ -256,11 +255,9 @@ class TradesManager {
         const key = getSourcePricesKey(source, baseAsset)
         let attempts = 3
         while (attempts-- > 0) {
-            logger.trace(`Getting trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}`)
             const lastTimestamp = this.trades.getLastTimestamp(key)
             if (lastTimestamp >= timestamp)
                 break
-            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}, last timestamp ${lastTimestamp}`)
             await this.loadTradesData(timestamp)
         }
         return this.trades.getTradesData(key, timestamp, assets)
