@@ -10,6 +10,9 @@ const {getAllSubscriptions} = require('../subscriptions/subscriptions-data-manag
 const TradesCache = require('./trades-cache')
 const AssetMap = require('./asset-map')
 
+const cacheSize = 15
+const minute = 60 * 1000
+
 /**
  * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
@@ -36,16 +39,13 @@ const AssetMap = require('./asset-map')
  * An array of timestamped trade data for multiple assets.
  */
 
-function getCount(lastTimestemp, targetTimestamp) {
+function getSampleSize(lastTimestemp, targetTimestamp) {
     if (lastTimestemp >= targetTimestamp) {
         return 0
     }
     const computedCount = (targetTimestamp - lastTimestemp) / minute
-    return Math.min(computedCount, maxLimit)
+    return Math.min(computedCount, cacheSize)
 }
-
-const minute = 60 * 1000
-const maxLimit = 15
 
 /**
  * @param {any} dataSource - source
@@ -140,26 +140,17 @@ function getAssetsMap() {
     const oracleContracts = [...settingsManager.config.contracts.values()]
         .filter(c => c.type === ContractTypes.ORACLE)
 
-    /**@type {Object.<string, AssetMap>} */
-    const assetsMap = {}
+    /**@type {Map<string,AssetMap>} */
+    const assetsMap = new Map()
 
-    //add asset to the map function
-    const addAssetToMap = (source, baseAsset, assets) => {
-        const key = getSourcePricesKey(source, baseAsset)
-        if (!assetsMap.hasOwnProperty(key)) //if the key doesn't exist, create a new map
-            assetsMap[key] = new AssetMap(source, baseAsset)
-        assetsMap[key].push(assets)
-    }
 
     //push all oracle assets to the map
-    for (const contract of oracleContracts.sort((a, b) => a.contractId.localeCompare(b.contractId)))
-        addAssetToMap(contract.dataSource, contract.baseAsset, settingsManager.getAssets(contract.contractId, true))
+    for (const contract of oracleContracts.sort((a, b) => a.contractId.localeCompare(b.contractId))) {
+        addAssetToMap(assetsMap, contract.dataSource, contract.baseAsset, settingsManager.getAssets(contract.contractId, true))
+    }
 
     //push all subscriptions assets to the map
-    const allSubscriptions = getAllSubscriptions()
-
-    //push all subscriptions assets to the map
-    for (const subscription of allSubscriptions) {
+    for (const subscription of getAllSubscriptions()) {
         const baseAsset = getSourceDefaultBaseAsset(subscription.base.source)
         const quoteBaseAsset = getSourceDefaultBaseAsset(subscription.quote.source)
         if (!(baseAsset && quoteBaseAsset)) { //if the source is not supported
@@ -168,15 +159,26 @@ function getAssetsMap() {
         }
 
         if (!baseAsset.equals(subscription.base.asset)) //if the base asset is not the same as the default one
-            addAssetToMap(subscription.base.source, baseAsset, [subscription.base.asset])
+            addAssetToMap(assetsMap, subscription.base.source, baseAsset, [subscription.base.asset])
 
         if (!quoteBaseAsset.equals(subscription.quote.asset)) //if the quote asset is not the same as the default one
-            addAssetToMap(subscription.quote.source, quoteBaseAsset, [subscription.quote.asset])
+            addAssetToMap(assetsMap, subscription.quote.source, quoteBaseAsset, [subscription.quote.asset])
     }
-    return Object.values(assetsMap)
+    return Array.from(assetsMap.values())
 }
 
-function getSourcePricesKey(source, baseAsset) {
+//add asset to the map function
+function addAssetToMap(assetsMap, source, baseAsset, assets) {
+    const key = formatSourceAssetKey(source, baseAsset)
+    let am = assetsMap.get(key)
+    if (!am) {//if the key doesn't exist, create a new map
+        am = new AssetMap(source, baseAsset)
+        assetsMap.set(key, am)
+    }
+    am.push(assets)
+}
+
+function formatSourceAssetKey(source, baseAsset) {
     return `${source}_${baseAsset.code}`
 }
 
@@ -196,19 +198,19 @@ class TradesManager {
                 throw new Error('Timestamp should be whole minutes')
             } else if (timestamp >= currentNormalizedTimestamp) {
                 throw new Error('Timestamp should be less than current time')
-            } else if (timestamp < currentNormalizedTimestamp - minute * maxLimit) {
+            } else if (timestamp < currentNormalizedTimestamp - minute * cacheSize) {
                 throw new Error('Timestamp should be within last 60 minutes')
             }
 
-            const {source, assets, baseAsset} = assetMap
+            const {source, baseAsset} = assetMap
 
-            const key = getSourcePricesKey(source, baseAsset)
+            const key = formatSourceAssetKey(source, baseAsset)
             const lastTimestamp = this.trades.getLastTimestamp(key)
 
-            const count = getCount(lastTimestamp, timestamp)
+            const count = getSampleSize(lastTimestamp, timestamp)
             //if count is greater than 0, then we need to load volumes
             if (count === 0) {
-                logger.trace(`No need to load trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}`)
+                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}`)
                 return
             }
 
@@ -218,7 +220,7 @@ class TradesManager {
 
             const dataSource = dataSourcesManager.get(source)
             //load volumes
-            const normalizedAssets = Object.values(assets).map(a => a.asset)
+            const normalizedAssets = assetMap.assets.map(a => a.asset)
             const tradesData = await loadTradesData(dataSource, baseAsset, normalizedAssets, from, count)
             //push volumes to the cache
             for (let j = 0; j < tradesData.length; j++) {
@@ -252,7 +254,7 @@ class TradesManager {
     }
 
     async getTradesData(source, baseAsset, assets, timestamp) {
-        const key = getSourcePricesKey(source, baseAsset)
+        const key = formatSourceAssetKey(source, baseAsset)
         let attempts = 3
         while (attempts-- > 0) {
             const lastTimestamp = this.trades.getLastTimestamp(key)

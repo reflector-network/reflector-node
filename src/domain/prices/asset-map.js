@@ -2,8 +2,6 @@
  * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
 
-const {AssetType} = require('@reflector/reflector-shared')
-
 class AssetsMap {
     /**
      * @param {string} source - source
@@ -16,44 +14,64 @@ class AssetsMap {
             throw new Error('Base asset is required')
         this.source = source
         this.baseAsset = baseAsset
+        this.mappedAssets = new Map()
     }
 
     /**
      * @param {Asset[]} assets - assets
      */
     push(assets) {
-        let lastIndex = Object.keys(this.assets).length
+        let lastIndex = this.mappedAssets.size
         for (const asset of assets) {
             if (!asset)
                 continue
-            if (!this.assets[asset.code]) {
-                this.assets[asset.code] = {asset, index: lastIndex}
+            if (!this.mappedAssets.get(asset.code)) {
+                this.mappedAssets.set(asset.code, {asset, index: lastIndex})
                 lastIndex++
             }
         }
     }
 
     /**
+     * Provider
      * @type {string}
      */
     source = null
 
     /**
+     * Base provider asset
      * @type {Asset}
      */
     baseAsset = null
 
     /**
-     * @type {[key: string]: {asset: Asset, index: number}}
      * Asset code to index map
+     * @type {Map<string,{asset: Asset, index: number}>}
+     * @private
      */
-    assets = {}
+    mappedAssets
+
+    /**
+     * Get all mapped assets
+     * @return {{asset: Asset, index: number}[]}
+     */
+    get assets() {
+        return Array.from(this.mappedAssets.values())
+    }
+
+    /**
+     * @param {string} code
+     * @return {{asset: Asset, index: number}}
+     */
+    getAssetInfo(code) {
+        return this.mappedAssets.get(code)
+    }
 
     toPlainObject() {
         return {
             source: this.source,
             baseAsset: this.baseAsset.code,
-            assets: Object.keys(this.assets)
+            assets: Object.keys(this.mappedAssets)
         }
     }
 }

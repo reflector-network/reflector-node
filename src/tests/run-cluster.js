@@ -7,12 +7,12 @@ const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
 
-function getNodeFolderName(nodeNumber) {
+function getNodeDirName(nodeNumber) {
     return path.join(configsPath, `node${nodeNumber}`)
 }
 
-function getReflectorHomeFolderName(nodeNumber) {
-    return path.join(getNodeFolderName(nodeNumber), 'reflector-home')
+function getReflectorHomeDirName(nodeNumber) {
+    return path.join(getNodeDirName(nodeNumber), 'reflector-home')
 }
 
 function getNodesCount() {
@@ -113,11 +113,11 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
         const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources())
-        const nodeHomeFolder = getReflectorHomeFolderName(i)
-        fs.mkdirSync(nodeHomeFolder, {recursive: true})
-        fs.writeFileSync(path.join(nodeHomeFolder, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
+        const nodeHomeDir = getReflectorHomeDirName(i)
+        fs.mkdirSync(nodeHomeDir, {recursive: true})
+        fs.writeFileSync(path.join(nodeHomeDir, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
         if (nodeConfig.isInitNode) {
-            fs.copyFileSync(configPath, path.join(nodeHomeFolder, '.config.json'))
+            fs.copyFileSync(configPath, path.join(nodeHomeDir, '.config.json'))
         }
     }
 }
@@ -125,12 +125,12 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 async function startNodes(nodesCount) {
     for (let i = 0; i < nodesCount; i++) {
         console.log(`Starting node ${i}`)
-        const nodeHomeFolder = path.resolve(getReflectorHomeFolderName(i))
+        const nodeHomeDir = path.resolve(getReflectorHomeDirName(i))
         const nodeName = `node${i}`
         const port = 30347 + (i * 100)
         //closeEndRemoveIfExist(nodeName)
 
-        const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
+        const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
 
         console.log(startCommand)
         await runCommand(startCommand)

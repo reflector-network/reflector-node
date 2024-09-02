@@ -33,7 +33,7 @@ class TradesCacheItem {
     getTradesData(assets) {
         const tradesData = []
         for (const asset of assets) {
-            const assetInfo = this.assetsMap.assets[asset.code]
+            const assetInfo = this.assetsMap.getAssetInfo(asset.code)
             if (assetInfo === undefined) {
                 tradesData.push(null)
                 continue
@@ -45,7 +45,7 @@ class TradesCacheItem {
     }
 }
 
-const maxLimit = 15
+const cacheSize = 15
 
 class TradesCache {
 
@@ -69,7 +69,7 @@ class TradesCache {
 
         const timestamps = Object.keys(this.__trades[key])
         //remove old data
-        while (timestamps.length > maxLimit) {
+        while (timestamps.length > cacheSize) {
             delete this.__trades[timestamps[0]]
             timestamps.shift()
         }
@@ -99,7 +99,7 @@ class TradesCache {
         const cacheItem = this.__trades[key]?.[timestamp]
         if (!cacheItem)
             return false
-        return cacheItem.assetsMap.assets[asset.code] !== undefined
+        return cacheItem.assetsMap.getAssetInfo(asset.code) !== undefined
     }
 }
 

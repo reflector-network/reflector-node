@@ -7,7 +7,7 @@ const {isDebugging} = require('./utils/utils')
 
 const traceLevel = 'trace'
 const infoLevel = 'info'
-const folder = `${container.homeDir}/logs/`
+const logsDir = `${container.homeDir}/logs/`
 const MAX_LOG_FILE_SIZE = '2M'
 const LOG_RETENTION_DAYS = '7d'
 const MAX_FILES = 20
@@ -126,15 +126,15 @@ const baseLogOptions = {
     }
 }
 
-if (!fs.existsSync(folder)) {
-    fs.mkdirSync(folder, {recursive: true})
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, {recursive: true})
 }
 
 //configure rotating-file-stream
 const rfsOptions = {
     size: MAX_LOG_FILE_SIZE,
     interval: LOG_RETENTION_DAYS,
-    path: folder,
+    path: logsDir,
     maxFiles: MAX_FILES
 }
 
