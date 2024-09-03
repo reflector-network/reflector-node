@@ -71,7 +71,7 @@ class AssetsMap {
         return {
             source: this.source,
             baseAsset: this.baseAsset.code,
-            assets: Object.keys(this.mappedAssets)
+            assets: [...this.mappedAssets.keys()]
         }
     }
 }

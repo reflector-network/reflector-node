@@ -27,9 +27,10 @@ const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.
 
 /**
  * @param {DataSource} dataSource - data source
- * @param {{ connectionString: string[], gatewayValidationKey, useCurrent: boolean }} gateway - gateway
+ * @param {string[]} gateways - gateways list
+ * @param {string} gatewayValidationKey - gateways validation key
  */
-function __registerConnection(dataSource, gateway) {
+function __registerConnection(dataSource, gateways, gatewayValidationKey) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
     const {
@@ -54,9 +55,9 @@ function __registerConnection(dataSource, gateway) {
                 if (!secret && name === 'coinmarketcap')
                     throw new ValidationError('secret is required')
                 __connections.set(name, {type, secret, name})
-                if (gateway)
+                if (gateways)
                     if (name === exchangesDataSourceName)
-                        setGateway(gateway.connectionString, gateway.gatewayValidationKey, gateway.useCurrent)
+                        setGateway(gateways, gatewayValidationKey, false)
                     else
                         logger.warn(`Gateway is not supported for ${name}`)
             }
@@ -78,12 +79,13 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
-     * @param {{ connectionString: string[], useCurrent: boolean, gatewayValidationKey: string }} gateway - gateway
+     * @param {string[]} gateways - gateways list
+     * @param {string} gatewayValidationKey - gateways validation key
      */
-    setDataSources(dataSources, gateway) {
+    setDataSources(dataSources, gateways, gatewayValidationKey) {
         for (const source of dataSources) {
             try {
-                __registerConnection(source, gateway)
+                __registerConnection(source, gateways, gatewayValidationKey)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))

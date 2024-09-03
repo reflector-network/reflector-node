@@ -188,19 +188,12 @@ class TradesManager {
 
     /**
      * @param {AssetMap} assetMap - asset map
-     * @param {number} timestamp - timestamp
      */
-    async loadTradesDataForSource(assetMap, timestamp) {
+    async loadTradesDataForSource(assetMap) {
         try {
             const currentNormalizedTimestamp = normalizeTimestamp(Date.now(), minute)
-            logger.trace({assetMap: assetMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${timestamp}. Current timestamp ${currentNormalizedTimestamp}`)
-            if (timestamp % minute !== 0) {
-                throw new Error('Timestamp should be whole minutes')
-            } else if (timestamp >= currentNormalizedTimestamp) {
-                throw new Error('Timestamp should be less than current time')
-            } else if (timestamp < currentNormalizedTimestamp - minute * cacheSize) {
-                throw new Error('Timestamp should be within last 60 minutes')
-            }
+            const timestamp = currentNormalizedTimestamp - minute
+            logger.trace({assetMap: assetMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${timestamp}, current timestamp ${currentNormalizedTimestamp}`)
 
             const {source, baseAsset} = assetMap
 
@@ -210,7 +203,7 @@ class TradesManager {
             const count = getSampleSize(lastTimestamp, timestamp)
             //if count is greater than 0, then we need to load volumes
             if (count === 0) {
-                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}`)
+                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}, last timestamp ${lastTimestamp}, current timestamp ${currentNormalizedTimestamp}`)
                 return
             }
 
@@ -234,16 +227,15 @@ class TradesManager {
     }
 
     /**
-     * @param {number} timestamp - timestamp in milliseconds
      * @returns {Promise}
      */
-    loadTradesData(timestamp) {
+    loadTradesData() {
         if (this.__loadTradesPromise)
             return this.__loadTradesPromise
         const assetMaps = getAssetsMap()
         const promises = []
         for (const assetMap of assetMaps) {
-            promises.push(this.loadTradesDataForSource(assetMap, timestamp))
+            promises.push(this.loadTradesDataForSource(assetMap))
         }
         this.__loadTradesPromise = Promise.all(promises)
             .then(() => {
@@ -260,7 +252,7 @@ class TradesManager {
             const lastTimestamp = this.trades.getLastTimestamp(key)
             if (lastTimestamp >= timestamp)
                 break
-            await this.loadTradesData(timestamp)
+            await this.loadTradesData()
         }
         return this.trades.getTradesData(key, timestamp, assets)
     }

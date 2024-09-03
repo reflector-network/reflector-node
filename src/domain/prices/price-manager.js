@@ -28,25 +28,6 @@ function calcPrice(volumes, decimals, prevPrices) {
 
 const minute = 60 * 1000
 
-const baseExchangesAsset = new Asset(AssetType.OTHER, 'USD')
-const baseStellarAsset = new Asset(AssetType.STELLAR, 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN')
-
-function getSourceDefaultBaseAsset(source) {
-    switch (source) {
-        case 'exchanges':
-            return baseExchangesAsset
-        case 'pubnet':
-        case 'testnet':
-            return baseStellarAsset
-        default:
-            return null
-    }
-}
-
-const defaultDecimals = 14
-
-const defaultPrice = {price: getPreciseValue(1n, defaultDecimals), decimals: defaultDecimals}
-
 /**
  * @param {string} contractId - source
  * @param {number} timestamp - current timestamp
@@ -71,7 +52,7 @@ async function getPricesForContract(contractId, timestamp) {
     let currentVolumeTimestamp = timestamp
 
     //make sure we have the latest trades data
-    await tradesManager.loadTradesData(timestamp)
+    await tradesManager.loadTradesData()
 
     //get volumes
     const totalVolumes = Array(assets.length).fill(0n).map(() => new Map())
@@ -111,44 +92,47 @@ async function getPricesForContract(contractId, timestamp) {
         currentVolumeTimestamp += minute
     }
     //compute price
-    const prices = calcPrice(totalVolumes.map(v => [...v.values()]), contract.decimals, prevPrices)
+    const prices = calcPrice(totalVolumes.map(v => [...v.values()]), settingsManager.getDecimals(contractId), prevPrices)
     return prices
 }
 
 async function getPriceForAsset(source, baseAsset, asset, timestamp) {
-    const {tradesManager} = container
+    const {tradesManager, settingsManager} = container
     const tradesData = await tradesManager.getTradesData(source, baseAsset, [asset], timestamp)
+    const decimals = settingsManager.getDecimals()
     if (!tradesData || tradesData.length === 0) {
         logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
-        return defaultPrice
+        return {price: getPreciseValue(1n, decimals), decimals}
     }
-    const price = calcPrice(tradesData, defaultDecimals, [0n])[0]
+    const price = calcPrice(tradesData, decimals, [0n])[0]
     if (price === 0n)
         logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
-    return {price, decimals: defaultDecimals}
+    return {price, decimals}
 }
 
 async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, timestamp) {
+    const {settingsManager} = container
+    const decimals = settingsManager.getDecimals()
     //get default assets for the sources
-    const defaultBaseAsset = getSourceDefaultBaseAsset(baseSource)
-    const defaultQuoteAsset = getSourceDefaultBaseAsset(quoteSource)
+    const defaultBaseAsset = settingsManager.getBaseAsset(baseSource)
+    const defaultQuoteAsset = settingsManager.getBaseAsset(quoteSource)
 
     const {networkPassphrase} = container.settingsManager.getBlockchainConnectorSettings()
 
     const isBaseAsset = (baseAsset, asset) => baseAsset.equals(asset, networkPassphrase)
 
     const baseAssetPrice = isBaseAsset(defaultBaseAsset, baseAsset)
-        ? defaultPrice
+        ? {price: getPreciseValue(1n, decimals), decimals}
         : await getPriceForAsset(baseSource, defaultBaseAsset, baseAsset, timestamp)
 
     const quoteAssetPrice = isBaseAsset(defaultQuoteAsset, quoteAsset)
-        ? defaultPrice
+        ? {price: getPreciseValue(1n, decimals), decimals}
         : await getPriceForAsset(quoteSource, defaultQuoteAsset, quoteAsset, timestamp)
 
-    const price = calcCrossPrice(baseAssetPrice.price, quoteAssetPrice.price, defaultDecimals)
+    const price = calcCrossPrice(baseAssetPrice.price, quoteAssetPrice.price, decimals)
     if (price === 0n)
         logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp}: ${price}`)
-    return {price, decimals: defaultDecimals}
+    return {price, decimals}
 }
 
 module.exports = {

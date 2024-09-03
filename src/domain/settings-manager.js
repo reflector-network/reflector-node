@@ -10,6 +10,7 @@ const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
 const dataSourceManager = require('./data-sources-manager')
 const statisticsManager = require('./statistics-manager')
+const {defaultDecimals, defaultBaseAssets} = require('./default-values')
 
 const appConfigPath = `${container.homeDir}/app.config.json`
 const clusterConfigPath = `${container.homeDir}/.config.json`
@@ -131,7 +132,7 @@ class SettingsManager {
     setAppConfig(config) {
         this.appConfig = config
         logger.setTrace(this.appConfig.trace)
-        dataSourceManager.setDataSources([...config.dataSources.values()], config.gateway)
+        dataSourceManager.setDataSources([...config.dataSources.values()], config.gateways, config.gatewayValidationKey)
     }
 
     /**
@@ -189,6 +190,23 @@ class SettingsManager {
      */
     getContractConfig(contractId) {
         return __getContractConfig(this.config, contractId)
+    }
+
+    getDecimals(contractId) {
+        if (!contractId)
+            return this.config.decimals || defaultDecimals
+        const contractConfig = __getContractConfig(this.config, contractId)
+        return contractConfig.decimals || this.config.decimals || defaultDecimals
+    }
+
+    getBaseAsset(source) {
+        if (!source)
+            throw new Error('Source is required')
+        if (this.config.baseAssets?.has(source))
+            return this.config.baseAssets.get(source)
+        if (!defaultBaseAssets.has(source))
+            throw new Error(`Base asset not found for source: ${source}`)
+        return defaultBaseAssets.get(source)
     }
 
     /**

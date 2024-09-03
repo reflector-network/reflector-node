@@ -42,7 +42,8 @@ class OracleRunner extends RunnerBase {
                 sorobanRpc,
                 config: contractConfig,
                 fee,
-                maxTime
+                maxTime,
+                decimals: settingsManager.getDecimals(this.contractId)
             })
         } else if (isTimestampValid(timestamp, timeframe)
             && contractState.lastTimestamp < timestamp

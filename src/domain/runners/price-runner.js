@@ -8,7 +8,7 @@ class PriceRunner extends RunnerBase {
     async __workerFn(timestamp) {
         const {tradesManager} = container
         logger.debug(`PriceRunner -> __workerFn -> timestamp: ${timestamp}`)
-        await tradesManager.loadTradesData(timestamp - timeframe) //load last completed timeframe
+        await tradesManager.loadTradesData() //load last completed timeframe
         return false
     }
 

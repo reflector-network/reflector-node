@@ -8,16 +8,6 @@ const DataSource = require('./data-source')
 const defaultGatewayAuthMessage = 'gateway_validation'
 const defaultDbSyncDelay = 15_000
 
-function gatewayToPlainObject(gateway) {
-    if (!gateway)
-        return undefined
-    return {
-        connectionString: gateway.connectionString,
-        useCurrent: gateway.useCurrent,
-        gatewayAuthMessage: gateway.gatewayAuthMessage === defaultGatewayAuthMessage ? undefined : gateway.gatewayAuthMessage
-    }
-}
-
 function getNormalizedDbSyncDelay(dbSyncDelay) {
     if (dbSyncDelay === defaultDbSyncDelay)
         return undefined
@@ -42,7 +32,7 @@ class AppConfig extends IssuesContainer {
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
         this.__assignRSAKey(config.rsaKey, config.rsaKeyObject)
-        this.__assignGateway(config.gateway)
+        this.__assignGateways(config.gateways)
     }
 
     /**
@@ -96,9 +86,14 @@ class AppConfig extends IssuesContainer {
     rsaKeyObject
 
     /**
-     * @type {{connectionString: string[], gatewayValidationKey: string, useCurrent: boolean}}
+     * @type {string[]}
      */
-    gateway = null
+    gateways = null
+
+    /**
+     * @type {string}
+     */
+    gatewayValidationKey = null
 
     __assignKeypair(secret) {
         try {
@@ -179,21 +174,20 @@ class AppConfig extends IssuesContainer {
         }
     }
 
-    __assignGateway(gateway) {
+    __assignGateways(gateways, gatewayAuthMessage) {
         try {
-            if (gateway && gateway.connectionString) {
-                this.gateway = {
-                    useCurrent: !!gateway.useCurrent,
-                    connectionString: Array.isArray(gateway.connectionString) ? gateway.connectionString : [gateway.connectionString]
-                }
-                if (!this.gateway.gatewayAuthMessage) //set default value
-                    this.gateway.gatewayyAuthMessage = defaultGatewayAuthMessage
-                this.gateway.gatewayValidationKey = shajs('sha512').update(this.secret + this.gateway.gatewayAuthMessage).digest('hex')
-                logger.info(`Gateway validation key: ${this.gateway.gatewayValidationKey}`)
+            if (gateways) {
+                if (!Array.isArray(gateways))
+                    throw new Error('Gateways must be an array')
+                this.gateways = gateways
+                if (!gatewayAuthMessage) //set default value
+                    this.gatewayAuthMessage = defaultGatewayAuthMessage
+                this.gatewayValidationKey = shajs('sha512').update(this.secret + this.gatewayAuthMessage).digest('hex')
+                logger.info(`Gateway validation key: ${this.gatewayValidationKey}`)
             } else
                 logger.warn('Gateway is not defined')
         } catch (e) {
-            this.__addIssue(`gateway: ${e.message}`)
+            this.__addIssue(`gateways: ${e.message}`)
         }
     }
 
@@ -207,7 +201,8 @@ class AppConfig extends IssuesContainer {
             trace: this.trace,
             port: this.port,
             rsaKey: this.rsaKey,
-            gateway: gatewayToPlainObject(this.gateway)
+            gateways: this.gateways,
+            gatewayAuthMessage: this.gatewayAuthMessage === defaultGatewayAuthMessage ? undefined : this.gatewayAuthMessage
         }
     }
 }

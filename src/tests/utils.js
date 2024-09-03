@@ -5,7 +5,7 @@ const ContractTypes = require('@reflector/reflector-shared/models/configs/contra
 const constants = require('./constants')
 
 const pathToOracleContractWasm = './tests/reflector-oracle.wasm'
-const pathToSubscriptionsContractWasm = './tests/reflector-subscriptions.wasm'
+const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
 
 async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
@@ -63,7 +63,10 @@ function generateAppConfig(secret, dataSources) {
         handshakeTimeout: 0,
         secret,
         dataSources,
-        orchestratorUrl: 'http://192.168.0.137:12274'
+        orchestratorUrl: 'http://192.168.0.137:12274',
+        rsaKey: constants.rsaKeys.privateKey,
+        trace: true,
+        gateways: ['http://192.168.0.137:8081']
     }
 }
 
@@ -84,7 +87,6 @@ function generateOracleContractConfig(admin, oracleId, dataSource) {
     const assets = {}
     switch (dataSource.name) {
         case 'exchanges':
-        case 'coinmarketcap':
             assets.baseAsset = constants.baseGenericAsset
             assets.assets = constants.genericAssets
             break
@@ -103,7 +105,6 @@ function generateOracleContractConfig(admin, oracleId, dataSource) {
         admin,
         oracleId,
         baseAsset: assets.baseAsset,
-        decimals: constants.decimals,
         assets: assets.assets,//.slice(0, 2),
         timeframe: constants.timeframe,
         period: constants.period,
@@ -119,8 +120,7 @@ function generateSubscriptionsContractConfig(admin, contractId, token) {
         type: ContractTypes.SUBSCRIPTIONS,
         baseFee: 100,
         fee: constants.fee,
-        token,
-        dataSources: '*'
+        token
     }
 }
 
@@ -136,6 +136,13 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
     }
 
     return {
+        decimals: 14,
+        baseAssets: {
+            exchanges: {
+                type: 2,
+                code: 'USD'
+            }
+        },
         systemAccount,
         contracts: contractConfigs,
         wasmHash,

@@ -86,36 +86,36 @@ class StatisticsManager {
         this.lastProcessedTimestamp = 0
         this.totalProcessed = 0
         this.submittedTransactions = 0
-        this.gatewayMetrics = []
+        this.gatewaysMetrics = []
         this.__metricsWorker()
     }
 
     async __metricsWorker() {
         try {
-            if (!container?.settingsManager?.appConfig?.gateway)
+            if (!container?.settingsManager?.appConfig?.gateways)
                 return
-            const {gateway} = container.settingsManager.appConfig
+            const {gateways, gatewayValidationKey} = container.settingsManager.appConfig
 
-            const gatewayMetrics = []
+            const gatewaysMetrics = []
             const requests = []
-            for (let i = 0; i < gateway.connectionString.length; i++) {
-                const currentGateway = gateway.connectionString[i]
+            for (let i = 0; i < gateways.length; i++) {
+                const currentGateway = gateways[i]
                 requests[i] =
                     makeRequest(`${currentGateway}/metrics`,
                         {
-                            headers: {'x-gateway-validation': gateway.gatewayValidationKey},
+                            headers: {'x-gateway-validation': gatewayValidationKey},
                             timeout: 5000
                         })
                         .then(response => {
-                            gatewayMetrics[i] = response.data
+                            gatewaysMetrics[i] = response.data
                         })
                         .catch(e => {
-                            gatewayMetrics[i] = 'n/a'
+                            gatewaysMetrics[i] = 'n/a'
                             logger.debug(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
                         })
             }
             await Promise.all(requests)
-            this.gatewayMetrics = gatewayMetrics
+            this.gatewaysMetrics = gatewaysMetrics
         } catch (err) {
             logger.error(err, 'Metrics worker error')
         } finally {
@@ -184,7 +184,7 @@ class StatisticsManager {
             connectedNodes,
             oracleStatistics: contractStatistics, //legacy
             contractStatistics,
-            gatewayMetrics: this.gatewayMetrics,
+            gatewaysMetrics: this.gatewaysMetrics,
             ...settingsStatistics
         }
     }
