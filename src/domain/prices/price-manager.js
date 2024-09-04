@@ -48,6 +48,8 @@ async function getPricesForContract(contractId, timestamp) {
     const assets = settingsManager.getAssets(contract.contractId, true)
     const prevPrices = [...contractState.prices, ...Array(assets.length - contractState.prices.length).fill(0n)]
 
+    logger.trace({msg: `Previous prices for contract ${contractId}, timestamp: ${contractState.lastTimestamp}`, prevPrices})
+
     //start of the current timeframe
     let currentVolumeTimestamp = timestamp
 
@@ -100,9 +102,9 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     const {tradesManager, settingsManager} = container
     const tradesData = await tradesManager.getTradesData(source, baseAsset, [asset], timestamp)
     const decimals = settingsManager.getDecimals()
-    if (!tradesData || tradesData.length === 0) {
+    if (!tradesData || tradesData.length === 0 || tradesData[0] === null) {
         logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
-        return {price: getPreciseValue(1n, decimals), decimals}
+        return {price: 0n, decimals}
     }
     const price = calcPrice(tradesData, decimals, [0n])[0]
     if (price === 0n)
@@ -131,7 +133,7 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 
     const price = calcCrossPrice(quoteAssetPrice.price, baseAssetPrice.price, decimals)
     if (price === 0n)
-        logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp}: ${price}`)
+        logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp} is zero`)
     return {price, decimals}
 }
 

@@ -45,8 +45,6 @@ function getNormalizedAsset(raw) {
         assetType,
         raw.asset
     )
-    if (asset.type === AssetType.STELLAR && asset.isContractId)
-        throw new Error('Contract id is not supported as subscription asset')
     const tickerAsset = {
         source: raw.source,
         asset
@@ -151,12 +149,7 @@ class SubscriptionContractManager {
         const {lastSubscriptionId} = await getSubscriptionsContractState(this.contractId, sorobanRpc)
         const rawData = await getSubscriptions(this.contractId, sorobanRpc, lastSubscriptionId)
         for (const raw of rawData)
-            try {
-                if (raw && raw.status === 0) //only active subscriptions
-                    await this.__setSubscription(raw)
-            } catch (err) {
-                logger.error({err}, `Error on adding subscription ${raw.id?.toString()}`)
-            }
+            await this.__setSubscription(raw)
         logger.trace(`Loaded ${this.__subscriptions.size} subscriptions for contract ${this.contractId}`)
     }
 
@@ -164,25 +157,43 @@ class SubscriptionContractManager {
      * @param {any} raw - raw subscription data
      */
     async __setSubscription(raw) {
-        const currentSubscription = this.__subscriptions.get(raw.id)
-        const base = getNormalizedAsset(raw.base)
-        const quote = getNormalizedAsset(raw.quote)
-        const webhook = await getWebhook(raw.id, raw.webhook)
-        const subscription = {
-            base,
-            quote,
-            balance: raw.balance,
-            status: raw.status,
-            id: raw.id,
-            lastCharge: Number(raw.updated),
-            owner: raw.owner,
-            threshold: raw.threshold,
-            webhook,
-            lastNotification: currentSubscription?.lastNotification || 0,
-            lastPrice: currentSubscription?.lastPrice || 0n,
-            heartbeat: raw.heartbeat
+        try {
+            if (!(raw && raw.status === 0)) {//only active subscriptions
+                logger.trace(`Subscription ${raw.id} is not active. Contract ${this.contractId}`)
+                return
+            }
+            const currentSubscription = this.__subscriptions.get(raw.id)
+            const base = getNormalizedAsset(raw.base)
+            const quote = getNormalizedAsset(raw.quote)
+            if (base.asset.isContractId || quote.asset.isContractId) {
+                logger.warn(`Contract id is not supported as subscription ticker asset. Subscription ${raw.id}. Contract ${this.contractId}`)
+                return
+            }
+
+            if (!(dataSourceManager.has(base.source) && dataSourceManager.has(quote.source))) {//the source is not supported
+                logger.debug(`Subscription ${raw.id} source(s) not supported. Contract ${this.contractId}`)
+                return
+            }
+
+            const webhook = await getWebhook(raw.id, raw.webhook)
+            const subscription = {
+                base,
+                quote,
+                balance: raw.balance,
+                status: raw.status,
+                id: raw.id,
+                lastCharge: Number(raw.updated),
+                owner: raw.owner,
+                threshold: raw.threshold,
+                webhook,
+                lastNotification: currentSubscription?.lastNotification || 0,
+                lastPrice: currentSubscription?.lastPrice || 0n,
+                heartbeat: raw.heartbeat
+            }
+            this.__subscriptions.set(subscription.id, subscription)
+        } catch (err) {
+            logger.error({err, rawSubscription: raw, msg: `Error on adding subscription ${raw.id?.toString()}`})
         }
-        this.__subscriptions.set(subscription.id, subscription)
     }
 
     async processLastEvents() {
