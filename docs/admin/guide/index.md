@@ -10,10 +10,9 @@
 {
   "secret": "S...G", //secret key of the node
   "dataSources": { //data sources for price data
-    "coinmarketcap": {
+    "exchanges": {
       "type": "api",
-      "secret": "{coinmarketcap_api_key}",
-      "name": "coinmarketcap"
+      "name": "exchanges"
     },
     "pubnet": {
       "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",

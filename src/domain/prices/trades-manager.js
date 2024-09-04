@@ -151,10 +151,15 @@ function getAssetsMap() {
 
     //push all subscriptions assets to the map
     for (const subscription of getAllSubscriptions()) {
+
+        if (!(dataSourcesManager.has(subscription.base.source) && dataSourcesManager.has(subscription.quote.source))) {//the source is not supported
+            logger.debug(`Subscription ${subscription.id} source(s) not supported`)
+            return
+        }
         const baseAsset = getSourceDefaultBaseAsset(subscription.base.source)
         const quoteBaseAsset = getSourceDefaultBaseAsset(subscription.quote.source)
         if (!(baseAsset && quoteBaseAsset)) { //if the source is not supported
-            logger.debug(`Subscription ${subscription.id} source(s) not supported`)
+            logger.debug(`Subscription ${subscription.id} source base asset(s) not found`)
             continue
         }
 

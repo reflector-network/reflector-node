@@ -52,8 +52,6 @@ function __registerConnection(dataSource, gateways, gatewayValidationKey) {
             break
         case DataSourceTypes.API:
             {
-                if (!secret && name === 'coinmarketcap')
-                    throw new ValidationError('secret is required')
                 __connections.set(name, {type, secret, name})
                 if (gateways)
                     if (name === exchangesDataSourceName)

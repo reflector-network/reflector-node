@@ -156,7 +156,6 @@ const nodeConfigs = [
 
 const contractConfigs = [
     {dataSource: constants.sources.pubnet},
-    //{dataSource: constants.sources.coinmarketcap},
     {dataSource: constants.sources.exchanges}
 ]
 

@@ -38,8 +38,7 @@ const SubscriptionsSyncData = require('./subscriptions-sync-data')
 function getNormalizedAsset(raw) {
     if (raw.asset.constructor.name !== 'String')
         throw new Error('Invalid asset data')
-    const splittedCode = raw.asset.split(':')
-    const assetType = (splittedCode.length === 2 || splittedCode[0] === 'XLM' && dataSourceManager.isStellarSource(raw.source))
+    const assetType = dataSourceManager.isStellarSource(raw.source)
         ? AssetType.STELLAR
         : AssetType.OTHER
     const asset = new Asset(
@@ -52,7 +51,6 @@ function getNormalizedAsset(raw) {
         source: raw.source,
         asset
     }
-
     return tickerAsset
 }
 
