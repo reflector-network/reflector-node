@@ -236,7 +236,7 @@ class RunnerBase {
     }
 
     __clearPendingTransaction() {
-        logger.debug(`Clear pending transaction. Oracle id: ${this.contractId || 'cluster'}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
+        logger.debug(`Clear pending transaction. ${this.__contractInfo}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
         this.__pendingTransaction = null
     }
 

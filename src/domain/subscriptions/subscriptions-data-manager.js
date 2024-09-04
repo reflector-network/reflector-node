@@ -42,13 +42,17 @@ function getNormalizedAsset(raw) {
     const assetType = (splittedCode.length === 2 || splittedCode[0] === 'XLM' && dataSourceManager.isStellarSource(raw.source))
         ? AssetType.STELLAR
         : AssetType.OTHER
+    const asset = new Asset(
+        assetType,
+        raw.asset
+    )
+    if (asset.type === AssetType.STELLAR && asset.isContractId)
+        throw new Error('Contract id is not supported as subscription asset')
     const tickerAsset = {
         source: raw.source,
-        asset: new Asset(
-            assetType,
-            raw.asset
-        )
+        asset
     }
+
     return tickerAsset
 }
 
@@ -206,7 +210,7 @@ class SubscriptionContractManager {
                     case 'suspended':
                     case 'cancelled':
                         {
-                            const id = event.value[1]
+                            const id = event.value[0] || event.value
                             logger.debug(`Subscription ${id} ${eventTopic}. Contract ${this.contractId}`)
                             if (this.__subscriptions.has(id))
                                 this.__subscriptions.delete(id)
@@ -214,8 +218,8 @@ class SubscriptionContractManager {
                         break
                     case 'charged':
                         {
-                            const timestamp = event.value[0]
-                            const id = event.value[1]
+                            const id = event.value[0]
+                            const timestamp = event.value[2]
                             logger.debug(`Subscription ${id} charged. Contract ${this.contractId}`)
                             if (this.__subscriptions.has(id)) {
                                 const subscription = this.__subscriptions.get(id)
