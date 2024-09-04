@@ -1,17 +1,17 @@
 /**
- * Get inversed price
- * @param {BigInt} price1 - price1 value
- * @param {BigInt} price2 - price2 value
+ * Get сross price
+ * @param {BigInt} quoteAssetPrice - quote asset price
+ * @param {BigInt} baseAssetPrice - base asset price
  * @param {number} decimals - number of decimals
  * @returns {BigInt}
  */
-function calcCrossPrice(price1, price2, decimals) {
-    if (price1 === BigInt(0) || price2 === BigInt(0))
+function calcCrossPrice(quoteAssetPrice, baseAssetPrice, decimals) {
+    if (quoteAssetPrice === BigInt(0) || baseAssetPrice === BigInt(0))
         return BigInt(0)
     //check if price is BigInt
-    if (typeof price1 !== 'bigint' || typeof price2 !== 'bigint')
+    if (typeof quoteAssetPrice !== 'bigint' || typeof baseAssetPrice !== 'bigint')
         throw new TypeError('Price should be expressed as BigInt')
-    const price = (price1 * (10n ** BigInt(decimals))) / price2
+    const price = (quoteAssetPrice * (10n ** BigInt(decimals))) / baseAssetPrice
     return price
 }
 

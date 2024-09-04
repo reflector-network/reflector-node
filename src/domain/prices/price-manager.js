@@ -1,4 +1,4 @@
-const {getOracleContractState, Asset, AssetType} = require('@reflector/reflector-shared')
+const {getOracleContractState} = require('@reflector/reflector-shared')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
@@ -129,7 +129,7 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
         ? {price: getPreciseValue(1n, decimals), decimals}
         : await getPriceForAsset(quoteSource, defaultQuoteAsset, quoteAsset, timestamp)
 
-    const price = calcCrossPrice(baseAssetPrice.price, quoteAssetPrice.price, decimals)
+    const price = calcCrossPrice(quoteAssetPrice.price, baseAssetPrice.price, decimals)
     if (price === 0n)
         logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals}
