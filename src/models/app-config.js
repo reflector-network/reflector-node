@@ -183,7 +183,6 @@ class AppConfig extends IssuesContainer {
                 if (!gatewayAuthMessage) //set default value
                     this.gatewayAuthMessage = defaultGatewayAuthMessage
                 this.gatewayValidationKey = shajs('sha512').update(this.secret + this.gatewayAuthMessage).digest('hex')
-                logger.info(`Gateway validation key: ${this.gatewayValidationKey}`)
             } else
                 logger.warn('Gateway is not defined')
         } catch (e) {
