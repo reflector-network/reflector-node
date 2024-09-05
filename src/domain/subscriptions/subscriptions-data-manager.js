@@ -158,8 +158,8 @@ class SubscriptionContractManager {
      */
     async __setSubscription(raw) {
         try {
-            if (!(raw && raw.status === 0)) {//only active subscriptions
-                logger.trace(`Subscription ${raw.id} is not active. Contract ${this.contractId}`)
+            if (!(raw && raw.status === 0)) {//only active subscriptions, raw can be null if the subscription was deleted
+                logger.trace(`Subscription ${raw?.id} is not active or not defind. Contract ${this.contractId}`)
                 return
             }
             const currentSubscription = this.__subscriptions.get(raw.id)
@@ -192,7 +192,7 @@ class SubscriptionContractManager {
             }
             this.__subscriptions.set(subscription.id, subscription)
         } catch (err) {
-            logger.error({err, rawSubscription: raw, msg: `Error on adding subscription ${raw.id?.toString()}`})
+            logger.error({err, rawSubscription: raw, msg: `Error on adding subscription ${raw?.id.toString()}, contract ${this.contractId}`})
         }
     }
 
