@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@reflector/oracle-client": "github:reflector-network/oracle-client#subscriptions",
-    "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v2.0.0",
+    "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v2.0.1",
     "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#subscriptions",
     "@reflector/reflector-shared": "github:reflector-network/reflector-shared#subscriptions",
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
@@ -33,8 +33,6 @@
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "lowdb": "^6.1.1",
-    "mongoose": "^7.2.0",
     "pino": "^8.15.1",
     "rotating-file-stream": "^3.2.1",
     "uuid": "^9.0.0",

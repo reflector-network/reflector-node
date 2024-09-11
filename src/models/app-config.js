@@ -1,11 +1,7 @@
 const {Keypair, StrKey} = require('@stellar/stellar-sdk')
 const {IssuesContainer} = require('@reflector/reflector-shared')
 const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
-const shajs = require('sha.js')
-const logger = require('../logger')
 const DataSource = require('./data-source')
-
-const defaultGatewayAuthMessage = 'gateway_validation'
 const defaultDbSyncDelay = 15_000
 
 function getNormalizedDbSyncDelay(dbSyncDelay) {
@@ -31,8 +27,6 @@ class AppConfig extends IssuesContainer {
         this.__assignDbSyncDelay(config.dbSyncDelay)
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
-        this.__assignRSAKey(config.rsaKey, config.rsaKeyObject)
-        this.__assignGateways(config.gateways)
     }
 
     /**
@@ -74,26 +68,6 @@ class AppConfig extends IssuesContainer {
      * @type {string}
      */
     orchestratorUrl
-
-    /**
-     * @type {string} - base64 encoded RSA private key
-     */
-    rsaKey
-
-    /**
-     * @type {KeyObject} - RSA private key object
-     */
-    rsaKeyObject
-
-    /**
-     * @type {string[]}
-     */
-    gateways = null
-
-    /**
-     * @type {string}
-     */
-    gatewayValidationKey = null
 
     __assignKeypair(secret) {
         try {
@@ -163,33 +137,6 @@ class AppConfig extends IssuesContainer {
         this.trace = !!trace
     }
 
-    __assignRSAKey(rsaKey, rsaKeyObject) {
-        try {
-            if (!rsaKey)
-                throw new Error(IssuesContainer.notDefined)
-            this.rsaKey = rsaKey
-            this.rsaKeyObject = rsaKeyObject
-        } catch (e) {
-            this.__addIssue(`cryptoPrivateKey: ${e.message}`)
-        }
-    }
-
-    __assignGateways(gateways, gatewayAuthMessage) {
-        try {
-            if (gateways) {
-                if (!Array.isArray(gateways))
-                    throw new Error('Gateways must be an array')
-                this.gateways = gateways
-                if (!gatewayAuthMessage) //set default value
-                    this.gatewayAuthMessage = defaultGatewayAuthMessage
-                this.gatewayValidationKey = shajs('sha512').update(this.secret + this.gatewayAuthMessage).digest('hex')
-            } else
-                logger.warn('Gateway is not defined')
-        } catch (e) {
-            this.__addIssue(`gateways: ${e.message}`)
-        }
-    }
-
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
@@ -198,10 +145,7 @@ class AppConfig extends IssuesContainer {
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,
             trace: this.trace,
-            port: this.port,
-            rsaKey: this.rsaKey,
-            gateways: this.gateways,
-            gatewayAuthMessage: this.gatewayAuthMessage === defaultGatewayAuthMessage ? undefined : this.gatewayAuthMessage
+            port: this.port
         }
     }
 }

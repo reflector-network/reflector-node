@@ -57,14 +57,21 @@ function getSampleSize(lastTimestemp, targetTimestamp) {
  */
 function loadTradesData(dataSource, baseAsset, assets, from, count) {
     from = from / 1000 //convert to seconds
+    let dataPromise = null
+    const start = Date.now()
     switch (dataSource.type) {
         case DataSourceTypes.API:
-            return loadApiTradesData(dataSource, baseAsset, assets, from, count)
+            dataPromise = loadApiTradesData(dataSource, baseAsset, assets, from, count)
+            break
         case DataSourceTypes.DB:
-            return loadDbTradesData(dataSource, baseAsset, assets, from, count)
+            dataPromise = loadDbTradesData(dataSource, baseAsset, assets, from, count)
+            break
         default:
             throw new Error(`Data source ${dataSource.type} not supported`)
     }
+    dataPromise
+        .then(data => logger.info(`Loaded ${data.length} trade data from ${dataSource.name} in ${Date.now() - start}ms`))
+    return dataPromise
 }
 
 /**
@@ -76,6 +83,8 @@ function loadTradesData(dataSource, baseAsset, assets, from, count) {
  * @returns {Promise<AggregatedTradeData>}
  */
 async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
+    const {settingsManager} = container
+    const gatewaysCount = settingsManager.gateways?.urls?.length || 1
     switch (dataSource.name) {
         case 'exchanges': {
             const tradesData = await getTradesData(
@@ -83,7 +92,11 @@ async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
                 baseAsset.code,
                 from,
                 minute / 1000,
-                count
+                count,
+                {
+                    batchSize: gatewaysCount * 10,
+                    batchDelay: 1500
+                }
             )
             return tradesData
         }
@@ -102,9 +115,7 @@ async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
  */
 async function loadDbTradesData(dataSource, baseAsset, assets, from, count) {
     const {dbConnector} = dataSource
-    const start = Date.now()
     const tradesData = await aggregateTrades({db: dbConnector, baseAsset, assets, from, period: minute, limit: count})
-    logger.info(`Loaded ${tradesData.length} trades data in ${Date.now() - start} ms`)
 
     //normalize data to the same format as API data
     for (let tsIndex = 0; tsIndex < tradesData.length; tsIndex++) {

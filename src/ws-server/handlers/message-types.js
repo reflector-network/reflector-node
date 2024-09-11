@@ -16,6 +16,8 @@ const MessageTypes = {
     SET_TRACE: 22,
     LOGS_REQUEST: 23,
     LOG_FILE_REQUEST: 24,
+    GATEWAYS_GET: 25,
+    GATEWAYS_POST: 26,
     OK: 200
 }
 

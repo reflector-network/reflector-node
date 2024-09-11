@@ -7,7 +7,8 @@ const nonces = fs.existsSync(nonceFile) ? JSON.parse(fs.readFileSync(nonceFile).
 
 const nonceTypes = {
     CONFIG: 'config',
-    PENDING_CONFIG: 'pendingConfig'
+    PENDING_CONFIG: 'pendingConfig',
+    GATEWAYS: 'gateways'
 }
 
 //Rename nonce type '3' to 'config'

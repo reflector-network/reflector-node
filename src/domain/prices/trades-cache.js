@@ -35,7 +35,7 @@ class TradesCacheItem {
         for (const asset of assets) {
             const assetInfo = this.assetsMap.getAssetInfo(asset.code)
             if (assetInfo === undefined) {
-                tradesData.push(null)
+                tradesData.push([]) //no data for the asset
                 continue
             }
             const trade = this.trades[assetInfo.index]

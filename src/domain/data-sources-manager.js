@@ -27,10 +27,8 @@ const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.
 
 /**
  * @param {DataSource} dataSource - data source
- * @param {string[]} gateways - gateways list
- * @param {string} gatewayValidationKey - gateways validation key
  */
-function __registerConnection(dataSource, gateways, gatewayValidationKey) {
+function __registerConnection(dataSource) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
     const {
@@ -53,11 +51,6 @@ function __registerConnection(dataSource, gateways, gatewayValidationKey) {
         case DataSourceTypes.API:
             {
                 __connections.set(name, {type, secret, name})
-                if (gateways)
-                    if (name === exchangesDataSourceName)
-                        setGateway(gateways, gatewayValidationKey, false)
-                    else
-                        logger.warn(`Gateway is not supported for ${name}`)
             }
             break
         default:
@@ -77,13 +70,11 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
-     * @param {string[]} gateways - gateways list
-     * @param {string} gatewayValidationKey - gateways validation key
      */
-    setDataSources(dataSources, gateways, gatewayValidationKey) {
+    setDataSources(dataSources) {
         for (const source of dataSources) {
             try {
-                __registerConnection(source, gateways, gatewayValidationKey)
+                __registerConnection(source)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))
@@ -91,6 +82,17 @@ class DataSourcesManager extends IssuesContainer {
                 this.__addIssue(`${source.name}: ${errorMessage}`)
                 logger.error(err)
             }
+        }
+    }
+
+    /**
+     * @param {{urls: string[], gatewayValidationKey: string}} gateways - gateways list
+     */
+    setGateways(gateways) {
+        const {urls, gatewayValidationKey} = gateways || {}
+        for (const connection of __connections.values()) {
+            if (connection.type === DataSourceTypes.API)
+                setGateway(urls, gatewayValidationKey, false)
         }
     }
 

@@ -60,7 +60,7 @@ class ClusterRunner extends RunnerBase {
         if (hasMoreTxns) //if true, the config has more transactions to be submitted
             return true
 
-        settingsManager.applyPendingUpdate(nonceManager.getNonce(nonceManager.nonceTypes.PENDING_CONFIG))
+        await settingsManager.applyPendingUpdate(nonceManager.getNonce(nonceManager.nonceTypes.PENDING_CONFIG))
         return true
     }
 

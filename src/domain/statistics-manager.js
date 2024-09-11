@@ -92,14 +92,14 @@ class StatisticsManager {
 
     async __metricsWorker() {
         try {
-            if (!container?.settingsManager?.appConfig?.gateways)
+            if (!container?.settingsManager?.gateways)
                 return
-            const {gateways, gatewayValidationKey} = container.settingsManager.appConfig
+            const {urls, gatewayValidationKey} = container.settingsManager.gateways
 
             const gatewaysMetrics = []
             const requests = []
-            for (let i = 0; i < gateways.length; i++) {
-                const currentGateway = gateways[i]
+            for (let i = 0; i < urls.length; i++) {
+                const currentGateway = urls[i]
                 requests[i] =
                     makeRequest(`${currentGateway}/metrics`,
                         {

@@ -9,6 +9,7 @@ const LogsRequestHandler = require('./logs-request-handler')
 const LogFileRequestHandler = require('./log-file-request-handler')
 const SetTraceHandler = require('./set-trace-handler')
 const SyncHandler = require('./sync-handler')
+const {GatewaysGetHandler, GatewaysPostHandler} = require('./gateways-handler')
 
 /**
  * @typedef {import('../channels/channel-base')} ChannelBase
@@ -27,7 +28,9 @@ class HandlersManager {
             [MessageTypes.LOGS_REQUEST]: new LogsRequestHandler(),
             [MessageTypes.LOG_FILE_REQUEST]: new LogFileRequestHandler(),
             [MessageTypes.SET_TRACE]: new SetTraceHandler(),
-            [MessageTypes.SYNC]: new SyncHandler()
+            [MessageTypes.SYNC]: new SyncHandler(),
+            [MessageTypes.GATEWAYS_GET]: new GatewaysGetHandler(),
+            [MessageTypes.GATEWAYS_POST]: new GatewaysPostHandler()
         }
     }
 

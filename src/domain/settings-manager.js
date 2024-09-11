@@ -1,10 +1,11 @@
 const fs = require('fs')
-const {ValidationError, ConfigEnvelope, buildUpdates, Config} = require('@reflector/reflector-shared')
+const {ValidationError, ConfigEnvelope, buildUpdates, Config, getSignaturePayloadHash, getDataHash} = require('@reflector/reflector-shared')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const AppConfig = require('../models/app-config')
 const logger = require('../logger')
-const {importRSAKey} = require('../utils/crypto-helper')
+const {importRSAKey, randomUUID} = require('../utils/crypto-helper')
 const nonceManager = require('../ws-server/nonce-manager')
+const {isDebugging} = require('../utils')
 const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
@@ -13,6 +14,7 @@ const statisticsManager = require('./statistics-manager')
 const {defaultDecimals, defaultBaseAssets} = require('./default-values')
 
 const appConfigPath = `${container.homeDir}/app.config.json`
+const gatewaysPath = `${container.homeDir}/.gateways.json`
 const clusterConfigPath = `${container.homeDir}/.config.json`
 const clusterPendingConfigPath = `${container.homeDir}/.pending.config.json`
 
@@ -48,12 +50,6 @@ function __hasContractConfig(config, contractId, type = null) {
     return true
 }
 
-async function normalizeAppConfig(config) {
-    if (!config || !config.rsaKey)
-        return
-    config.rsaKeyObject = await importRSAKey(Buffer.from(config.rsaKey, 'base64'))
-}
-
 class SettingsManager {
     /**
      * @type {AppConfig}
@@ -70,19 +66,34 @@ class SettingsManager {
      */
     config
 
+    /**
+     * @type {{urls: string[], challenge: string, gatewayValidationKey: string}}
+     */
+    gateways
+
+    /**
+     * @type {import('crypto').KeyObject}
+     */
+    rsaKeyObject = null
+
     async init() {
         //set app config
         if (!fs.existsSync(appConfigPath))
             throw new Error('Config file not found')
         const rawAppConfig = JSON.parse(fs.readFileSync(appConfigPath).toString().trim())
-        //need to import rsa key here, because it requires async operation
-        await normalizeAppConfig(rawAppConfig)
         this.appConfig = new AppConfig(rawAppConfig)
         if (!this.appConfig.isValid) {
             //shutdown the app if app config is invalid
             throw new Error(`Invalid app config. Issues: ${this.appConfig.issuesString}`)
         }
         this.setAppConfig(this.appConfig)
+
+        //set gateways
+        const gatewaysExist = fs.existsSync(gatewaysPath)
+        const gatewaysData = gatewaysExist
+            ? JSON.parse(fs.readFileSync(gatewaysPath).toString().trim())
+            : {urls: [], challenge: randomUUID(32)}
+        await this.setGateways(gatewaysData, !gatewaysExist)
 
         //set current config
         const rawConfig = fs.existsSync(clusterConfigPath)
@@ -93,7 +104,7 @@ class SettingsManager {
             if (!clusterConfig.isValid) {
                 logger.error(`Invalid config. Config will not be assigned. Issues: ${clusterConfig.issuesString}`)
             } else
-                this.setConfig(clusterConfig, null, false)
+                await this.setConfig(clusterConfig, null, false)
         }
         //set pending updates
         const rawPendingConfig = fs.existsSync(clusterPendingConfigPath)
@@ -114,8 +125,8 @@ class SettingsManager {
         fs.writeFileSync(appConfigPath, JSON.stringify(this.appConfig.toPlainObject(), null, 2))
     }
 
-    applyPendingUpdate(nonce) {
-        this.setConfig(this.pendingConfig.config, nonce)
+    async applyPendingUpdate(nonce) {
+        await this.setConfig(this.pendingConfig.config, nonce)
         this.clearPendingConfig()
     }
 
@@ -132,7 +143,7 @@ class SettingsManager {
     setAppConfig(config) {
         this.appConfig = config
         logger.setTrace(this.appConfig.trace)
-        dataSourceManager.setDataSources([...config.dataSources.values()], config.gateways, config.gatewayValidationKey)
+        dataSourceManager.setDataSources([...config.dataSources.values()])
     }
 
     /**
@@ -140,10 +151,11 @@ class SettingsManager {
      * @param {number} nonce - nonce for the config
      * @param {boolean} [save] - save config to file
      */
-    setConfig(config, nonce, save = true) {
+    async setConfig(config, nonce, save = true) {
         this.config = config
-        if (!this.config.isValid)
-            return
+        if (!config.rsaKey)
+            logger.warn('RSA key is not defined')
+        this.rsaKeyObject = config.rsaKey ? await importRSAKey(Buffer.from(config.rsaKey, 'base64')) : null
         const contracts = new Map([...config.contracts.values()].map(c => ([c.contractId, c.type])))
         runnerManager.setContracts(contracts)
         nodesManager.setNodes(config.nodes)
@@ -171,6 +183,24 @@ class SettingsManager {
             nonceManager.setNonce(nonceManager.nonceTypes.PENDING_CONFIG, nonce)
         if (save)
             fs.writeFileSync(clusterPendingConfigPath, JSON.stringify(envelope.toPlainObject(), null, 2))
+    }
+
+    setGateways(gatewaysData, save = true) {
+        const {urls, challenge} = gatewaysData || {}
+        if (urls) {
+            if (!Array.isArray(urls))
+                throw new Error('Gateways must be an array')
+            const gatewayValidationKey = this.appConfig.keypair.sign(
+                Buffer.from(getDataHash(challenge, this.appConfig.publicKey), 'hex')
+            ).toString('base64')
+            if (isDebugging())
+                logger.info(`Gateway validation key: ${gatewayValidationKey}`)
+            this.gateways = {...gatewaysData, gatewayValidationKey}
+        } else
+            logger.warn('Gateway is not defined')
+        dataSourceManager.setGateways(this.gateways)
+        if (save)
+            fs.writeFileSync(gatewaysPath, JSON.stringify(gatewaysData, null, 2))
     }
 
     /**
@@ -224,10 +254,9 @@ class SettingsManager {
      * @returns {Asset[]}
      */
     getAssets(contractId, includePending = false) {
-        if (!(includePending && this.pendingConfig))
-            return __getContractConfig(this.config, contractId).assets
-
-        return __getContractConfig(this.pendingConfig.config, contractId).assets
+        if (includePending && this.pendingConfig && this.pendingConfig.config.contracts.has(contractId)) //contract can be deleted in pending config
+            return __getContractConfig(this.pendingConfig.config, contractId).assets
+        return __getContractConfig(this.config, contractId).assets
     }
 
     /**

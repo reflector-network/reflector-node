@@ -48,7 +48,7 @@ class ConfigHandler extends BaseHandler {
 
     allowAnonymous = true
 
-    handle(_, message) {
+    async handle(_, message) {
         if (!message.data)
             throw new Error('Data is required')
         const {currentConfig, pendingConfig} = message.data
@@ -60,7 +60,7 @@ class ConfigHandler extends BaseHandler {
         const newCurrentConfig = new ConfigEnvelope(currentConfig)
         const configVerificationResult = verifyConfig(newCurrentConfig, nonceManager.nonceTypes.CONFIG)
         if (configVerificationResult.verified) {
-            settingsManager.setConfig(newCurrentConfig.config, configVerificationResult.nonce)
+            await settingsManager.setConfig(newCurrentConfig.config, configVerificationResult.nonce)
         } else {
             logger.debug('Current config is not verified')
         }

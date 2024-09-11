@@ -172,7 +172,7 @@ class SubscriptionsRunner extends RunnerBase {
      */
     __processTriggerData(event, events, root) {
         const notifications = []
-        const {gateways, gatewayValidationKey} = container.settingsManager.appConfig
+        const {urls, gatewayValidationKey} = container.settingsManager.gateways
         try {
             const {webhook} = event
             if (webhook && webhook.length > 0) {
@@ -192,9 +192,9 @@ class SubscriptionsRunner extends RunnerBase {
                 const urls = webhook.slice(0, 3).map(w => w.url)
                 notifications.push({urls, data: envelope})
             }
-            if (gateways) {
-                for (let i = 0; i < gateways.length; i++) {
-                    const currentGateway = gateways[i]
+            if (urls) {
+                for (let i = 0; i < urls.length; i++) {
+                    const currentGateway = urls[i]
                     makeRequest(`${currentGateway}/notifications`,
                         {
                             method: 'POST',

@@ -9,6 +9,8 @@ const dataSourceManager = require('../data-sources-manager')
 const PendingSyncDataCache = require('./pending-notifications-cache')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
+const validSymbols = require('./valid-symbols.json')
+
 /**
  * @typedef {import('@reflector/reflector-shared').OracleConfig} OracleConfig
  */
@@ -53,12 +55,13 @@ function getNormalizedAsset(raw) {
 }
 
 async function getWebhook(id, webhookBuffer) {
+    const {rsaKeyObject} = container.settingsManager
     const verifiedWebhook = []
-    if (!webhookBuffer || !webhookBuffer.length)
+    if (!(webhookBuffer && webhookBuffer.length && rsaKeyObject))
         return verifiedWebhook
     try {
         //decrypt webhook
-        const decrypted = await decrypt(container.settingsManager.appConfig.rsaKeyObject, new Uint8Array(webhookBuffer))
+        const decrypted = await decrypt(rsaKeyObject, new Uint8Array(webhookBuffer))
         if (!decrypted)
             return null
         const rawWebhook = Buffer.from(decrypted).toString()
@@ -159,7 +162,7 @@ class SubscriptionContractManager {
     async __setSubscription(raw) {
         try {
             if (!(raw && raw.status === 0)) {//only active subscriptions, raw can be null if the subscription was deleted
-                logger.trace(`Subscription ${raw?.id} is not active or not defind. Contract ${this.contractId}`)
+                logger.trace(`Subscription ${raw?.id} is not active or not defined. Contract ${this.contractId}`)
                 return
             }
             const currentSubscription = this.__subscriptions.get(raw.id)
@@ -167,6 +170,11 @@ class SubscriptionContractManager {
             const quote = getNormalizedAsset(raw.quote)
             if (base.asset.isContractId || quote.asset.isContractId) {
                 logger.warn(`Contract id is not supported as subscription ticker asset. Subscription ${raw.id}. Contract ${this.contractId}`)
+                return
+            }
+
+            if (base.source === 'exchange' && !validSymbols.includes(base.asset.code) || quote.source === 'exchange' && !validSymbols.includes(quote.asset.code)) {
+                logger.warn(`Invalid symbol in subscription ${raw.id}. Contract ${this.contractId}`)
                 return
             }
 
