@@ -29,12 +29,6 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
       "type": "api"
     }
   },
-   "gateways": [
-     "https://194.85.0.258:8081",
-     "https://12.257.32.171:9023"
-   ],
-  "gatewayAuthMessage": "gateway_validation",
-  "rsaKey": "DT4E...Ykl=", //RSA secret key for subscription webhook decryption
   "dbSyncDelay": 15,
   "trace": false
 }

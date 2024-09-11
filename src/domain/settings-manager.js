@@ -74,7 +74,7 @@ class SettingsManager {
     /**
      * @type {import('crypto').KeyObject}
      */
-    rsaKeyObject = null
+    clusterSecretObject = null
 
     async init() {
         //set app config
@@ -153,9 +153,9 @@ class SettingsManager {
      */
     async setConfig(config, nonce, save = true) {
         this.config = config
-        if (!config.rsaKey)
+        if (!config.clusterSecret)
             logger.warn('RSA key is not defined')
-        this.rsaKeyObject = config.rsaKey ? await importRSAKey(Buffer.from(config.rsaKey, 'base64')) : null
+        this.clusterSecretObject = config.clusterSecret ? await importRSAKey(Buffer.from(config.clusterSecret, 'base64')) : null
         const contracts = new Map([...config.contracts.values()].map(c => ([c.contractId, c.type])))
         runnerManager.setContracts(contracts)
         nodesManager.setNodes(config.nodes)

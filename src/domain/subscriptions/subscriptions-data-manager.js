@@ -55,13 +55,13 @@ function getNormalizedAsset(raw) {
 }
 
 async function getWebhook(id, webhookBuffer) {
-    const {rsaKeyObject} = container.settingsManager
+    const {clusterSecretObject} = container.settingsManager
     const verifiedWebhook = []
-    if (!(webhookBuffer && webhookBuffer.length && rsaKeyObject))
+    if (!(webhookBuffer && webhookBuffer.length && clusterSecretObject))
         return verifiedWebhook
     try {
         //decrypt webhook
-        const decrypted = await decrypt(rsaKeyObject, new Uint8Array(webhookBuffer))
+        const decrypted = await decrypt(clusterSecretObject, new Uint8Array(webhookBuffer))
         if (!decrypted)
             return null
         const rawWebhook = Buffer.from(decrypted).toString()
