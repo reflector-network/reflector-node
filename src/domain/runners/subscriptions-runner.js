@@ -40,8 +40,14 @@ async function broadcastSyncData(contractId, data) {
     logger.debug(`Signature broadcasted. Contract id: ${contractId}, hash: ${data.hashBase64}`)
 }
 
-function getRotatedIndex(index, length) {
-    return (index + 1) % length
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        const temp = array[i]
+        array[i] = array[j]
+        array[j] = temp
+    }
+    return array
 }
 
 class SubscriptionsRunner extends RunnerBase {
@@ -218,81 +224,75 @@ class SubscriptionsRunner extends RunnerBase {
                 if (webhookData)
                     notifications.push(webhookData)
             }
-            const verifier = settingsManager.appConfig.publicKey
-            const contract = this.contractId
-            if (urls && urls.length > 0) {
-                logger.debug(`Sending webhook data to gateways: ${urls.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
-                logger.debug({notifications})
-                for (let i = 0; i < urls.length; i++) {
-                    const currentGateway = urls[i]
-                    makeRequest(`${currentGateway}/notifications`,
-                        {
-                            method: 'POST',
-                            headers: {'x-gateway-validation': gatewayValidationKey},
-                            data: {
-                                notifications,
-                                events,
-                                root,
-                                verifier,
-                                contract
-                            },
-                            timeout: 5000
-                        })
-                        .catch(e => {
-                            logger.debug(`Failed to send webhook data to ${currentGateway}: ${e.message}`)
-                        })
-                }
-            } else {
-                logger.debug(`Sending webhook data to webhooks for contract ${this.contractId}. Notifications count: ${notifications.length}`)
-                for (let i = 0; i < notifications.length; i++) {
-                    const {urls, data} = notifications[i]
-                    data.update = {...data.update, events, root, contract}
-                    data.verifier = verifier
-                    for (let j = 0; j < urls.length; j++) {
-                        makeRequest(urls[j],
-                            {
-                                method: 'POST',
-                                data,
-                                timeout: 5000
-                            })
-                            .catch(e => {
-                                logger.debug(`Failed to send webhook data to ${urls[j]}: ${e.message}`)
-                            })
-                    }
-                }
-            }
+            if (urls && urls.length > 0)
+                this.__postNotificationsViaGateway(urls, gatewayValidationKey, notifications, events, root)
+            else
+                this.__postNotifications(notifications, events, root)
             logger.debug(`Webhook data sent for contract ${this.contractId}. Notifications count: ${notifications.length}`)
         } catch (err) {
             logger.error({err}, `Failed to process trigger data ${this.contractId}`)
         }
     }
 
-    async __postNotifications(urls, gatewayValidationKey, notifications) {
-        logger.debug(`Sending webhook data to gateways: ${urls.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
-        let maxAttempts = urls.length
-        let currentIndex = -1
-        while (maxAttempts > 0) {
-            if (currentIndex < 0)
-                currentIndex = Math.floor(Math.random() * length) //random start index
-            else
-                currentIndex = getRotatedIndex(currentIndex, urls.length)
-            const currentGateway = urls[currentIndex]
+    async __postNotificationsViaGateway(gateways, gatewayValidationKey, notifications, events, root) {
+
+        const verifier = container.settingsManager.appConfig.publicKey
+        const contract = this.contractId
+
+        const unusedGateways = shuffleArray([...gateways]) //clone the gateways array to avoid mutations, and shuffle it
+
+        logger.debug(`Sending webhook data to gateways: ${unusedGateways.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+
+        const successfulGateways = []
+        while (successfulGateways.length < 2 && unusedGateways.length > 0) {
+            const currentGateway = unusedGateways.shift() //get the first gateway from the shuffled array
             try {
                 await makeRequest(`${currentGateway}/notifications`,
                     {
                         method: 'POST',
                         headers: {'x-gateway-validation': gatewayValidationKey},
-                        data: {notifications},
+                        data: {
+                            notifications,
+                            events,
+                            root,
+                            verifier,
+                            contract
+                        },
                         timeout: 5000
                     })
-                logger.debug(`Webhook data sent to ${currentGateway} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
-                return
+                successfulGateways.push(currentGateway)
             } catch (e) {
                 logger.debug(`Failed to send webhook data to ${currentGateway}: ${e.message}`)
-                maxAttempts--
             }
         }
-        logger.error(`Failed to send webhook data to gateways for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+        if (successfulGateways.length === 0)
+            logger.error(`Failed to send webhook data to gateways for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+        else
+            logger.debug(`Webhook data sent to gateways: ${successfulGateways.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+    }
+
+    async __postNotifications(notifications, events, root) {
+        logger.debug(`Sending webhook data to webhooks for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+
+        const verifier = container.settingsManager.appConfig.publicKey
+        const contract = this.contractId
+        for (let i = 0; i < notifications.length; i++) {
+            const {urls, data} = notifications[i]
+            data.update = {...data.update, events, root, contract}
+            data.verifier = verifier
+            for (let j = 0; j < urls.length; j++) {
+                try {
+                    await makeRequest(urls[j],
+                        {
+                            method: 'POST',
+                            data,
+                            timeout: 5000
+                        })
+                } catch (e) {
+                    logger.debug(`Failed to send webhook data to ${urls[j]}: ${e.message}`)
+                }
+            }
+        }
     }
 
     get __timeframe() {
