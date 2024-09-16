@@ -220,7 +220,7 @@ class SubscriptionsRunner extends RunnerBase {
             }
             const verifier = settingsManager.appConfig.publicKey
             const contract = this.contractId
-            if (urls) {
+            if (urls && urls.length > 0) {
                 logger.debug(`Sending webhook data to gateways: ${urls.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
                 logger.debug({notifications})
                 for (let i = 0; i < urls.length; i++) {
