@@ -40,6 +40,10 @@ async function broadcastSyncData(contractId, data) {
     logger.debug(`Signature broadcasted. Contract id: ${contractId}, hash: ${data.hashBase64}`)
 }
 
+function getRotatedIndex(index, length) {
+    return (index + 1) % length
+}
+
 class SubscriptionsRunner extends RunnerBase {
     constructor(contractId) {
         if (!contractId)
@@ -110,10 +114,7 @@ class SubscriptionsRunner extends RunnerBase {
         let chargeTimestamp = timestamp
 
         if (events.length > 0) {
-            for (let i = 0; i < events.length; i++) {
-                const event = events[i]
-                this.__processTriggerData(event, eventHexHashes, rootHex)
-            }
+            this.__processTriggerData(events, eventHexHashes, rootHex)
 
             updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
                 account,
@@ -165,14 +166,14 @@ class SubscriptionsRunner extends RunnerBase {
         return true
     }
 
+
     /**
      * @param {any} event - trigger item data
      * @param {string[]} events - trigger event hashes
      * @param {string} root - composed trigger events hash
+     * @returns {{urls: string[], data: any} | null} - webhook data
      */
-    __processTriggerData(event, events, root) {
-        const notifications = []
-        const {urls, gatewayValidationKey} = container.settingsManager.gateways
+    __processSingleTriggerDataItem(event, events, root) {
         try {
             const {webhook} = event
             if (webhook && webhook.length > 0) {
@@ -183,23 +184,58 @@ class SubscriptionsRunner extends RunnerBase {
                     root
                 }
                 const signature = container.settingsManager.appConfig.keypair.sign(JSON.stringify(sortObjectKeys(update))).toString('base64')
+                //delete fields that can be restored by the gateway
+                delete update.events
+                delete update.root
+                delete update.contract
                 const envelope = {
                     update,
-                    signature,
-                    verifier: container.settingsManager.appConfig.publicKey
+                    signature
                 }
                 //get 3 first webhooks
                 const urls = webhook.slice(0, 3).map(w => w.url)
-                notifications.push({urls, data: envelope})
+                return {urls, data: envelope}
             }
+        } catch (err) {
+            logger.error({err}, `Failed to process trigger event ${event.id}, ${this.contractId}`)
+        }
+        return null
+    }
+
+    /**
+     * @param {any[]} events - array of trigger items
+     * @param {string[]} events - trigger event hashes
+     * @param {string} root - composed trigger events hash
+     */
+    __processTriggerData(eventItems, events, root) {
+        const {settingsManager} = container
+        const {urls, gatewayValidationKey} = settingsManager.gateways
+        try {
+            const notifications = []
+            for (let i = 0; i < eventItems.length; i++) {
+                const eventItem = eventItems[i]
+                const webhookData = this.__processSingleTriggerDataItem(eventItem, events, root)
+                if (webhookData)
+                    notifications.push(webhookData)
+            }
+            const verifier = settingsManager.appConfig.publicKey
+            const contract = this.contractId
             if (urls) {
+                logger.debug(`Sending webhook data to gateways: ${urls.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+                logger.debug({notifications})
                 for (let i = 0; i < urls.length; i++) {
                     const currentGateway = urls[i]
                     makeRequest(`${currentGateway}/notifications`,
                         {
                             method: 'POST',
                             headers: {'x-gateway-validation': gatewayValidationKey},
-                            data: {notifications},
+                            data: {
+                                notifications,
+                                events,
+                                root,
+                                verifier,
+                                contract
+                            },
                             timeout: 5000
                         })
                         .catch(e => {
@@ -207,8 +243,11 @@ class SubscriptionsRunner extends RunnerBase {
                         })
                 }
             } else {
+                logger.debug(`Sending webhook data to webhooks for contract ${this.contractId}. Notifications count: ${notifications.length}`)
                 for (let i = 0; i < notifications.length; i++) {
                     const {urls, data} = notifications[i]
+                    data.update = {...data.update, events, root, contract}
+                    data.verifier = verifier
                     for (let j = 0; j < urls.length; j++) {
                         makeRequest(urls[j],
                             {
@@ -222,9 +261,38 @@ class SubscriptionsRunner extends RunnerBase {
                     }
                 }
             }
-        } catch (e) {
-            logger.error(`Failed to process trigger ${event.id}: ${e.message}`)
+            logger.debug(`Webhook data sent for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+        } catch (err) {
+            logger.error({err}, `Failed to process trigger data ${this.contractId}`)
         }
+    }
+
+    async __postNotifications(urls, gatewayValidationKey, notifications) {
+        logger.debug(`Sending webhook data to gateways: ${urls.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+        let maxAttempts = urls.length
+        let currentIndex = -1
+        while (maxAttempts > 0) {
+            if (currentIndex < 0)
+                currentIndex = Math.floor(Math.random() * length) //random start index
+            else
+                currentIndex = getRotatedIndex(currentIndex, urls.length)
+            const currentGateway = urls[currentIndex]
+            try {
+                await makeRequest(`${currentGateway}/notifications`,
+                    {
+                        method: 'POST',
+                        headers: {'x-gateway-validation': gatewayValidationKey},
+                        data: {notifications},
+                        timeout: 5000
+                    })
+                logger.debug(`Webhook data sent to ${currentGateway} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+                return
+            } catch (e) {
+                logger.debug(`Failed to send webhook data to ${currentGateway}: ${e.message}`)
+                maxAttempts--
+            }
+        }
+        logger.error(`Failed to send webhook data to gateways for contract ${this.contractId}. Notifications count: ${notifications.length}`)
     }
 
     get __timeframe() {
