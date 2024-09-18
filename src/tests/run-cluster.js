@@ -54,16 +54,15 @@ async function generateNewContract(server, nodes, contractType, dataSource) {
     }
 
     if (contractType === ContractTypes.SUBSCRIPTIONS) {
-        contractConfigData.token = 'CBUYIP2JEH6PPUTQTILEMPQX7IKB34S5734XUUQE4M3RVEHOYAFOWFTI'
-        //const tokenAdmin = Keypair.random()
-        //await createAccount(server, tokenAdmin.publicKey())
-        //contractConfigData.token = await generateAssetContract(`SBS:${tokenAdmin.publicKey()}`, admin.secret())
-        ////save token admin secret
-        //if (!fs.existsSync(configsPath)) {
-        //fs.mkdirSync(configsPath, {recursive: true})
-        //}
-        //const tokenAdminSecretPath = path.join(configsPath, `${contractConfigData.token}.token.secret`)
-        //fs.writeFileSync(tokenAdminSecretPath, tokenAdmin.secret(), {encoding: 'utf-8'})
+        const tokenAdmin = Keypair.random()
+        await createAccount(server, tokenAdmin.publicKey())
+        contractConfigData.token = await generateAssetContract(`SBS:${tokenAdmin.publicKey()}`, admin.secret())
+        //save token admin secret
+        if (!fs.existsSync(configsPath)) {
+            fs.mkdirSync(configsPath, {recursive: true})
+        }
+        const tokenAdminSecretPath = path.join(configsPath, 'token-data.json')
+        fs.writeFileSync(tokenAdminSecretPath, JSON.stringify({secret: tokenAdmin.secret(), publicKey: tokenAdmin.publicKey(), tokenId: contractConfigData.token}), {encoding: 'utf-8'})
     }
 
     await updateAdminToMultiSigAccount(server, admin, nodes)
@@ -88,7 +87,7 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     //generate nodes keypairs
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
-        nodeConfig.keypair = Keypair.random()
+        nodeConfig.keypair = Keypair.fromSecret(nodeConfig.secret)
     }
 
     const nodes = nodeConfigs.filter(n => n.isInitNode).map(n => n.keypair.publicKey())
@@ -112,7 +111,7 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
-        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources())
+        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources(), i)
         const nodeHomeDir = getReflectorHomeDirName(i)
         fs.mkdirSync(nodeHomeDir, {recursive: true})
         fs.writeFileSync(path.join(nodeHomeDir, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
@@ -149,9 +148,9 @@ async function run(nodes, contractConfigs) {
 }
 
 const nodeConfigs = [
-    {isInitNode: true},
-    {isInitNode: true},
-    {isInitNode: true}
+    {isInitNode: true, secret: 'SCGO5GR4ZDAXU7BECOIFRO5J3STD2HQECPG4X3XQ4K75VZ64WOFVLQHR'},
+    {isInitNode: true, secret: 'SDMHSB2JYLSEMHCX6ZZX7X42YHOZSNNK3JOLAOQE7ORC63IJHWDIBCJ4'},
+    {isInitNode: true, secret: 'SB5KAGPBW3AIBUYGYQSMPKSGLLZSKJNRPLFQF4CDGKNKTZQ6XZJTWASO'}
 ]
 
 const contractConfigs = [

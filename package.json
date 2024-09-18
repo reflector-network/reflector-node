@@ -9,7 +9,7 @@
     "run-dev": "cd ./src && cross-env DEBUG=true nodemon --trace-warnings ./index.js",
     "run-docker-cluster": "cd ./src && node ./tests/run-cluster.js",
     "build": "node ./build.js",
-    "build-docker-image": "docker build -f ./docker/Dockerfile -t reflector-node-dev-dev .",
+    "build-docker-image": "docker build -f ./docker/Dockerfile -t reflector-node-dev .",
     "test": "jest"
   },
   "author": "team@stellar.expert",

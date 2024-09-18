@@ -58,15 +58,13 @@ async function mint(server, asset, destination, amount, account, signer) {
     await sendTransaction(server, tx)
 }
 
-function generateAppConfig(secret, dataSources) {
+function generateAppConfig(secret, dataSources, node) {
     return {
         handshakeTimeout: 0,
         secret,
         dataSources,
         orchestratorUrl: 'http://192.168.0.137:12274',
-        rsaKey: constants.rsaKeys.privateKey,
-        trace: true,
-        gateways: ['http://192.168.0.137:8081']
+        trace: true
     }
 }
 
@@ -94,10 +92,6 @@ function generateOracleContractConfig(admin, oracleId, dataSource) {
             assets.baseAsset = constants.baseStellarPubnetAsset
             assets.assets = constants.stellarPubnetAssets
             break
-        case 'testnet':
-            assets.baseAsset = constants.baseStellarTestnetAsset
-            assets.assets = constants.stellarTestnetAssets
-            break
         default:
             throw new Error('Unknown data source')
     }
@@ -105,7 +99,7 @@ function generateOracleContractConfig(admin, oracleId, dataSource) {
         admin,
         oracleId,
         baseAsset: assets.baseAsset,
-        assets: assets.assets,//.slice(0, 2),
+        assets: assets.assets,
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,
@@ -148,7 +142,8 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         wasmHash,
         network,
         minDate,
-        nodes: nodeAddresses
+        nodes: nodeAddresses,
+        clusterSecret: constants.rsaKeys.privateKey
     }
 }
 

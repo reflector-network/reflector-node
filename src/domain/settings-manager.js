@@ -14,7 +14,7 @@ const statisticsManager = require('./statistics-manager')
 const {defaultDecimals, defaultBaseAssets} = require('./default-values')
 
 const appConfigPath = `${container.homeDir}/app.config.json`
-const gatewaysPath = `${container.homeDir}/.gateways.json`
+const gatewaysPath = `${container.homeDir}/gateways.json`
 const clusterConfigPath = `${container.homeDir}/.config.json`
 const clusterPendingConfigPath = `${container.homeDir}/.pending.config.json`
 
