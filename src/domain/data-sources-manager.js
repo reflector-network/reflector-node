@@ -1,7 +1,6 @@
 const {createDbConnection} = require('@reflector/reflector-db-connector')
 const {setGateway} = require('@reflector/reflector-exchanges-connector')
-const IssuesContainer = require('@reflector/reflector-shared/models/issues-container')
-const {ValidationError} = require('@reflector/reflector-shared')
+const {ValidationError, IssuesContainer} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
 const logger = require('../logger')
 

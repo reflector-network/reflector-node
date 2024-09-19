@@ -1,4 +1,4 @@
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {ContractTypes} = require('@reflector/reflector-shared')
 const logger = require('../../logger')
 const ClusterRunner = require('./cluster-runner')
 const OracleRunner = require('./oracle-runner')

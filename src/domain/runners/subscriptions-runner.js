@@ -4,9 +4,9 @@ const {
     getContractState,
     buildSubscriptionChargeTransaction,
     sortObjectKeys,
-    normalizeTimestamp
+    normalizeTimestamp,
+    ContractTypes
 } = require('@reflector/reflector-shared')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')

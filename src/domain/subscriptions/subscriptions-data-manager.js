@@ -1,6 +1,5 @@
-const {getSubscriptions, Asset, AssetType} = require('@reflector/reflector-shared')
+const {getSubscriptions, Asset, AssetType, getSubscriptionsContractState} = require('@reflector/reflector-shared')
 const {scValToNative} = require('@stellar/stellar-sdk')
-const {getSubscriptionsContractState} = require('@reflector/reflector-shared/helpers/entries-helper')
 const {getLastContractEvents} = require('../../utils/rpc-helper')
 const {decrypt} = require('../../utils/crypto-helper')
 const logger = require('../../logger')

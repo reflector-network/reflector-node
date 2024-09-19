@@ -1,4 +1,4 @@
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {ContractTypes} = require('@reflector/reflector-shared')
 const ChannelTypes = require('../channels/channel-types')
 const logger = require('../../logger')
 const {getManager} = require('../../domain/subscriptions/subscriptions-data-manager')

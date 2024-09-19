@@ -1,5 +1,4 @@
-const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {mapToPlainObject, ContractTypes} = require('@reflector/reflector-shared')
 const nodesManager = require('../domain/nodes/nodes-manager')
 const logger = require('../logger')
 const {makeRequest} = require('../utils/requests-helper')

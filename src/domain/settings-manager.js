@@ -1,6 +1,5 @@
 const fs = require('fs')
-const {ValidationError, ConfigEnvelope, buildUpdates, Config, getSignaturePayloadHash, getDataHash} = require('@reflector/reflector-shared')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {ValidationError, ConfigEnvelope, buildUpdates, Config, ContractTypes, getDataHash} = require('@reflector/reflector-shared')
 const AppConfig = require('../models/app-config')
 const logger = require('../logger')
 const {importRSAKey, randomUUID} = require('../utils/crypto-helper')

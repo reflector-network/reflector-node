@@ -1,7 +1,6 @@
-const {normalizeTimestamp, Asset, AssetType} = require('@reflector/reflector-shared')
+const {normalizeTimestamp, Asset, AssetType, ContractTypes} = require('@reflector/reflector-shared')
 const {getTradesData} = require('@reflector/reflector-exchanges-connector')
 const {aggregateTrades} = require('@reflector/reflector-db-connector')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const DataSourceTypes = require('../../models/data-source-types')
 const dataSourcesManager = require('../data-sources-manager')
 const logger = require('../../logger')

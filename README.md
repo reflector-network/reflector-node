@@ -37,8 +37,6 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
 Where:
 - `secret` - the secret key of the node
 - `dataSources` - price data sources cofigurations
-- `gateways` - configuration of external gateways required for secure data retrieval and subscriptions execution
-- `gatewayAuthMessage` - [optional] message salt used in the gateway validation key encryption
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
  
 If you are joining the existing cluster, ask other node operators to share their basic config params, then override `secret` and data sources configuration parameters.

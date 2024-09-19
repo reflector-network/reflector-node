@@ -1,5 +1,4 @@
-const {getOracleContractState} = require('@reflector/reflector-shared')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')

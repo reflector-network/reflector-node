@@ -1,5 +1,4 @@
-const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState} = require('@reflector/reflector-shared')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState, ContractTypes} = require('@reflector/reflector-shared')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
 const {getPricesForContract} = require('../prices/price-manager')
