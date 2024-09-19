@@ -16,7 +16,7 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
 
 ```json
 {
-  "secret": "S...G",
+  "secret": "SA5G...1DKG", //secret key of the node
   "dataSources": {
     "pubnet": {
       "name": "pubnet",
@@ -29,18 +29,14 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
       "type": "api"
     }
   },
-  "dbSyncDelay": 15,
-  "port": 30447
+  "dbSyncDelay": 15, //delay in seconds for database synchronization. Optional, default is 15
+  "port": 30347 //default port for inbound connections
 }
 ```
 
 Where:
 - `secret` - the secret key of the node
 - `dataSources` - price data sources cofigurations
-<<<<<<< HEAD
-- `dataSources.exchanges.proxy` - [optional] proxy configuration for the data source (`connectionString` - array of socks5 proxy URLs).
-=======
->>>>>>> subscription
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
 - `port` - [optional] custom TCP port for inbound connections
  
