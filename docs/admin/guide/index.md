@@ -10,6 +10,13 @@
 {
   "secret": "SA5G...1DKG", //secret key of the node
   "dataSources": { //data sources for price data
+<<<<<<< HEAD
+=======
+    "exchanges": {
+      "type": "api",
+      "name": "exchanges"
+    },
+>>>>>>> subscription
     "pubnet": {
       "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
       "sorobanRpc": ["https://soroban-testnet.stellar.org"],

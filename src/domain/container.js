@@ -1,10 +1,9 @@
 /**
  * @typedef {import('./settings-manager')} SettingsManager
  * @typedef {import('../ws-server')} WsServer
- * @typedef {import('./statistics-manager')} StatisticsManager
  * @typedef {import('../ws-server/handlers/handlers-manager')} HandlersManager
  * @typedef {import('./contract-manager')} ContractManager
- * @typedef {import('./runners/oracle-runner-manager')} OracleRunnerManager
+ * @typedef {import('./prices/trades-manager')} TradesManager
  */
 
 const packageInfo = require('../../package.json')
@@ -26,14 +25,9 @@ class Container {
     handlersManager
 
     /**
-     * @type {StatisticsManager}
+     * @type {TradesManager}
      */
-    statisticsManager
-
-    /**
-     * @type {OracleRunnerManager}
-     */
-    oracleRunnerManager
+    tradesManager
 
     /**
      * @type {{shutdown: function(): void}}

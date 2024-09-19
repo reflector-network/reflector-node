@@ -19,7 +19,7 @@ COPY /docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # Set working directory
 WORKDIR /reflector-node
 
-# Copy the application from the dist folder
+# Copy the application from the dist subdirectory to the root directory
 COPY dist/ .
 
 # Expose necessary ports

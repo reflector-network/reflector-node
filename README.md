@@ -37,7 +37,10 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
 Where:
 - `secret` - the secret key of the node
 - `dataSources` - price data sources cofigurations
+<<<<<<< HEAD
 - `dataSources.exchanges.proxy` - [optional] proxy configuration for the data source (`connectionString` - array of socks5 proxy URLs).
+=======
+>>>>>>> subscription
 - `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
 - `port` - [optional] custom TCP port for inbound connections
  

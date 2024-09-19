@@ -1,7 +1,7 @@
 const {xdr} = require('@stellar/stellar-sdk')
 const {Keypair} = require('@stellar/stellar-sdk')
 const ChannelTypes = require('../channels/channel-types')
-const container = require('../../domain/container')
+const runnerManager = require('../../domain/runners/runner-manager')
 const BaseHandler = require('./base-handler')
 
 class SignaturesHandler extends BaseHandler {
@@ -13,12 +13,12 @@ class SignaturesHandler extends BaseHandler {
     allowedChannelTypes = ChannelTypes.OUTGOING
 
     async handle(ws, message) {
-        const {signature, hash, oracleId} = message.data
+        const {signature, hash, contractId} = message.data
         if (!(signature && hash)) {
             return
         }
 
-        const oracleRunner = oracleId ? container.oracleRunnerManager.get(oracleId) : container.oracleRunnerManager.updatesRunner
+        const oracleRunner = contractId ? runnerManager.get(contractId) : runnerManager.updatesRunner
         if (!oracleRunner)
             return
 

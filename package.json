@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
@@ -24,20 +24,17 @@
     "jest": "^29.5.0"
   },
   "dependencies": {
-    "@reflector/oracle-client": "github:reflector-network/oracle-client#v4.4.1",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v4.4.1",
-    "@reflector/reflector-coinmarketcap-connector": "github:reflector-network/reflector-coinmarketcap-connector#v0.1.0",
-    "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v0.3.0",
-    "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v1.3.1",
-    "@stellar/stellar-sdk": "12.0.1",
+    "@reflector/oracle-client": "github:reflector-network/oracle-client#v5.0.0",
+    "@reflector/reflector-db-connector": "github:reflector-network/reflector-db-connector#v2.0.1",
+    "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v0.4.0",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v5.0.0",
+    "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
+    "@stellar/stellar-sdk": "12.2.0",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "lowdb": "^6.1.1",
-    "mongoose": "^7.2.0",
     "pino": "^8.15.1",
     "rotating-file-stream": "^3.2.1",
-    "sha.js": "^2.4.11",
     "uuid": "^9.0.0",
     "ws": "^8.13.0"
   }

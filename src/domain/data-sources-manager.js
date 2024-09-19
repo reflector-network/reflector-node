@@ -1,7 +1,6 @@
 const {createDbConnection} = require('@reflector/reflector-db-connector')
-const {setProxy} = require('@reflector/reflector-exchanges-connector')
-const IssuesContainer = require('@reflector/reflector-shared/models/issues-container')
-const {ValidationError} = require('@reflector/reflector-shared')
+const {setGateway} = require('@reflector/reflector-exchanges-connector')
+const {ValidationError, IssuesContainer} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
 const logger = require('../logger')
 
@@ -36,8 +35,7 @@ function __registerConnection(dataSource) {
         dbConnection: source,
         sorobanRpc,
         secret,
-        type,
-        proxy
+        type
     } = dataSource
     switch (type) {
         case DataSourceTypes.DB:
@@ -51,14 +49,7 @@ function __registerConnection(dataSource) {
             break
         case DataSourceTypes.API:
             {
-                if (!secret && name === 'coinmarketcap')
-                    throw new ValidationError('secret is required')
                 __connections.set(name, {type, secret, name})
-                if (proxy)
-                    if (name === exchangesDataSourceName)
-                        setProxy(proxy.connectionString, proxy.useCurrent)
-                    else
-                        logger.warn(`Proxy is not supported for ${name}`)
             }
             break
         default:
@@ -94,6 +85,17 @@ class DataSourcesManager extends IssuesContainer {
     }
 
     /**
+     * @param {{urls: string[], gatewayValidationKey: string}} gateways - gateways list
+     */
+    setGateways(gateways) {
+        const {urls, gatewayValidationKey} = gateways || {}
+        for (const connection of __connections.values()) {
+            if (connection.type === DataSourceTypes.API)
+                setGateway(urls, gatewayValidationKey, false)
+        }
+    }
+
+    /**
      * @param {string} name - source name
      * @returns {{ networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string}}
      */
@@ -111,6 +113,24 @@ class DataSourcesManager extends IssuesContainer {
         if (!name)
             throw new Error('name is required')
         return __connections.has(name)
+    }
+
+    getNetwork(name) {
+        if (!name)
+            throw new Error('name is required')
+        const connection = __connections.get(name)
+        if (!connection)
+            return null
+        return connection.networkPassphrase
+    }
+
+    isStellarSource(name) {
+        if (!name)
+            throw new Error('name is required')
+        const connection = __connections.get(name)
+        if (!connection)
+            return false
+        return connection.type === DataSourceTypes.DB
     }
 }
 

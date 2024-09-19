@@ -1,7 +1,13 @@
 const {Keypair, StrKey} = require('@stellar/stellar-sdk')
-const {IssuesContainer} = require('@reflector/reflector-shared')
-const {mapToPlainObject} = require('@reflector/reflector-shared/utils/map-helper')
+const {IssuesContainer, mapToPlainObject} = require('@reflector/reflector-shared')
 const DataSource = require('./data-source')
+const defaultDbSyncDelay = 15_000
+
+function getNormalizedDbSyncDelay(dbSyncDelay) {
+    if (dbSyncDelay === defaultDbSyncDelay)
+        return undefined
+    return dbSyncDelay / 1000
+}
 
 class AppConfig extends IssuesContainer {
     /**
@@ -57,6 +63,11 @@ class AppConfig extends IssuesContainer {
      */
     trace = false
 
+    /**
+     * @type {string}
+     */
+    orchestratorUrl
+
     __assignKeypair(secret) {
         try {
             if (!(secret && StrKey.isValidEd25519SecretSeed(secret)))
@@ -105,9 +116,7 @@ class AppConfig extends IssuesContainer {
 
     __assignDbSyncDelay(dbSyncDelay) {
         try {
-            if (!dbSyncDelay || isNaN(dbSyncDelay))
-                return
-            this.dbSyncDelay = dbSyncDelay
+            this.dbSyncDelay = !dbSyncDelay || isNaN(dbSyncDelay) ? defaultDbSyncDelay : dbSyncDelay * 1000
         } catch (e) {
             this.__addIssue(`dbSyncDelay: ${e.message}`)
         }
@@ -130,7 +139,7 @@ class AppConfig extends IssuesContainer {
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
-            dbSyncDelay: this.dbSyncDelay,
+            dbSyncDelay: getNormalizedDbSyncDelay(this.dbSyncDelay),
             handshakeTimeout: this.handshakeTimeout,
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,

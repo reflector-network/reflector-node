@@ -1,17 +1,18 @@
 const fs = require('fs')
 const path = require('path')
 const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
-const {deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig} = require('./utils')
+const {ContractTypes} = require('@reflector/reflector-shared')
+const {deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig, generateAssetContract} = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
 
-function getNodeFolderName(nodeNumber) {
+function getNodeDirName(nodeNumber) {
     return path.join(configsPath, `node${nodeNumber}`)
 }
 
-function getReflectorHomeFolderName(nodeNumber) {
-    return path.join(getNodeFolderName(nodeNumber), 'reflector-home')
+function getReflectorHomeDirName(nodeNumber) {
+    return path.join(getNodeDirName(nodeNumber), 'reflector-home')
 }
 
 function getNodesCount() {
@@ -33,20 +34,40 @@ async function closeEndRemoveIfExist(name) {
 /**
  * @param {SorobanRpc.Server} server
  * @param {string[]} nodes
- * @param {{type: string}} dataSource
+ * @param {string} contractType
+ * @param {string} dataSource
  */
-async function generateNewContract(server, nodes, dataSource) {
+async function generateNewContract(server, nodes, contractType, dataSource) {
     const admin = Keypair.random()
     await createAccount(server, admin.publicKey())
     console.log('Admin ' + admin.publicKey() + ' secret:' + admin.secret())
-    const contractId = await deployContract(admin.secret())
+    const contractId = await deployContract(admin.secret(), contractType)
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
 
+    const contractConfigData = {
+        contractId,
+        contractType,
+        dataSource,
+        admin: admin.publicKey()
+    }
+
+    if (contractType === ContractTypes.SUBSCRIPTIONS) {
+        const tokenAdmin = Keypair.random()
+        await createAccount(server, tokenAdmin.publicKey())
+        contractConfigData.token = await generateAssetContract(`SBS:${tokenAdmin.publicKey()}`, admin.secret())
+        //save token admin secret
+        if (!fs.existsSync(configsPath)) {
+            fs.mkdirSync(configsPath, {recursive: true})
+        }
+        const tokenAdminSecretPath = path.join(configsPath, 'token-data.json')
+        fs.writeFileSync(tokenAdminSecretPath, JSON.stringify({secret: tokenAdmin.secret(), publicKey: tokenAdmin.publicKey(), tokenId: contractConfigData.token}), {encoding: 'utf-8'})
+    }
+
     await updateAdminToMultiSigAccount(server, admin, nodes)
 
-    const config = generateSingleConfig(admin.publicKey(), contractId, dataSource)
+    const config = generateSingleConfig(contractConfigData)
     return config
 }
 
@@ -66,7 +87,7 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     //generate nodes keypairs
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
-        nodeConfig.keypair = Keypair.random()
+        nodeConfig.keypair = Keypair.fromSecret(nodeConfig.secret)
     }
 
     const nodes = nodeConfigs.filter(n => n.isInitNode).map(n => n.keypair.publicKey())
@@ -75,9 +96,13 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     //generate contract configs
     const contracts = {}
     for (const contractConfig of contractConfigs) {
-        const config = await generateNewContract(server, nodes, contractConfig.dataSource)
+        const {dataSource} = contractConfig
+        const config = await generateNewContract(server, nodes, ContractTypes.ORACLE, dataSource)
         contracts[config.oracleId] = config
     }
+
+    const subscriptionsContract = await generateNewContract(server, nodes, ContractTypes.SUBSCRIPTIONS)
+    contracts[subscriptionsContract.contractId] = subscriptionsContract
 
     const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, false)
     fs.mkdirSync(configsPath, {recursive: true})
@@ -86,12 +111,12 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 
     for (let i = 0; i < nodeConfigs.length; i++) {
         const nodeConfig = nodeConfigs[i]
-        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources())
-        const nodeHomeFolder = getReflectorHomeFolderName(i)
-        fs.mkdirSync(nodeHomeFolder, {recursive: true})
-        fs.writeFileSync(path.join(nodeHomeFolder, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
+        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources(), i)
+        const nodeHomeDir = getReflectorHomeDirName(i)
+        fs.mkdirSync(nodeHomeDir, {recursive: true})
+        fs.writeFileSync(path.join(nodeHomeDir, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
         if (nodeConfig.isInitNode) {
-            fs.copyFileSync(configPath, path.join(nodeHomeFolder, '.config.json'))
+            fs.copyFileSync(configPath, path.join(nodeHomeDir, '.config.json'))
         }
     }
 }
@@ -99,12 +124,12 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 async function startNodes(nodesCount) {
     for (let i = 0; i < nodesCount; i++) {
         console.log(`Starting node ${i}`)
-        const nodeHomeFolder = path.resolve(getReflectorHomeFolderName(i))
+        const nodeHomeDir = path.resolve(getReflectorHomeDirName(i))
         const nodeName = `node${i}`
         const port = 30347 + (i * 100)
         //closeEndRemoveIfExist(nodeName)
 
-        const startCommand = `docker run -d -p ${port}:30347 -e NODE_ENV=development -v "${nodeHomeFolder}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
+        const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
 
         console.log(startCommand)
         await runCommand(startCommand)
@@ -123,14 +148,13 @@ async function run(nodes, contractConfigs) {
 }
 
 const nodeConfigs = [
-    {isInitNode: true},
-    {isInitNode: true},
-    {isInitNode: false}
+    {isInitNode: true, secret: 'SCGO5GR4ZDAXU7BECOIFRO5J3STD2HQECPG4X3XQ4K75VZ64WOFVLQHR'},
+    {isInitNode: true, secret: 'SDMHSB2JYLSEMHCX6ZZX7X42YHOZSNNK3JOLAOQE7ORC63IJHWDIBCJ4'},
+    {isInitNode: true, secret: 'SB5KAGPBW3AIBUYGYQSMPKSGLLZSKJNRPLFQF4CDGKNKTZQ6XZJTWASO'}
 ]
 
 const contractConfigs = [
     {dataSource: constants.sources.pubnet},
-    {dataSource: constants.sources.coinmarketcap},
     {dataSource: constants.sources.exchanges}
 ]
 

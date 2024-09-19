@@ -32,6 +32,7 @@ class OutgoingChannelBase extends ChannelBase {
                 headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers}
             })
         this.__connectionTimeoutId = setTimeout(() => {
+            logger.trace(`Connection timeout ${this.__getConnectionInfo()}. ws.readyState: ${ws.readyState}`)
             if (ws.readyState !== WebSocket.OPEN) {
                 ws.close()
             }

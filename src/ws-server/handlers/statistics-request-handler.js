@@ -1,5 +1,5 @@
+const statisticsManager = require('../../domain/statistics-manager')
 const ChannelTypes = require('../channels/channel-types')
-const container = require('../../domain/container')
 const BaseHandler = require('./base-handler')
 
 class StatisticsRequestHandler extends BaseHandler {
@@ -9,7 +9,7 @@ class StatisticsRequestHandler extends BaseHandler {
     allowAnonymous = true
 
     handle() {
-        return container.statisticsManager.getStatistics()
+        return statisticsManager.getStatistics()
     }
 }
 

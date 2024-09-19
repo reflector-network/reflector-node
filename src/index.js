@@ -20,19 +20,17 @@ try {
 
     logger = require('./logger')
 
+    const TradesManager = require('./domain/prices/trades-manager')
     const SettingsManager = require('./domain/settings-manager')
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
-    const StatisticsManager = require('./domain/statistics-manager')
-    const OracleRunnerManager = require('./domain/runners/oracle-runner-manager')
 
     logger.info('Starting reflector node')
 
     container.settingsManager = new SettingsManager()
-    container.statisticsManager = new StatisticsManager()
     container.handlersManager = new HandlersManager()
     container.webSocketServer = new WsServer()
-    container.oracleRunnerManager = new OracleRunnerManager()
+    container.tradesManager = new TradesManager()
     require('./app')(container)
 } catch (e) {
     if (logger)

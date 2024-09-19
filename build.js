@@ -6,7 +6,7 @@ const srcDir = path.resolve(__dirname, 'src')
 const distDir = path.resolve(__dirname, 'dist')
 const distAppDir = path.resolve(distDir, 'app')
 
-const foldersToIgnore = ['tests', 'home']
+const directoriesToIgnore = ['tests', 'home', 'node_modules']
 
 if (fs.existsSync(distDir)) {
     fs.rmSync(distDir, {recursive: true})
@@ -14,7 +14,7 @@ if (fs.existsSync(distDir)) {
 
 fs.mkdirSync(distDir, {recursive: true})
 
-function copyFolderRecursive(source, target) {
+function copyDirectoryRecursive(source, target) {
     if (!fs.existsSync(target)) {
         fs.mkdirSync(target, {recursive: true})
     }
@@ -23,12 +23,11 @@ function copyFolderRecursive(source, target) {
         for (const file of fs.readdirSync(source)) {
             const curSource = path.join(source, file)
 
-            if (foldersToIgnore.some(folder => curSource.includes(path.join('src', folder)))) {
+            if (directoriesToIgnore.some(dir => curSource.includes(path.join('src', dir))))
                 continue
-            }
 
             if (fs.lstatSync(curSource).isDirectory()) {
-                copyFolderRecursive(curSource, path.join(target, file))
+                copyDirectoryRecursive(curSource, path.join(target, file))
             } else {
                 fs.copyFileSync(curSource, path.join(target, file))
             }
@@ -36,7 +35,7 @@ function copyFolderRecursive(source, target) {
     }
 }
 
-copyFolderRecursive(srcDir, distAppDir)
+copyDirectoryRecursive(srcDir, distAppDir)
 
 fs.copyFileSync(path.resolve(__dirname, 'package.json'), path.resolve(distDir, 'package.json'))
 

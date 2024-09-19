@@ -50,8 +50,7 @@ class WsServer {
     }
 
     __onServerError(err) {
-        logger.error('Ws server error')
-        logger.error(err)
+        logger.error({err}, 'Ws server error')
     }
 
     __onServerClose() {

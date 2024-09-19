@@ -1,29 +1,30 @@
 /*eslint-disable class-methods-use-this */
-const {Account} = require('@stellar/stellar-sdk')
+const {Account, Transaction} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../../logger')
 const container = require('../container')
 const MessageTypes = require('../../ws-server/handlers/message-types')
-const networkConnectionManager = require('../data-sources-manager')
 const nodesManager = require('../nodes/nodes-manager')
-const {submitTransaction, txTimeoutMessage} = require('./rpc-helper')
+const {submitTransaction, txTimeoutMessage} = require('../../utils')
+const statisticsManager = require('../statistics-manager')
 
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
  * @typedef {import('@stellar/stellar-sdk').xdr.DecoratedSignature} DecoratedSignature
  * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetSuccessfulTransactionResponse} SuccessfulTransactionResponse
+ * @typedef {import('@reflector/reflector-shared').ContractConfigBase} ContractConfigBase
  */
 
 /**
- * @param {string} oracleId - oracle id
+ * @param {string} contractId - oracle id
  * @param {PendingTransactionBase} tx - transaction
  * @returns {any}
  */
-function getSignatureMessage(oracleId, tx) {
+function getSignatureMessage(contractId, tx) {
     return {
         type: MessageTypes.SIGNATURE,
         data: {
-            oracleId,
+            contractId,
             hash: tx.hashHex,
             signature: tx.signatures[0].toXDR('hex') //first signature always belongs to the current node
         }
@@ -41,22 +42,22 @@ function getMaxTime(syncTimestamp, iteration) {
 }
 
 /**
- * @param {string} oracleId - oracle id
+ * @param {string} contractId - oracle id
  * @param {PendingTransactionBase} tx - transaction
  */
-async function broadcastSignature(oracleId, tx) {
-    await nodesManager.broadcast(getSignatureMessage(oracleId, tx))
-    logger.debug(`Signature broadcasted. Contract id: ${oracleId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
+async function broadcastSignature(contractId, tx) {
+    await nodesManager.broadcast(getSignatureMessage(contractId, tx))
+    logger.debug(`Signature broadcasted. Contract id: ${contractId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
 }
 
 /**
- * @param {string} oracleId - oracle id
+ * @param {string} contractId - oracle id
  * @param {string} pubkey - node public key
  * @param {PendingTransactionBase} tx - transaction
  */
-async function sendSignature(oracleId, pubkey, tx) {
-    await nodesManager.sendTo(pubkey, getSignatureMessage(oracleId, tx))
-    logger.debug(`Signature sent to ${pubkey}. Contract id: ${oracleId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
+async function sendSignature(contractId, pubkey, tx) {
+    await nodesManager.sendTo(pubkey, getSignatureMessage(contractId, tx))
+    logger.debug(`Signature sent to ${pubkey}. Contract id: ${contractId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
 }
 
 /**
@@ -97,16 +98,20 @@ function createPendingTransactionObject(tx, maxTime) {
     return pendingTxObject
 }
 
-const maxSubmitAttempts = 4
-const maxSubmitTimeout = 25000
+const maxSubmitAttempts = 3
+const maxSubmitTimeout = 20000
 
 class RunnerBase {
 
-    constructor(oracleId) {
-        this.oracleId = oracleId
+    constructor(contractId) {
+        this.contractId = contractId
+    }
+
+    start() {
         const timestamp = normalizeTimestamp(Date.now(), this.__timeframe)
         this.isRunning = true
-        this.worker(timestamp)
+        //awoid starting before sync time
+        setTimeout(() => this.worker(timestamp), this.__getWorkerTimeout(timestamp))
         this.__clearPendingSignatures()
     }
 
@@ -125,11 +130,11 @@ class RunnerBase {
                 this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
             if (!signaturesData.signatures.find(s => s.hint().equals(signature.hint())))
                 signaturesData.signatures.push(signature)
-            logger.debug(`Signature added to the pending signatures. Oracle id: ${this.oracleId || 'cluster'}, node: ${from}, tx hash: ${txHash}`)
+            logger.debug(`Signature added to the pending signatures. ${this.__contractInfo}, node: ${from}, tx hash: ${txHash}`)
             return
         }
         this.__pendingTransaction.tx.addSignature(signature)
-        logger.debug(`Signature added to the pending transaction. Oracle id: ${this.oracleId || 'cluster'}, node: ${from}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
+        logger.debug(`Signature added to the pending transaction. ${this.__contractInfo}, node: ${from}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
         this.__trySubmitTransaction()
     }
 
@@ -139,7 +144,7 @@ class RunnerBase {
     async broadcastSignatureTo(pubkey) {
         if (!this.__pendingTransaction)
             return
-        await sendSignature(this.oracleId, pubkey, this.__pendingTransaction.tx)
+        await sendSignature(this.contractId, pubkey, this.__pendingTransaction.tx)
     }
 
     stop() {
@@ -160,26 +165,33 @@ class RunnerBase {
 
     /**
      * @param {number} timestamp - timestamp
-     * @returns {Promise}
+     * @returns {Promise<boolean>} - true if the tx is processed
      */
     __workerFn(timestamp) {
         throw new Error('Not implemented')
+    }
+
+    __getWorkerTimeout(timestamp) {
+        let timeout = timestamp - Date.now()
+        timeout += this.__delay
+        return timeout
     }
 
     async worker(timestamp) {
         if (!this.isRunning)
             return
         try {
-            await this.__workerFn(timestamp)
-        } catch (e) {
-            logger.error(`Error in worker. Oracle id: ${this.oracleId || 'cluster'}, timestamp: ${timestamp}, error: ${e.message}`)
-            logger.error(e)
+            logger.info(`${this.__contractInfo} -> worker, timestamp: ${timestamp}`)
+            const isTxProcessed = await this.__workerFn(timestamp)
+            //update last processed timestamp
+            if (isTxProcessed && this.contractId)
+                statisticsManager.setLastProcessedTimestamp(this.contractId, this.__contractType, timestamp)
+        } catch (err) {
+            logger.error({err}, `Error in worker, ${this.__contractInfo}, timestamp: ${timestamp}`)
         } finally {
             const nextTimestamp = this.__getNextTimestamp(timestamp)
-            let timeout = nextTimestamp - Date.now()
-            if (this.oracleId)
-                timeout += this.__dbSyncDelay
-            logger.debug(`Worker timeout: ${timeout}, oracle id: ${this.oracleId || 'cluster'}`)
+            const timeout = this.__getWorkerTimeout(nextTimestamp)
+            logger.debug(`Worker timeout: ${timeout}, ${this.__contractInfo}`)
             this.__workerTimeout = setTimeout(() => this.worker(nextTimestamp), timeout)
         }
     }
@@ -206,7 +218,7 @@ class RunnerBase {
         if (this.__pendingTransaction) {
             const {type, timestamp} = this.__pendingTransaction.tx
             const {reject} = this.__pendingTransaction
-            logger.warn(`Pending transaction wasn't submitted. ContractId: ${this.oracleId || 'cluster'}, tx type: ${type}, tx timestamp: ${timestamp}.`)
+            logger.warn(`Pending transaction wasn't submitted. ContractId: ${this.contractId || 'cluster'}, tx type: ${type}, tx timestamp: ${timestamp}.`)
             this.__clearPendingTransaction()
             reject(new Error('Pending transaction wasn\'t submitted'))
         }
@@ -216,16 +228,15 @@ class RunnerBase {
         const signature = keypair.signDecorated(tx.hash)
         tx.addSignature(signature)
 
-
         this.__pendingTransaction = createPendingTransactionObject(tx, maxTime)
 
         this.__assignPendingSignatures(tx.hashHex, tx)
-        broadcastSignature(this.oracleId, tx)
+        broadcastSignature(this.contractId, tx)
         return this.__pendingTransaction
     }
 
     __clearPendingTransaction() {
-        logger.debug(`Clear pending transaction. Oracle id: ${this.oracleId || 'cluster'}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
+        logger.debug(`Clear pending transaction. ${this.__contractInfo}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
         this.__pendingTransaction = null
     }
 
@@ -237,9 +248,8 @@ class RunnerBase {
                 if (signaturesData && Date.now() - signaturesData.timestamp > 60000) //1 minute
                     delete this.__pendingSignatures[hash]
             }
-        } catch (e) {
-            logger.error('Error in __clearPendingSignatures')
-            logger.error(e)
+        } catch (err) {
+            logger.error({err}, 'Error in __clearPendingSignatures')
         } finally {
             setTimeout(() => this.__clearPendingSignatures(), 60000) //1 minute
         }
@@ -254,13 +264,21 @@ class RunnerBase {
         if (!this.__pendingTransaction || !this.__pendingTransaction.tx.isReadyToSubmit(currentNodesLength))
             return
         const {tx, reject, resolve} = this.__pendingTransaction
+        const {networkPassphrase, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
         try {
             this.__clearPendingTransaction() //clear pending transaction to avoid duplicate submission
-            const {networkPassphrase, sorobanRpc} = this.__getBlockchainConnectorSettings()
             tx.submitted = true
-            const result = await submitTransaction(networkPassphrase, sorobanRpc, tx, tx.getMajoritySignatures(currentNodesLength))
+            //sleep for random time from 0 to 1 seconds to avoid simultaneous submissions
+            await setTimeout(() => { }, Math.floor(Math.random() * 1000))
+            const result = await submitTransaction(
+                networkPassphrase,
+                sorobanRpc,
+                tx,
+                tx.getMajoritySignatures(currentNodesLength),
+                this.__contractInfo
+            )
             resolve(result)
-            logger.debug(`Transaction is processed ${this.oracleId || 'cluster'}. ${tx.getDebugInfo()}`)
+            logger.debug(`Transaction is processed. ${this.__contractInfo}. ${tx.getDebugInfo()}`)
         } catch (e) {
             const error = new Error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx fee: ${tx?.transaction.fee}, tx: ${tx.transaction.toXDR()}`)
             error.originalError = e
@@ -272,21 +290,24 @@ class RunnerBase {
      * @param {function} buildTxFn - build function
      * @param {Account} account - account object
      * @param {number} baseFee - base fee
-     * @param {number} syncTimestamp - sync timestamp
+     * @param {number} timestamp - sync timestamp
+     * @param {number} [syncDelay] - sync delay
      * @returns {Promise<SuccessfulTransactionResponse>}
      */
-    async __buildAndSubmitTransaction(buildTxFn, account, baseFee, syncTimestamp) {
+    async __buildAndSubmitTransaction(buildTxFn, account, baseFee, timestamp, syncDelay = 0) {
         const errors = []
         let pendingTx = null
         let response = null
 
-        if (getMaxTime(syncTimestamp, maxSubmitAttempts) * 1000 < Date.now())
-            throw new Error('Timestamp is too old.')
+        const {settingsManager} = container
+
+        const syncTimestamp = timestamp + syncDelay
+
         for (let submitAttempt = 0; submitAttempt < maxSubmitAttempts; submitAttempt++) {
             try {
                 const fee = baseFee * Math.pow(4, submitAttempt) //increase fee by 4 times on each try
                 const maxTime = getMaxTime(syncTimestamp, submitAttempt + 1)
-                logger.debug(`Build transaction. Oracle id: ${this.oracleId || 'cluster'}, syncTimestamp: ${syncTimestamp} , submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}`)
+                logger.debug(`Build transaction. ${this.__contractInfo}, syncTimestamp: ${syncTimestamp} , submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}`)
 
                 if (maxTime * 1000 < Date.now()) //if the max time is already passed
                     throw new Error(txTimeoutMessage)
@@ -297,12 +318,21 @@ class RunnerBase {
                     fee,
                     maxTime
                 )
-                logger.debug(`Transaction is built. Oracle id: ${this.oracleId || 'cluster'}, syncTimestamp: ${syncTimestamp}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}`)
+                logger.debug(`Transaction is built. ${this.__contractInfo}, syncTimestamp: ${syncTimestamp}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}`)
                 logger.trace(tx?.transaction.toXDR())
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)
                     this.__trySubmitTransaction()
                     response = await pendingTx.submitPromise
+
+
+                    const {networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
+
+                    //check if transaction was signed by the current node
+                    const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
+                    if (this.contractId
+                        && resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
+                        statisticsManager.incSubmittedTransactions(this.contractId)
                 }
                 return response
             } catch (e) {
@@ -315,17 +345,9 @@ class RunnerBase {
         throw new Error('Failed to submit transaction. See logs for details.')
     }
 
-    __getBlockchainConnectorSettings() {
-        const {settingsManager} = container
-        const oraclesNetwork = settingsManager.config.network
-        const {networkPassphrase, sorobanRpc, dbConnector} = networkConnectionManager.get(oraclesNetwork) || {}
-        if (!networkPassphrase)
-            throw new Error(`Network passphrase not found: ${oraclesNetwork}`)
-        if (!sorobanRpc)
-            throw new Error(`Soroban rpc urls not found: ${oraclesNetwork}`)
-        if (!dbConnector)
-            throw new Error(`Blockchain connector not found: ${oraclesNetwork}`)
-        return {networkPassphrase, sorobanRpc, blockchainConnector: dbConnector}
+    __isTxExpired(timestamp, syncDelay) {
+        const syncTimestamp = timestamp + syncDelay
+        return getMaxTime(syncTimestamp, maxSubmitAttempts) * 1000 < Date.now()
     }
 
     __getNextTimestamp(currentTimestamp) {
@@ -336,8 +358,38 @@ class RunnerBase {
         throw new Error('Not implemented')
     }
 
-    get __dbSyncDelay() {
+    get __delay() {
         return 0
+    }
+
+    get __contractType() {
+        return undefined
+    }
+
+    get __contractInfo() {
+        switch (this.constructor.name) {
+            case 'ClusterRunner':
+                return 'ClusterRunner'
+            case 'OracleRunner':
+                return `OracleRunner: ${this.contractId}`
+            case 'SubscriptionsRunner':
+                return `SubscriptionsRunner: ${this.contractId}`
+            case 'PriceRunner':
+                return `PriceRunner`
+            default:
+                return 'unknown'
+        }
+    }
+
+    /**
+     * @returns {ContractConfigBase}
+     */
+    __getCurrentContract() {
+        const {settingsManager} = container
+        const contractConfig = settingsManager.getContractConfig(this.contractId)
+        if (!contractConfig)
+            throw new Error(`Config not found for oracle id: ${this.contractId}`)
+        return contractConfig
     }
 }
 

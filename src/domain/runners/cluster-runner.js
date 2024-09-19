@@ -1,7 +1,8 @@
-const {buildUpdateTransaction, normalizeTimestamp} = require('@reflector/reflector-shared')
+const {buildUpdateTransaction, normalizeTimestamp, areAllSignaturesPresent} = require('@reflector/reflector-shared')
 const container = require('../container')
+const {getAccount} = require('../../utils')
+const nonceManager = require('../../ws-server/nonce-manager')
 const RunnerBase = require('./runner-base')
-const {getAccount} = require('./rpc-helper')
 
 const idleWorkerTimeframe = 1000 * 60 * 2 //2 minute
 
@@ -11,15 +12,25 @@ function isPendingConfigExpired(pendingConfig) {
     return pendingConfig.timestamp < Date.now()
 }
 
-class ClusteUpdatesRunner extends RunnerBase {
+class ClusterRunner extends RunnerBase {
 
     async __workerFn(timestamp) {
         const {settingsManager} = container
         const {pendingConfig, config} = settingsManager
-        if (!pendingConfig || pendingConfig.timestamp > Date.now())
-            return
+        const updateTimeReached = pendingConfig?.timestamp < timestamp
+        if (!(updateTimeReached || pendingConfig?.allowEarlySubmission))
+            return false
 
-        const {sorobanRpc, networkPassphrase} = this.__getBlockchainConnectorSettings()
+        if (!updateTimeReached) { //if update time is not reached, check if all signatures are present
+            if (!areAllSignaturesPresent(
+                [...config.nodes.keys()],
+                [...pendingConfig.config.nodes.keys()],
+                pendingConfig.signatures
+            ))
+                return false
+        }
+
+        const {sorobanRpc, networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
         const sourceAccount = await getAccount(config.systemAccount, sorobanRpc)
 
         let hasMoreTxns = false
@@ -40,21 +51,22 @@ class ClusteUpdatesRunner extends RunnerBase {
             return tx
         }
 
-        const syncTimestamp = isPendingConfigExpired(pendingConfig)
+        const syncTimestamp = (isPendingConfigExpired(pendingConfig) || pendingConfig.allowEarlySubmission)
             ? timestamp
             : pendingConfig.timestamp
 
         await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseUpdateFee, syncTimestamp)
 
         if (hasMoreTxns) //if true, the config has more transactions to be submitted
-            return
+            return true
 
-        settingsManager.applyPendingUpdate()
+        await settingsManager.applyPendingUpdate(nonceManager.getNonce(nonceManager.nonceTypes.PENDING_CONFIG))
+        return true
     }
 
     __getNextTimestamp(currentTimestamp) {
         const {pendingConfig} = container.settingsManager
-        if (!pendingConfig || this.__pendingTransaction || isPendingConfigExpired(pendingConfig))
+        if (!pendingConfig || this.__pendingTransaction || pendingConfig.allowEarlySubmission || isPendingConfigExpired(pendingConfig))
             return normalizeTimestamp(currentTimestamp + idleWorkerTimeframe, idleWorkerTimeframe)
         return pendingConfig.timestamp
     }
@@ -64,4 +76,4 @@ class ClusteUpdatesRunner extends RunnerBase {
     }
 }
 
-module.exports = ClusteUpdatesRunner
+module.exports = ClusterRunner

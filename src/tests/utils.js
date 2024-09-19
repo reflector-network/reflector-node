@@ -1,9 +1,11 @@
 const {exec} = require('child_process')
 const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
 const {getMajority} = require('@reflector/reflector-shared')
+const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const constants = require('./constants')
 
-const pathToContractWasm = './tests/reflector-oracle.wasm'
+const pathToOracleContractWasm = './tests/reflector-oracle.wasm'
+const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
 
 async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
@@ -23,35 +25,72 @@ async function runCommand(command, args) {
     })
 }
 
-async function deployContract(admin) {
-    const command = `soroban contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 100000000`
+async function deployContract(admin, contractType) {
+    let pathToContractWasm = pathToOracleContractWasm
+    if (contractType === ContractTypes.SUBSCRIPTIONS)
+        pathToContractWasm = pathToSubscriptionsContractWasm
+    const command = `stellar contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 100000000`
     console.log(command)
     return await runCommand(command)
 }
 
-function generateAppConfig(secret, dataSources) {
+async function generateAssetContract(asset, admin) {
+    const command = `stellar contract asset deploy --asset ${asset} --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 1000000000`
+    return await runCommand(command)
+}
+
+async function mint(server, asset, destination, amount, account, signer) {
+    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+    txBuilder = txBuilder
+        .setTimeout(30000)
+        .addOperation(
+            Operation.payment({
+                destination,
+                asset,
+                amount
+            })
+        )
+
+    const tx = txBuilder.build()
+
+    tx.sign(signer)
+
+    await sendTransaction(server, tx)
+}
+
+function generateAppConfig(secret, dataSources, node) {
     return {
         handshakeTimeout: 0,
         secret,
-        dataSources
+        dataSources,
+        orchestratorUrl: 'http://192.168.0.137:12274',
+        trace: true
     }
 }
 
-function generateContractConfig(admin, oracleId, dataSource) {
+/**
+ * @param {{admin: string, contractId: string, contractType: string, dataSource: string, token: string}} configData
+ * @returns {Object}
+ */
+function generateContractConfig(configData) {
+    const {admin, contractId, contractType, dataSource, token} = configData
+    if (contractType === ContractTypes.ORACLE) {
+        return generateOracleContractConfig(admin, contractId, dataSource)
+    } else if (contractType === ContractTypes.SUBSCRIPTIONS) {
+        return generateSubscriptionsContractConfig(admin, contractId, token)
+    }
+}
+
+function generateOracleContractConfig(admin, oracleId, dataSource) {
     const assets = {}
     switch (dataSource.name) {
         case 'exchanges':
-        case 'coinmarketcap':
             assets.baseAsset = constants.baseGenericAsset
             assets.assets = constants.genericAssets
             break
         case 'pubnet':
             assets.baseAsset = constants.baseStellarPubnetAsset
             assets.assets = constants.stellarPubnetAssets
-            break
-        case 'testnet':
-            assets.baseAsset = constants.baseStellarTestnetAsset
-            assets.assets = constants.stellarTestnetAssets
             break
         default:
             throw new Error('Unknown data source')
@@ -60,12 +99,22 @@ function generateContractConfig(admin, oracleId, dataSource) {
         admin,
         oracleId,
         baseAsset: assets.baseAsset,
-        decimals: constants.decimals,
-        assets: assets.assets,//.slice(0, 2),
+        assets: assets.assets,
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,
         dataSource: dataSource.name
+    }
+}
+
+function generateSubscriptionsContractConfig(admin, contractId, token) {
+    return {
+        admin,
+        contractId,
+        type: ContractTypes.SUBSCRIPTIONS,
+        baseFee: 100,
+        fee: constants.fee,
+        token
     }
 }
 
@@ -75,18 +124,26 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         const pubkey = nodes[i]
         nodeAddresses[pubkey] = {
             pubkey,
-            url: `ws://localhost:${wsStartPort + (i * 100)}`,
+            url: `ws://192.168.0.137:${wsStartPort + (i * 100)}`,
             domain: `node${i}.com`
         }
     }
 
     return {
+        decimals: 14,
+        baseAssets: {
+            exchanges: {
+                type: 2,
+                code: 'USD'
+            }
+        },
         systemAccount,
         contracts: contractConfigs,
         wasmHash,
         network,
         minDate,
-        nodes: nodeAddresses
+        nodes: nodeAddresses,
+        clusterSecret: constants.rsaKeys.privateKey
     }
 }
 
@@ -167,5 +224,7 @@ module.exports = {
     generateAppConfig,
     generateConfig,
     generateContractConfig,
-    updateAdminToMultiSigAccount
+    updateAdminToMultiSigAccount,
+    generateAssetContract,
+    mint
 }

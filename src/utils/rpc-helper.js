@@ -1,12 +1,13 @@
 const {Transaction, SorobanRpc} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
-const logger = require('../../logger')
+const logger = require('../logger')
 
 /**
  * @typedef {import('@stellar/stellar-sdk').Account} Account
  * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.SendTransactionResponse} SendTransactionResponse
  * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetFailedTransactionResponse} GetFailedTransactionResponse
  * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetSuccessfulTransactionResponse} GetSuccessfulTransactionResponse
+ * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
  */
 
 const txTimeoutMessage = 'Tx timed out.'
@@ -63,11 +64,11 @@ async function makeServerRequest(urls, requestFn) {
  * @param {string[]} sorobanRpc - soroban rpc urls
  * @param {PendingTransactionBase} pendingTx - transaction
  * @param {DecoratedSignature[]} signatures - signatures
+ * @param {string} runnerInfo - runner info
  * @returns {Promise<GetSuccessfulTransactionResponse>}
  */
-async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
+async function submitTransaction(network, sorobanRpc, pendingTx, signatures, runnerInfo) {
     let attempts = 100
-    const oracleId = this.oracleId
     const hash = pendingTx.hashHex
     let falseErrorHandled = false
 
@@ -85,7 +86,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
         if (error.errorName === 'TRY_AGAIN_LATER' || error.errorName === 'NOT_FOUND') {
             return
         } else if ((error.errorName === 'txBadSeq' || error.errorName === 'txTooLate') && !falseErrorHandled) { //when tx is already submitted, but was not found, txBadSeq or txTooLate can be thrown on submit
-            logger.debug(`${error.errorName} error. Retry attempt. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, falseErrorHandled: ${falseErrorHandled}`)
+            logger.debug(`${error.errorName} error. Retry attempt. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, falseErrorHandled: ${falseErrorHandled}`)
             falseErrorHandled = true
             return
         }
@@ -99,7 +100,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
 
     const ensureIsNotTimedOut = () => {
         if (isTxTooLate) {
-            logger.debug(`Transaction is too late. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, maxTime: ${maxTime}, latestLedgerCloseTime: ${latestLedgerCloseTime}`)
+            logger.debug(`Transaction is too late. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, maxTime: ${maxTime}, latestLedgerCloseTime: ${latestLedgerCloseTime}`)
             throw new Error(txTimeoutMessage)
         }
     }
@@ -114,7 +115,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
         //check if the transaction is already submitted
         let response = await makeServerRequest(sorobanRpc, getTransactionFn)
         if (response.status === 'SUCCESS') {
-            logger.trace(`Transaction is already submitted. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}`)
+            logger.trace(`Transaction is already submitted. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}`)
             response.hash = hash
             return response
         }
@@ -124,7 +125,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
             ensureIsNotTimedOut()
             const sendTransactionFn = async (server) => await server.sendTransaction(tx)
             const submitResult = await makeServerRequest(sorobanRpc, sendTransactionFn)
-            logger.debug(`Transaction is sent. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
+            logger.debug(`Transaction is sent. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
             if (!['PENDING', 'DUPLICATE'].includes(submitResult.status)) {
                 processResponse(submitResult)
                 await new Promise(resolve => setTimeout(resolve, 1000))
@@ -150,9 +151,41 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures) {
         }
         return response
     }
-    throw new Error(`Failed to submit transaction. Oracle id: ${oracleId ? oracleId : 'cluster'}. Tx type: ${pendingTx.type}, hash: ${hash}`)
+    throw new Error(`Failed to submit transaction. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}`)
 }
 
+/**
+ * @param {string} contractId - contract id
+ * @param {number} depth - depth in seconds (only used when pagingToken is not provided)
+ * @param {string} pagingToken - paging token
+ * @param {string[]} sorobanRpc - soroban rpc urls
+ * @returns {Promise<{events: any[], pagingToken: string}>}
+ */
+async function getLastContractEvents(contractId, depth, pagingToken, sorobanRpc) {
+    const limit = 100
+    const lastLedger = (await makeServerRequest(sorobanRpc, async (server) => await server.getLatestLedger())).sequence
+    const startLedger = lastLedger - Math.ceil(depth / 5) //1 ledger is closed every 5 seconds
+    const loadEvents = async (startLedger, cursor) => {
+        const d = await makeServerRequest(sorobanRpc, async (server) => {
+            startLedger = cursor ? undefined : startLedger
+            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit, cursor})
+            return data
+        })
+        return d
+    }
+    let events = []
+    let hasMore = true
+    while (hasMore) {
+        const eventsResponse = (await loadEvents(startLedger, pagingToken))
+        if (eventsResponse.events.length < limit)
+            hasMore = false
+        if (eventsResponse.events.length === 0)
+            break
+        events = events.concat(eventsResponse.events)
+        pagingToken = eventsResponse.events[eventsResponse.events.length - 1].pagingToken
+    }
+    return {events, pagingToken}
+}
 
 /**
  * @param {string} account - account address
@@ -163,4 +196,4 @@ async function getAccount(account, sorobanRpc) {
     return await makeServerRequest(sorobanRpc, async (server) => await server.getAccount(account))
 }
 
-module.exports = {submitTransaction, getAccount, txTimeoutMessage}
+module.exports = {submitTransaction, getLastContractEvents, getAccount, txTimeoutMessage}
