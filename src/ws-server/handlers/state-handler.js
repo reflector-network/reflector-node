@@ -1,6 +1,7 @@
 const ChannelTypes = require('../channels/channel-types')
 const NodeStates = require('../../domain/nodes/node-states')
 const runnerManager = require('../../domain/runners/runner-manager')
+const SubscriptionsRunner = require('../../domain/runners/subscriptions-runner')
 const BaseHandler = require('./base-handler')
 
 
@@ -8,14 +9,15 @@ class StateHandler extends BaseHandler {
 
     allowedChannelTypes = ChannelTypes.OUTGOING
 
-    async handle(ws, message) {
+    handle(ws, message) {
         switch (message.data.state) {
             case NodeStates.READY: {
-                const promises = []
-                for (const oracleRunner of runnerManager.all()) {
-                    promises.push(oracleRunner.broadcastSignatureTo(ws.pubkey))
+                for (const runner of runnerManager.all()) {
+                    runner.broadcastSignatureTo(ws.pubkey)
+                    if (runner instanceof SubscriptionsRunner) {
+                        runner.broadcastSyncData()
+                    }
                 }
-                await Promise.allSettled(promises)
             }
                 break
             default:

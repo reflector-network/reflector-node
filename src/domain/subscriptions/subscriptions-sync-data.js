@@ -49,16 +49,17 @@ class SubscriptionsSyncData {
     tryAddSignature(signaturesData, verified = false) {
         for (const signatureData of signaturesData) {
             const {signature, pubkey} = signatureData
-            if (this.__signatures.indexOf(pubkey) >= 0) //prevent duplicate signatures
+            if (this.__signatures.findIndex(s => s.pubkey === pubkey) >= 0) //prevent duplicate signatures
                 return
             if (!verified && !Keypair.fromPublicKey(pubkey).verify(this.hash, Buffer.from(signature, 'base64'))) {
                 logger.debug(`Invalid signature for timestamp ${this.__timestamp} from ${pubkey}`)
+                return
             }
             //add valid signature
             this.__signatures.push(signatureData)
 
             //check if verified
-            this.__isVerified = this.__isVerified || hasMajority(this.__signatures.length, container.settingsManager.config.nodes.size)
+            this.__isVerified = this.__isVerified || hasMajority(container.settingsManager.config.nodes.size, this.__signatures.length)
         }
     }
 

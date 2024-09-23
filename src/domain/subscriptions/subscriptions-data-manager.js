@@ -266,10 +266,12 @@ class SubscriptionContractManager {
      * @param {SubscriptionsSyncData} newSyncData - sync data
      */
     trySetSyncData(newSyncData) {
-        const newSyncItem = this.__pendingSyncData.push(newSyncData)
+        const syncItem = this.__pendingSyncData.push(newSyncData)
         const lastTimestamp = this.__lastSyncData?.timestamp || 0
-        if (newSyncItem.isVerified && newSyncItem.timestamp >= lastTimestamp)
-            this.__lastSyncData = newSyncData
+        if (syncItem.isVerified && syncItem.timestamp >= lastTimestamp) {
+            this.__lastSyncData = syncItem
+            logger.debug(`New sync data set for contract ${this.contractId}, timestamp: ${syncItem.timestamp}, hash: ${syncItem.hashBase64}, signatures: ${syncItem.__signatures.map(s => s.pubkey).join(',')}`)
+        }
     }
 
     get lastSyncData() {

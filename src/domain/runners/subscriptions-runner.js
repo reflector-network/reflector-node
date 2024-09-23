@@ -79,9 +79,7 @@ class SubscriptionsRunner extends RunnerBase {
 
         //get contract manager
         const subscriptionsContractManager = getManager(this.contractId)
-        //broadcast last processed data if available
-        if (subscriptionsContractManager.lastSyncData)
-            broadcastSyncData(this.contractId, subscriptionsContractManager.lastSyncData)
+        this.broadcastSyncData()
 
         logger.trace(`Contract state: lastSubscriptionsId: ${Number(contractState.lastSubscriptionsId)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
         statisticsManager.setLastSubscriptionData(
@@ -170,6 +168,13 @@ class SubscriptionsRunner extends RunnerBase {
             await this.__buildAndSubmitTransaction(updateTxBuilder, sourceAccount, baseFee, chargeTimestamp, 0)
         }
         return true
+    }
+
+    async broadcastSyncData() {
+        const subscriptionsContractManager = getManager(this.contractId)
+        //broadcast last processed data if available
+        if (subscriptionsContractManager.lastSyncData)
+            await broadcastSyncData(this.contractId, subscriptionsContractManager.lastSyncData)
     }
 
 
@@ -300,11 +305,7 @@ class SubscriptionsRunner extends RunnerBase {
     }
 
     __getNextTimestamp(currentTimestamp) {
-        let nextTimestamp = currentTimestamp + this.__timeframe
-        while (nextTimestamp < Date.now()) {
-            nextTimestamp += this.__timeframe
-        }
-        return nextTimestamp
+        return currentTimestamp + this.__timeframe
     }
 
     get __delay() {
