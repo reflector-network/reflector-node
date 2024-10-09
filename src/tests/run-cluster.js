@@ -2,10 +2,22 @@ const fs = require('fs')
 const path = require('path')
 const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
 const {ContractTypes} = require('@reflector/reflector-shared')
-const {deployContract, createAccount, updateAdminToMultiSigAccount, generateContractConfig: generateSingleConfig, runCommand, generateAppConfig, generateConfig, generateAssetContract} = require('./utils')
+const {generateRSAKeyPair} = require('../utils/crypto-helper')
+const {
+    deployContract,
+    createAccount,
+    updateAdminToMultiSigAccount,
+    generateContractConfig: generateSingleConfig,
+    runCommand,
+    generateAppConfig,
+    generateConfig,
+    generateAssetContract
+} = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
+let tokenData = null
+let rsa = null
 
 function getNodeDirName(nodeNumber) {
     return path.join(configsPath, `node${nodeNumber}`)
@@ -50,19 +62,8 @@ async function generateNewContract(server, nodes, contractType, dataSource) {
         contractId,
         contractType,
         dataSource,
-        admin: admin.publicKey()
-    }
-
-    if (contractType === ContractTypes.SUBSCRIPTIONS) {
-        const tokenAdmin = Keypair.random()
-        await createAccount(server, tokenAdmin.publicKey())
-        contractConfigData.token = await generateAssetContract(`SBS:${tokenAdmin.publicKey()}`, admin.secret())
-        //save token admin secret
-        if (!fs.existsSync(configsPath)) {
-            fs.mkdirSync(configsPath, {recursive: true})
-        }
-        const tokenAdminSecretPath = path.join(configsPath, 'token-data.json')
-        fs.writeFileSync(tokenAdminSecretPath, JSON.stringify({secret: tokenAdmin.secret(), publicKey: tokenAdmin.publicKey(), tokenId: contractConfigData.token}), {encoding: 'utf-8'})
+        admin: admin.publicKey(),
+        token: tokenData.tokenId
     }
 
     await updateAdminToMultiSigAccount(server, admin, nodes)
@@ -78,6 +79,10 @@ async function generateNewContract(server, nodes, contractType, dataSource) {
 async function generateNewCluster(nodeConfigs, contractConfigs) {
 
     const server = new SorobanRpc.Server(constants.rpcUrl, {allowHttp: true})
+
+    await ensureTokenData(server)
+    await ensureRSAKeys()
+
     //generate system account
     const systemAccount = Keypair.random()
     await createAccount(server, systemAccount.publicKey())
@@ -104,7 +109,7 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     const subscriptionsContract = await generateNewContract(server, nodes, ContractTypes.SUBSCRIPTIONS)
     contracts[subscriptionsContract.contractId] = subscriptionsContract
 
-    const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, false)
+    const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, rsa.privateKey)
     fs.mkdirSync(configsPath, {recursive: true})
     const configPath = path.join(configsPath, '.config.json')
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), {encoding: 'utf-8'})
@@ -134,6 +139,30 @@ async function startNodes(nodesCount) {
         console.log(startCommand)
         await runCommand(startCommand)
     }
+}
+
+async function ensureTokenData(server) {
+    const tokenDataFile = path.join('./tests', 'token-data.json')
+    if (!fs.existsSync(tokenDataFile)) {
+        const tokenAdmin = Keypair.random()
+        await createAccount(server, tokenAdmin.publicKey())
+        const tokenContract = await generateAssetContract(`XRF:${tokenAdmin.publicKey()}`, tokenAdmin.secret())
+        tokenData = {secret: tokenAdmin.secret(), publicKey: tokenAdmin.publicKey(), tokenId: tokenContract}
+        fs.writeFileSync(tokenDataFile, JSON.stringify(tokenData, null, 2), {encoding: 'utf-8'})
+    } else
+        tokenData = JSON.parse(fs.readFileSync(tokenDataFile, {encoding: 'utf-8'}))
+}
+
+async function ensureRSAKeys() {
+    const rsaDataFile = path.join('./tests', 'rsa.json')
+    if (!fs.existsSync(rsaDataFile)) {
+        const rsaKeys = await generateRSAKeyPair()
+        const privateKey = Buffer.from(rsaKeys.privateKey).toString('base64')
+        const pubKey = Buffer.from(rsaKeys.publicKey).toString('base64')
+        rsa = {privateKey, pubKey}
+        fs.writeFileSync('./tests/rsa.json', JSON.stringify(rsa, null, 2), {encoding: 'utf-8'})
+    } else
+        rsa = JSON.parse(fs.readFileSync(rsaDataFile, {encoding: 'utf-8'}))
 }
 
 /**

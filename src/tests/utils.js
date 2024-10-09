@@ -1,10 +1,10 @@
 const {exec} = require('child_process')
-const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
+const {TransactionBuilder, Operation, SorobanRpc} = require('@stellar/stellar-sdk')
 const {getMajority} = require('@reflector/reflector-shared')
 const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
 const constants = require('./constants')
 
-const pathToOracleContractWasm = './tests/reflector-oracle.wasm'
+const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
 const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
 
 async function runCommand(command, args) {
@@ -118,7 +118,7 @@ function generateSubscriptionsContractConfig(admin, contractId, token) {
     }
 }
 
-function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort) {
+function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate, network, wsStartPort, rsaPrivateKey) {
     const nodeAddresses = {}
     for (let i = 0; i < nodes.length; i++) {
         const pubkey = nodes[i]
@@ -143,12 +143,12 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         network,
         minDate,
         nodes: nodeAddresses,
-        clusterSecret: constants.rsaKeys.privateKey
+        clusterSecret: rsaPrivateKey
     }
 }
 
 /**
- *@param {Server} server
+ *@param {SorobanRpc.Server} server
  *@param {string} admin
  */
 async function createAccount(server, admin) {
@@ -156,7 +156,7 @@ async function createAccount(server, admin) {
 }
 
 /**
- *@param {Server} server
+ *@param {SorobanRpc.Server} server
  *@param {Keypair} admin
  */
 async function getAccountInfo(server, publicKey) {
@@ -165,7 +165,7 @@ async function getAccountInfo(server, publicKey) {
 }
 
 /**
- *@param {Server} server
+ *@param {SorobanRpc.Server} server
  *@param {Keypair} admin
  *@param {string[]} nodesPublicKeys
  *@returns {Promise<void>}
@@ -204,6 +204,11 @@ async function updateAdminToMultiSigAccount(server, admin, nodesPublicKeys) {
     await sendTransaction(server, tx)
 }
 
+/**
+ * @param {SorobanRpc.Server} server
+ * @param {Transaction} tx
+ * @returns {Promise<SorobanRpc.Api.GetSuccessfulTransactionResponse>}
+ */
 async function sendTransaction(server, tx) {
     let result = await server.sendTransaction(tx)
     const hash = result.hash
@@ -226,5 +231,7 @@ module.exports = {
     generateContractConfig,
     updateAdminToMultiSigAccount,
     generateAssetContract,
-    mint
+    mint,
+    sendTransaction,
+    getAccountInfo
 }
