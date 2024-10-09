@@ -156,15 +156,14 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
 
 /**
  * @param {string} contractId - contract id
- * @param {number} depth - depth in seconds (only used when pagingToken is not provided)
- * @param {string} pagingToken - paging token
+ * @param {number} lastProcessedLedger - last processed ledger
  * @param {string[]} sorobanRpc - soroban rpc urls
- * @returns {Promise<{events: any[], pagingToken: string}>}
+ * @returns {Promise<{events: any[], lastLedger: number}>}
  */
-async function getLastContractEvents(contractId, depth, pagingToken, sorobanRpc) {
+async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc) {
     const limit = 100
     const lastLedger = (await makeServerRequest(sorobanRpc, async (server) => await server.getLatestLedger())).sequence
-    const startLedger = lastLedger - Math.ceil(depth / 5) //1 ledger is closed every 5 seconds
+    const startLedger = lastProcessedLedger ? lastProcessedLedger : lastLedger - 180 //180 is 15 minutes in ledgers
     const loadEvents = async (startLedger, cursor) => {
         const d = await makeServerRequest(sorobanRpc, async (server) => {
             startLedger = cursor ? undefined : startLedger
@@ -175,16 +174,20 @@ async function getLastContractEvents(contractId, depth, pagingToken, sorobanRpc)
     }
     let events = []
     let hasMore = true
+    let latestLedger = null
+    let pagingToken = null
     while (hasMore) {
         const eventsResponse = (await loadEvents(startLedger, pagingToken))
         if (eventsResponse.events.length < limit)
             hasMore = false
+        latestLedger = eventsResponse.latestLedger
         if (eventsResponse.events.length === 0)
             break
         events = events.concat(eventsResponse.events)
         pagingToken = eventsResponse.events[eventsResponse.events.length - 1].pagingToken
+        logger.debug(`Loaded ${events.length} (max: ${limit}) events for contract ${contractId}. Has more: ${hasMore}. Last event ledger: ${latestLedger}, paging token: ${pagingToken}`)
     }
-    return {events, pagingToken}
+    return {events, lastLedger: latestLedger}
 }
 
 /**
