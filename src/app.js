@@ -23,7 +23,12 @@ async function init(container) {
     }
     try {
         process.on('unhandledRejection', (reason, p) => {
-            logger.error({err: reason}, 'Unhandled Rejection at: Promise')
+            logger.error({err: reason}, 'Unhandled promise rejection')
+        })
+
+        process.on('uncaughtException', (err, origin) => {
+            logger.error({err}, 'Unhandled application exception at ' + origin)
+            setTimeout(() => process.exit(1), 2000)
         })
 
         process.on('warning', (warning) => {
