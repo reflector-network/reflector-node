@@ -156,35 +156,38 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
 
 /**
  * @param {string} contractId - contract id
- * @param {number} depth - depth in seconds (only used when pagingToken is not provided)
- * @param {string} pagingToken - paging token
+ * @param {number} lastProcessedLedger - last processed ledger
  * @param {string[]} sorobanRpc - soroban rpc urls
- * @returns {Promise<{events: any[], pagingToken: string}>}
+ * @returns {Promise<{events: any[], lastLedger: number}>}
  */
-async function getLastContractEvents(contractId, depth, pagingToken, sorobanRpc) {
-    const limit = 100
+async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc) {
+    const limit = 1000
     const lastLedger = (await makeServerRequest(sorobanRpc, async (server) => await server.getLatestLedger())).sequence
-    const startLedger = lastLedger - Math.ceil(depth / 5) //1 ledger is closed every 5 seconds
-    const loadEvents = async (startLedger, cursor) => {
+    const startLedger = lastProcessedLedger ? lastProcessedLedger : lastLedger - 180 //180 is 15 minutes in ledgers
+    const loadEvents = async (startLedger) => {
         const d = await makeServerRequest(sorobanRpc, async (server) => {
-            startLedger = cursor ? undefined : startLedger
-            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit, cursor})
+            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit})
             return data
         })
         return d
     }
-    let events = []
+    const events = new Map()
     let hasMore = true
+    let latestLedger = null
+    let cursorLedger = null
     while (hasMore) {
-        const eventsResponse = (await loadEvents(startLedger, pagingToken))
+        const eventsResponse = await loadEvents(cursorLedger ? cursorLedger : startLedger)
         if (eventsResponse.events.length < limit)
             hasMore = false
+        latestLedger = eventsResponse.latestLedger
         if (eventsResponse.events.length === 0)
             break
-        events = events.concat(eventsResponse.events)
-        pagingToken = eventsResponse.events[eventsResponse.events.length - 1].pagingToken
+        eventsResponse.events.forEach(e => events.set(e.id, e))
+        cursorLedger = eventsResponse.events[eventsResponse.events.length - 1].ledger - 1
+        logger.debug(`Loaded ${events.length} events for contract ${contractId}. Has more: ${hasMore}. Last event ledger: ${cursorLedger}.`)
     }
-    return {events, pagingToken}
+
+    return {events: [...events.values()], lastLedger: latestLedger}
 }
 
 /**

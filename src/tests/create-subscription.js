@@ -17,7 +17,7 @@ async function getWebhook() {
         throw new Error('Webhook not created')
     }
 
-    const key = await importRSAKey(Buffer.from('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAj7uIWOm8DPs/0+vatk9diJHZAbwy7BB2DTWEP6jPMkYCfpdls5+AO4bMR3arAPaHqnoUFhQrrvjiItXxZTTgvSIesm2Rc1GVdcNYk+3tVc04jxloXr3vXXoE8RvnpjwbM7S/8KWh8o9MS7D69/RixcUyLvX06WNpoLIIhYhtHOLZ7rxmV0HfLbY4yYYGxzKeDhukUpr9zqwRxn/laEkp4S1b6MQIAOpIuUchuzQkpvoYeHssc+KFn4CXxXkkjMBAasoJCe8ifOUIm4YSERXLfX38upS1cUXDoOo0dlx8qn/I0o96Ga626uiOkBavhuYQDc8r/8DkLw+JDVvJgbR1RwIDAQAB', 'base64'))
+    const key = await importRSAKey(Buffer.from(rsa.pubKey, 'base64'))
 
     const hook = await encrypt(key, `https://webhook.site/${uuid}`)
     return {
@@ -47,8 +47,6 @@ async function createSubscription() {
     const source = await getAccountInfo(server, keypair.publicKey())
 
     const webhook = await getWebhook()
-
-    const quote = quotes[Math.floor(Math.random() * quotes.length)]
 
     const tx = await client.createSubscription(
         source,
@@ -85,7 +83,10 @@ async function cancelSubscriptions() {
     const keypair = Keypair.fromSecret(tokenData.secret)
     const server = new SorobanRpc.Server(constants.rpcUrl)
 
-    const subscriptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    const arrayRange = (start, end) =>
+        [...Array(end - start + 1).keys()].map(i => i + start)
+
+    const subscriptions = arrayRange(42, 51)
 
     for (const id of subscriptions) {
         try {
@@ -116,3 +117,4 @@ async function run() {
 
 //run()
 createSubscription().catch(console.error)
+//cancelSubscriptions().catch(console.error)

@@ -94,14 +94,22 @@ function assetToEventData(asset) {
         asset: asset.asset.code
     }
 }
+
 /**
  * @param {BigInt} oldPrice - old price
  * @param {BigInt} newPrice - new price
  * @returns {number} - unsigned diff in integer percents
  */
 function getDiff(oldPrice, newPrice) {
-    if (oldPrice === 0n || newPrice === 0n)
+    //if old price is 0 and new price is 0, or both 0 - skip the diff
+    if (
+        (oldPrice > 0n && newPrice === 0n)
+        || (oldPrice === 0n && newPrice === 0n)
+    )
         return 0
+    //if old price is 0 and new price is not 0, return 100% diff
+    else if (oldPrice === 0n && newPrice > 0n)
+        return 1000
 
     const absDiff = oldPrice > newPrice ? oldPrice - newPrice : newPrice - oldPrice
     const percentageDiff = (absDiff * 1000n) / oldPrice
@@ -152,7 +160,6 @@ class SubscriptionProcessor {
                     quote,
                     heartbeat,
                     threshold,
-                    lastPrice,
                     lastCharge,
                     webhook
                 } = subscription
@@ -162,24 +169,27 @@ class SubscriptionProcessor {
 
                 //get price for the pair from the last minute
                 const {price, decimals} = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp)
-                const diff = getDiff(lastPrice, price)
+                //get last price and last notification timestamp from sync data
+                const lastPrice = BigInt(eventsContainer.syncData[id]?.lastPrice || 0)
                 const lastNotification = eventsContainer.syncData[id]?.lastNotification || 0
+
+                logger.debug({id, price, lastPrice, lastNotification}, `Processing subscription ${subscription.id}`)
+
+                const diff = getDiff(lastPrice, price)
                 if (diff >= threshold || timestamp - lastNotification >= heartbeat * 60 * 1000) {
                     await eventsContainer.addEvent(
                         id,
                         base,
                         quote,
                         decimals,
-                        price, //if last price is 0, then it's the initial heartbeat. Send 0 price to prevent false alarms
-                        lastPrice > 0n ? lastPrice : price,
+                        price,
+                        lastPrice,
                         timestamp,
                         webhook
                     )
-                    eventsContainer.syncData[id] = {lastNotification: timestamp}
+                    eventsContainer.syncData[id] = {lastNotification: timestamp, lastPrice: price.toString()}
+                    logger.debug({id, price, lastPrice, diff}, `Added event for subscription ${subscription.id}`)
                 }
-                //update last price
-                subscription.lastPrice = price
-
             } catch (err) {
                 logger.error({err}, `Error processing subscription ${subscription.id}`)
             }

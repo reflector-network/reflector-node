@@ -98,6 +98,24 @@ function createPendingTransactionObject(tx, maxTime) {
     return pendingTxObject
 }
 
+/**
+ * @returns {{promise: Promise<any>, resolve: Function}}
+ */
+function createMajorityPromiseData() {
+    const majorityPromiseData = {}
+    majorityPromiseData.promise = new Promise((resolve) => {
+        let isSettled = false
+
+        majorityPromiseData.resolve = (value) => {
+            if (!isSettled) {
+                isSettled = true
+                resolve(value)
+            }
+        }
+    })
+    return majorityPromiseData
+}
+
 const maxSubmitAttempts = 3
 const maxSubmitTimeout = 20000
 
@@ -182,6 +200,7 @@ class RunnerBase {
             return
         try {
             logger.info(`${this.__contractInfo} -> worker, timestamp: ${timestamp}`)
+            this.__payloadMajorityData = createMajorityPromiseData()
             const isTxProcessed = await this.__workerFn(timestamp)
             //update last processed timestamp
             if (isTxProcessed && this.contractId)
@@ -189,6 +208,9 @@ class RunnerBase {
         } catch (err) {
             logger.error({err}, `Error in worker, ${this.__contractInfo}, timestamp: ${timestamp}`)
         } finally {
+            //TODO: improve resolve logic for other runners
+            //only subscriptions runner should resolve the promise every run
+            this.__payloadMajorityData.resolve(false)
             const nextTimestamp = this.__getNextTimestamp(timestamp)
             const timeout = this.__getWorkerTimeout(nextTimestamp)
             logger.debug(`Worker timeout: ${timeout}, ${this.__contractInfo}`)
@@ -263,6 +285,7 @@ class RunnerBase {
         const currentNodesLength = settingsManager.nodes.size
         if (!this.__pendingTransaction || !this.__pendingTransaction.tx.isReadyToSubmit(currentNodesLength))
             return
+        this.__payloadMajorityData.resolve(true) //we got the majority, so the payload is the same for the majority of nodes
         const {tx, reject, resolve} = this.__pendingTransaction
         const {networkPassphrase, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
         try {

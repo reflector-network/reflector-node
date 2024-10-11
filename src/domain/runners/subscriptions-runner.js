@@ -118,7 +118,7 @@ class SubscriptionsRunner extends RunnerBase {
         let chargeTimestamp = timestamp
 
         if (events.length > 0) {
-            this.__processTriggerData(events, eventHexHashes, rootHex)
+            this.__processTriggerData(events, eventHexHashes, rootHex, timestamp)
 
             updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
                 account,
@@ -214,14 +214,21 @@ class SubscriptionsRunner extends RunnerBase {
     }
 
     /**
-     * @param {any[]} events - array of trigger items
+     * @param {any[]} eventItems - array of trigger items
      * @param {string[]} events - trigger event hashes
      * @param {string} root - composed trigger events hash
+     * @param {number} timestamp - timestamp
      */
-    __processTriggerData(eventItems, events, root) {
-        const {settingsManager} = container
-        const {urls, gatewayValidationKey} = settingsManager.gateways
+    async __processTriggerData(eventItems, events, root, timestamp) {
         try {
+            if (!(await this.__payloadMajorityData.promise)) {
+                logger.debug(`Payload not approved for contract ${this.contractId}, ${timestamp}. Skipping webhook data`)
+                return
+            }
+
+            logger.debug(`Payload approved for contract ${this.contractId}, ${timestamp}. Sending webhook data`)
+            const {settingsManager} = container
+            const {urls, gatewayValidationKey} = settingsManager.gateways
             const notifications = []
             for (let i = 0; i < eventItems.length; i++) {
                 const eventItem = eventItems[i]

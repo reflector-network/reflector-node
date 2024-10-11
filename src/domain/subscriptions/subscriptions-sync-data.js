@@ -23,7 +23,7 @@ class SubscriptionsSyncData {
     hashBase64 = null
 
     /**
-     * @type {{syncData: {[string]: {lastNotification: number}}, timestamp: number}}
+     * @type {{syncData: {[string]: {lastNotification: number, lastPrice: string}}, timestamp: number}}
      */
     __data = {syncData: {}, timestamp: 0}
 
@@ -80,7 +80,7 @@ class SubscriptionsSyncData {
     }
 
     /**
-     * @returns {Object.<string, {lastNotification: number}>} - syncData data copy
+     * @returns {Object.<string, {lastNotification: number, lastPrice: string}>} - syncData data copy
      */
     getSyncDataCopy() {
         return JSON.parse(JSON.stringify(this.__data.syncData))

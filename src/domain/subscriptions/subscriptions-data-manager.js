@@ -25,8 +25,6 @@ const validSymbols = require('./valid-symbols.json')
  * @property {BigInt} id - subscription id
  * @property {BigInt} balance - balance
  * @property {number} threshold - threshold
- * @property {BigInt} lastPrice - last price
- * @property {number} lastNotification - last notification
  * @property {number} lastCharge - last charge
  * @property {{source: string, asset: Asset}} base - base asset
  * @property {{source: string, asset: Asset}} quote - quote asset
@@ -81,13 +79,13 @@ async function getWebhook(id, webhookBuffer) {
 
 /**
  * @param {string} contractId - contract id
- * @param {string} [cursor] - cursor
- * @returns {Promise<{events: any[], pagingToken: string}>}
+ * @param {number} lastProcessedLedger - last processed ledger
+ * @returns {Promise<{events: any[], lastLedger: string}>}
  * */
-async function loadLastEvents(contractId, cursor = null) {
+async function loadLastEvents(contractId, lastProcessedLedger) {
     const {settingsManager} = container
     const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
-    const {events: rawEvents, pagingToken} = await getLastContractEvents(contractId, 60 * 60, cursor, sorobanRpc)
+    const {events: rawEvents, lastLedger} = await getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc)
     const events = rawEvents
         .map(raw => {
             const data = {
@@ -97,7 +95,7 @@ async function loadLastEvents(contractId, cursor = null) {
             }
             return data
         })
-    return {events, pagingToken}
+    return {events, lastLedger}
 }
 
 class SubscriptionContractManager {
@@ -141,9 +139,9 @@ class SubscriptionContractManager {
     __pendingSyncData = new PendingSyncDataCache()
 
     /**
-     * @type {string}
+     * @type {number}
      */
-    __pagingToken = null
+    __lastLedger = null
 
     async __loadSubscriptionsData() {
         const {settingsManager} = container
@@ -161,10 +159,8 @@ class SubscriptionContractManager {
     async __setSubscription(raw) {
         try {
             if (!(raw && raw.status === 0)) {//only active subscriptions, raw can be null if the subscription was deleted
-                logger.trace(`Subscription ${raw?.id} is not active or not defined. Contract ${this.contractId}`)
                 return
             }
-            const currentSubscription = this.__subscriptions.get(raw.id)
             const base = getNormalizedAsset(raw.base)
             const quote = getNormalizedAsset(raw.quote)
             if (base.asset.isContractId || quote.asset.isContractId) {
@@ -193,8 +189,6 @@ class SubscriptionContractManager {
                 owner: raw.owner,
                 threshold: raw.threshold,
                 webhook,
-                lastNotification: currentSubscription?.lastNotification || 0,
-                lastPrice: currentSubscription?.lastPrice || 0n,
                 heartbeat: raw.heartbeat
             }
             this.__subscriptions.set(subscription.id, subscription)
@@ -204,10 +198,10 @@ class SubscriptionContractManager {
     }
 
     async processLastEvents() {
-        logger.debug(`Processing events for contract ${this.contractId} from ${this.__pagingToken}`)
-        const {events, pagingToken} = await loadLastEvents(this.contractId, this.__pagingToken)
-        logger.debug(`Loaded ${events.length} events for contract ${this.contractId}, new paging token: ${pagingToken}`)
-        this.__pagingToken = pagingToken
+        logger.debug(`Processing events for contract ${this.contractId} from ${this.__lastLedger}`)
+        const {events, lastLedger} = await loadLastEvents(this.contractId, this.__lastLedger)
+        logger.debug(`Loaded ${events.length} events for contract ${this.contractId}, new last ledger: ${lastLedger}`)
+        this.__lastLedger = lastLedger
 
         const triggerEvents = events
         for (const event of triggerEvents) {
