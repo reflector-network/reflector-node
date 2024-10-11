@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
@@ -32,10 +32,12 @@
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
     "@stellar/stellar-sdk": "12.2.0",
     "body-parser": "^1.20.2",
+    "bufferutil": "^4.0.8",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "pino": "^8.15.1",
     "rotating-file-stream": "^3.2.1",
+    "utf-8-validate": "^6.0.4",
     "uuid": "^9.0.0",
     "ws": "^8.13.0"
   }
