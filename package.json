@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
