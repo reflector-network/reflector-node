@@ -228,6 +228,10 @@ class SettingsManager {
         return contractConfig.decimals || this.config.decimals || defaultDecimals
     }
 
+    getOperators() {
+        return [...this.config.nodes.keys()]
+    }
+
     getBaseAsset(source) {
         if (!source)
             throw new Error('Source is required')

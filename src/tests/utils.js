@@ -1,11 +1,11 @@
 const {exec} = require('child_process')
-const {TransactionBuilder, Operation, SorobanRpc} = require('@stellar/stellar-sdk')
-const {getMajority} = require('@reflector/reflector-shared')
-const ContractTypes = require('@reflector/reflector-shared/models/configs/contract-type')
+const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
+const {getMajority, BallotCategories, ContractTypes} = require('@reflector/reflector-shared')
 const constants = require('./constants')
 
 const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
 const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
+const pathToDAOContractWasm = './tests/reflector_dao_contract.wasm'
 
 async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
@@ -29,6 +29,8 @@ async function deployContract(admin, contractType) {
     let pathToContractWasm = pathToOracleContractWasm
     if (contractType === ContractTypes.SUBSCRIPTIONS)
         pathToContractWasm = pathToSubscriptionsContractWasm
+    else if (contractType === ContractTypes.DAO)
+        pathToContractWasm = pathToDAOContractWasm
     const command = `stellar contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 100000000`
     console.log(command)
     return await runCommand(command)
@@ -58,6 +60,23 @@ async function mint(server, asset, destination, amount, account, signer) {
     await sendTransaction(server, tx)
 }
 
+async function addTrust(server, asset, account, signer) {
+    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+    txBuilder = txBuilder
+        .setTimeout(30000)
+        .addOperation(
+            Operation.changeTrust({
+                asset
+            })
+        )
+
+    const tx = txBuilder.build()
+
+    tx.sign(signer)
+
+    await sendTransaction(server, tx)
+}
+
 function generateAppConfig(secret, dataSources, node) {
     return {
         handshakeTimeout: 0,
@@ -73,11 +92,13 @@ function generateAppConfig(secret, dataSources, node) {
  * @returns {Object}
  */
 function generateContractConfig(configData) {
-    const {admin, contractId, contractType, dataSource, token} = configData
+    const {admin, contractId, contractType, dataSource, token, developer, initAmount} = configData
     if (contractType === ContractTypes.ORACLE) {
         return generateOracleContractConfig(admin, contractId, dataSource)
     } else if (contractType === ContractTypes.SUBSCRIPTIONS) {
         return generateSubscriptionsContractConfig(admin, contractId, token)
+    } else if (contractType === ContractTypes.DAO) {
+        return generateDAOContractConfig(admin, contractId, token, developer, initAmount)
     }
 }
 
@@ -112,9 +133,29 @@ function generateSubscriptionsContractConfig(admin, contractId, token) {
         admin,
         contractId,
         type: ContractTypes.SUBSCRIPTIONS,
+        fee: constants.fee,
+        baseFee: 1000,
+        token
+    }
+}
+
+function generateDAOContractConfig(admin, contractId, token, developer, initAmount) {
+    return {
+        admin,
+        contractId,
+        type: ContractTypes.DAO,
         baseFee: 100,
         fee: constants.fee,
-        token
+        initAmount,
+        developer,
+        depositParams: {
+            "0": "1000000000",
+            "1": "100000000",
+            "2": "10000000",
+            "3": "1000000000"
+        },
+        token,
+        startDate: Date.now() - 60 * 60 * 1000 * 24 * 7 * 3 //3 weeks ago
     }
 }
 
@@ -232,6 +273,7 @@ module.exports = {
     updateAdminToMultiSigAccount,
     generateAssetContract,
     mint,
+    addTrust,
     sendTransaction,
     getAccountInfo
 }

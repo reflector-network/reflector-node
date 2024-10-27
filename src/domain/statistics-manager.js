@@ -79,6 +79,25 @@ class SubscriptionsStatistics extends ContractStatistics {
     }
 }
 
+class DAOStatistics extends ContractStatistics {
+    constructor(contractId) {
+        super(contractId, ContractTypes.DAO)
+        this.lastBallotId = 0
+    }
+
+    setLastDAOData(lastBallotId, isInitialized) {
+        this.setLastContractData(isInitialized)
+        this.lastBallotId = lastBallotId
+    }
+
+    getStatistics() {
+        return {
+            ...super.getStatistics(),
+            lastBallotId: this.lastBallotId
+        }
+    }
+}
+
 class StatisticsManager {
     constructor() {
         this.startTime = Date.now()
@@ -137,6 +156,9 @@ class StatisticsManager {
                 case ContractTypes.SUBSCRIPTIONS:
                     contractStatistics = new SubscriptionsStatistics(contractId)
                     break
+                case ContractTypes.DAO:
+                    contractStatistics = new DAOStatistics(contractId)
+                    break
                 default:
                     contractStatistics = new ContractStatistics(contractId)
             }
@@ -166,6 +188,11 @@ class StatisticsManager {
     setLastSubscriptionData(contractId, lastSubscrioptionId, isInitialized, syncDataHash) {
         const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.SUBSCRIPTIONS)
         contractStatistics.setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash)
+    }
+
+    setLastDAOData(contractId, lastBallotId, lastUnlock, isInitialized) {
+        const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.DAO)
+        contractStatistics.setLastDAOData(lastBallotId, lastUnlock, isInitialized)
     }
 
     getStatistics() {

@@ -4,6 +4,7 @@ const ClusterRunner = require('./cluster-runner')
 const OracleRunner = require('./oracle-runner')
 const SubscriptionsRunner = require('./subscriptions-runner')
 const PriceRunner = require('./price-runner')
+const DAORunner = require('./dao-runner')
 
 /**
  * @typedef {import('./runner-base')} RunnerBase
@@ -92,6 +93,10 @@ class RunnerManager {
             case ContractTypes.SUBSCRIPTIONS:
                 runner = new SubscriptionsRunner(contractId)
                 logger.debug(`RunnerManager -> add -> subscriptionsRunner ${contractId} added`)
+                break
+            case ContractTypes.DAO:
+                runner = new DAORunner(contractId)
+                logger.debug(`DAORunner -> add -> clusterRunner ${contractId} added`)
                 break
             default:
                 throw new Error(`RunnerManager -> add -> unknown contract type: ${type}`)
