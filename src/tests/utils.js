@@ -144,7 +144,6 @@ function generateDAOContractConfig(admin, contractId, token, developer, initAmou
         admin,
         contractId,
         type: ContractTypes.DAO,
-        baseFee: 100,
         fee: constants.fee,
         initAmount,
         developer,
