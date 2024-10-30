@@ -35,7 +35,7 @@ const sources = {
     },
     testnet: {
         dbConnection: 'postgres://stellar:pass@127.0.0.1:5432/stellar-testnet-core',
-        sorobanRpc: ['https://bad.rpc.org', 'https://soroban-testnet.stellar.org'],
+        sorobanRpc: ['https://soroban-testnet.stellar.org'],
         type: 'db',
         name: 'testnet'
     }

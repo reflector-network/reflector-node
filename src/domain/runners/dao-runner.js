@@ -1,12 +1,18 @@
-const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState, ContractTypes} = require('@reflector/reflector-shared')
+const {buildDAOInitTransaction, buildDAOUnlockTransaction, getContractState, ContractTypes} = require('@reflector/reflector-shared')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
-const {getPricesForContract} = require('../prices/price-manager')
 const logger = require('../../logger')
+const nodesManager = require('../nodes/nodes-manager')
 const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
 
-class OracleRunner extends RunnerBase {
+/**
+ * @typedef {import('@reflector/reflector-shared').DAOConfig} DAOConfig
+ */
+
+const unlockFrame = 1000 * 60 * 60 * 24 * 7 //1 week
+
+class DAORunner extends RunnerBase {
     constructor(contractId) {
         if (!contractId)
             throw new Error('contractId is required')
@@ -14,13 +20,14 @@ class OracleRunner extends RunnerBase {
     }
 
     async __workerFn(timestamp) {
+        /**@type {DAOConfig} */
         const contractConfig = this.__getCurrentContract()
         if (!contractConfig)
             throw new Error(`Config not found for oracle id: ${this.contractId}`)
 
         const {settingsManager} = container
 
-        const {timeframe, admin, fee: baseFee} = contractConfig
+        const {admin, fee, token, developer} = contractConfig
 
         //cluster network data
         const {networkPassphrase: network, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
@@ -30,12 +37,17 @@ class OracleRunner extends RunnerBase {
 
         const contractState = await getContractState(this.contractId, sorobanRpc)
 
-        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
-        statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
+        logger.trace(`Contract state: lastBallotId: ${Number(contractState.lastBallotId)}, lastUnlock: ${Number(contractState.lastUnlock)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
+        statisticsManager.setLastDAOData(
+            this.contractId,
+            Number(contractState.lastTimestamp),
+            Number(contractState.lastUnlock),
+            contractState.isInitialized
+        )
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {
-            updateTxBuilder = async (account, fee, maxTime) => await buildOracleInitTransaction({
+            updateTxBuilder = async (account, fee, maxTime) => await buildDAOInitTransaction({
                 account,
                 network,
                 sorobanRpc,
@@ -44,22 +56,18 @@ class OracleRunner extends RunnerBase {
                 maxTime,
                 decimals: settingsManager.getDecimals(this.contractId)
             })
-        } else if (isTimestampValid(timestamp, timeframe)
-            && contractState.lastTimestamp < timestamp
-            && !this.__isTxExpired(timestamp, this.__delay)) {
-
-            const prices = await getPricesForContract(this.contractId, timestamp - timeframe) //last completed timeframe
-
-            updateTxBuilder = async (account, fee, maxTime) => await buildOraclePriceUpdateTransaction({
+        } else if (timestamp - (Number(contractState.lastUnlock) * 1000) >= unlockFrame) { //unlock date stored in seconds in the contract instance
+            updateTxBuilder = async (account, fee, maxTime) => await buildDAOUnlockTransaction({
                 account,
+                developer,
+                operators: settingsManager.getOperators(),
                 network,
                 sorobanRpc,
-                admin,
-                prices,
-                timestamp,
                 contractId: this.contractId,
+                token,
                 fee,
-                maxTime
+                maxTime,
+                timestamp
             })
         } else {
             //nothing to do
@@ -69,7 +77,7 @@ class OracleRunner extends RunnerBase {
         await this.__buildAndSubmitTransaction(
             updateTxBuilder,
             sourceAccount,
-            baseFee,
+            fee,
             timestamp,
             this.__delay
         )
@@ -78,21 +86,20 @@ class OracleRunner extends RunnerBase {
     }
 
     get __timeframe() {
-        const {timeframe} = this.__getCurrentContract()
-        return timeframe
+        return 1000 * 60
     }
 
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + Math.min(1000 * 60, this.__timeframe / 2) //1 minute or half of timeframe (whichever is smaller)
+        return currentTimestamp + this.__timeframe
     }
 
     get __delay() {
-        return 20 * 1000
+        return 0
     }
 
     get __contractType() {
-        return ContractTypes.ORACLE
+        return ContractTypes.DAO
     }
 }
 
-module.exports = OracleRunner
+module.exports = DAORunner

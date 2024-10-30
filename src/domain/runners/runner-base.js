@@ -397,6 +397,8 @@ class RunnerBase {
                 return `OracleRunner: ${this.contractId}`
             case 'SubscriptionsRunner':
                 return `SubscriptionsRunner: ${this.contractId}`
+            case 'DAORunner':
+                return `DAORunner: ${this.contractId}`
             case 'PriceRunner':
                 return `PriceRunner`
             default:

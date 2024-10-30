@@ -1,17 +1,20 @@
 const fs = require('fs')
 const path = require('path')
-const {SorobanRpc, Keypair} = require('@stellar/stellar-sdk')
+const {SorobanRpc, Keypair, Asset} = require('@stellar/stellar-sdk')
 const {ContractTypes} = require('@reflector/reflector-shared')
 const {generateRSAKeyPair} = require('../utils/crypto-helper')
 const {
     deployContract,
     createAccount,
     updateAdminToMultiSigAccount,
-    generateContractConfig: generateSingleConfig,
+    generateContractConfig,
     runCommand,
     generateAppConfig,
     generateConfig,
-    generateAssetContract
+    generateAssetContract,
+    mint,
+    getAccountInfo,
+    addTrust
 } = require('./utils')
 const constants = require('./constants')
 
@@ -58,17 +61,31 @@ async function generateNewContract(server, nodes, contractType, dataSource) {
         throw new Error('Contract was not deployed')
     }
 
+    if (contractType === ContractTypes.DAO) {
+        const tokenKeypair = Keypair.fromSecret(tokenData.secret)
+
+        const asset = new Asset('XRF', tokenKeypair.publicKey())
+
+        let account = await getAccountInfo(server, admin.publicKey())
+        await addTrust(server, asset, account, admin)
+
+        account = await getAccountInfo(server, tokenKeypair.publicKey())
+        await mint(server, asset, admin.publicKey(), '100000000000', account, tokenKeypair)
+    }
+
     const contractConfigData = {
         contractId,
         contractType,
         dataSource,
         admin: admin.publicKey(),
-        token: tokenData.tokenId
+        token: tokenData.tokenId,
+        initAmount: '100000000000',
+        developer: nodes[0]
     }
 
     await updateAdminToMultiSigAccount(server, admin, nodes)
 
-    const config = generateSingleConfig(contractConfigData)
+    const config = generateContractConfig(contractConfigData)
     return config
 }
 
@@ -109,6 +126,9 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     const subscriptionsContract = await generateNewContract(server, nodes, ContractTypes.SUBSCRIPTIONS)
     contracts[subscriptionsContract.contractId] = subscriptionsContract
 
+    const daoContract = await generateNewContract(server, nodes, ContractTypes.DAO)
+    contracts[daoContract.contractId] = daoContract
+
     const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, rsa.privateKey)
     fs.mkdirSync(configsPath, {recursive: true})
     const configPath = path.join(configsPath, '.config.json')
@@ -128,16 +148,20 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
 
 async function startNodes(nodesCount) {
     for (let i = 0; i < nodesCount; i++) {
-        console.log(`Starting node ${i}`)
-        const nodeHomeDir = path.resolve(getReflectorHomeDirName(i))
-        const nodeName = `node${i}`
-        const port = 30347 + (i * 100)
-        //closeEndRemoveIfExist(nodeName)
+        try {
+            console.log(`Starting node ${i}`)
+            const nodeHomeDir = path.resolve(getReflectorHomeDirName(i))
+            const nodeName = `node${i}`
+            const port = 30347 + (i * 100)
+            //closeEndRemoveIfExist(nodeName)
 
-        const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
+            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
 
-        console.log(startCommand)
-        await runCommand(startCommand)
+            console.log(startCommand)
+            await runCommand(startCommand)
+        } catch (e) {
+            console.error(e)
+        }
     }
 }
 
@@ -183,7 +207,7 @@ const nodeConfigs = [
 ]
 
 const contractConfigs = [
-    {dataSource: constants.sources.pubnet},
+    //{dataSource: constants.sources.pubnet},
     {dataSource: constants.sources.exchanges}
 ]
 
