@@ -100,6 +100,10 @@ class ChannelBase {
     }
 
     close(code, reason, terminate = true) {
+        if (Buffer.byteLength(reason) > 123) {
+            logger.warn(`Reason is too long. Original reason: ${reason}. Truncating to 123 bytes`)
+            reason = Buffer.from(reason).subarray(0, 123).toString()
+        }
         this.__termination = terminate
         const ws = this.__ws
         if (ws) {
