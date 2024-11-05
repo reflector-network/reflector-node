@@ -206,7 +206,9 @@ class SubscriptionContractManager {
         const triggerEvents = events
         for (const event of triggerEvents) {
             try {
-                const eventTopic = event.topic[1]
+                const eventTopic = event.topic[1] === "triggers" //triggers topic appears in new version of the contract
+                    ? event.topic[2]
+                    : event.topic[1]
                 switch (eventTopic) {
                     case 'created':
                     case 'deposited':
@@ -238,6 +240,7 @@ class SubscriptionContractManager {
                         }
                         break
                     case 'triggered': //do nothing
+                    case 'updated':
                         break
                     default:
                         logger.error(`Unknown event type: ${eventTopic}`)
