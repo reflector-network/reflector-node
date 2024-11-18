@@ -1,12 +1,12 @@
-const {Transaction, SorobanRpc} = require('@stellar/stellar-sdk')
+const {Transaction, rpc} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../logger')
 
 /**
  * @typedef {import('@stellar/stellar-sdk').Account} Account
- * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.SendTransactionResponse} SendTransactionResponse
- * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetFailedTransactionResponse} GetFailedTransactionResponse
- * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetSuccessfulTransactionResponse} GetSuccessfulTransactionResponse
+ * @typedef {import('@stellar/stellar-sdk').rpc.Api.SendTransactionResponse} SendTransactionResponse
+ * @typedef {import('@stellar/stellar-sdk').rpc.Api.GetFailedTransactionResponse} GetFailedTransactionResponse
+ * @typedef {import('@stellar/stellar-sdk').rpc.Api.GetSuccessfulTransactionResponse} GetSuccessfulTransactionResponse
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
  */
 
@@ -34,7 +34,7 @@ function getSubmissionError(submitResult, txXdr) {
 
 /**
  * @callback RequestFunction
- * @param {SorobanRpc.Server} server - soroban rpc server
+ * @param {rpc.Server} server - soroban rpc server
  * @returns {Promise<any>}
  */
 
@@ -47,7 +47,7 @@ async function makeServerRequest(urls, requestFn) {
     const errors = []
     for (const url of urls) {
         try {
-            const server = new SorobanRpc.Server(url, {allowHttp: true})
+            const server = new rpc.Server(url, {allowHttp: true})
             return await requestFn(server)
         } catch (err) {
             logger.debug(`Request to ${url} failed. Error: ${err.message}`)

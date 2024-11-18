@@ -1,7 +1,12 @@
 const {exec} = require('child_process')
 const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
 const {getMajority, BallotCategories, ContractTypes} = require('@reflector/reflector-shared')
+const axios = require('axios')
 const constants = require('./constants')
+
+/**
+ * @typedef {import('@stellar/stellar-sdk').rpc.Server} Server
+ */
 
 const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
 const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
@@ -102,7 +107,7 @@ function generateContractConfig(configData) {
     }
 }
 
-function generateOracleContractConfig(admin, oracleId, dataSource) {
+function generateOracleContractConfig(admin, contractId, dataSource) {
     const assets = {}
     switch (dataSource.name) {
         case 'exchanges':
@@ -118,7 +123,8 @@ function generateOracleContractConfig(admin, oracleId, dataSource) {
     }
     return {
         admin,
-        oracleId,
+        contractId,
+        type: ContractTypes.ORACLE,
         baseAsset: assets.baseAsset,
         assets: assets.assets,
         timeframe: constants.timeframe,
@@ -188,15 +194,15 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
 }
 
 /**
- *@param {SorobanRpc.Server} server
  *@param {string} admin
  */
-async function createAccount(server, admin) {
-    return await server.requestAirdrop(admin, 'https://friendbot.stellar.org')
+async function createAccount(admin) {
+    await axios.get(`https://friendbot.stellar.org?addr=${admin}`)
+    //return await server.requestAirdrop(admin, 'https://friendbot.stellar.org')
 }
 
 /**
- *@param {SorobanRpc.Server} server
+ *@param {Server} server
  *@param {Keypair} admin
  */
 async function getAccountInfo(server, publicKey) {
@@ -205,7 +211,7 @@ async function getAccountInfo(server, publicKey) {
 }
 
 /**
- *@param {SorobanRpc.Server} server
+ *@param {Server} server
  *@param {Keypair} admin
  *@param {string[]} nodesPublicKeys
  *@returns {Promise<void>}
@@ -245,9 +251,9 @@ async function updateAdminToMultiSigAccount(server, admin, nodesPublicKeys) {
 }
 
 /**
- * @param {SorobanRpc.Server} server
+ * @param {Server} server
  * @param {Transaction} tx
- * @returns {Promise<SorobanRpc.Api.GetSuccessfulTransactionResponse>}
+ * @returns {Promise<rpc.Api.GetSuccessfulTransactionResponse>}
  */
 async function sendTransaction(server, tx) {
     let result = await server.sendTransaction(tx)

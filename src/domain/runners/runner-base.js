@@ -11,7 +11,7 @@ const statisticsManager = require('../statistics-manager')
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
  * @typedef {import('@stellar/stellar-sdk').xdr.DecoratedSignature} DecoratedSignature
- * @typedef {import('@stellar/stellar-sdk').SorobanRpc.Api.GetSuccessfulTransactionResponse} SuccessfulTransactionResponse
+ * @typedef {import('@stellar/stellar-sdk').rpc.Api.GetSuccessfulTransactionResponse} SuccessfulTransactionResponse
  * @typedef {import('@reflector/reflector-shared').ContractConfigBase} ContractConfigBase
  */
 

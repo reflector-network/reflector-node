@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const {SorobanRpc, Keypair, Asset} = require('@stellar/stellar-sdk')
+const {rpc, Keypair, Asset} = require('@stellar/stellar-sdk')
 const {ContractTypes} = require('@reflector/reflector-shared')
 const {generateRSAKeyPair} = require('../utils/crypto-helper')
 const {
@@ -47,14 +47,14 @@ async function closeEndRemoveIfExist(name) {
 }
 
 /**
- * @param {SorobanRpc.Server} server
+ * @param {rpc.Server} server
  * @param {string[]} nodes
  * @param {string} contractType
  * @param {string} dataSource
  */
 async function generateNewContract(server, nodes, contractType, dataSource) {
     const admin = Keypair.random()
-    await createAccount(server, admin.publicKey())
+    await createAccount(admin.publicKey())
     console.log('Admin ' + admin.publicKey() + ' secret:' + admin.secret())
     const contractId = await deployContract(admin.secret(), contractType)
     if (!contractId) {
@@ -95,14 +95,14 @@ async function generateNewContract(server, nodes, contractType, dataSource) {
  */
 async function generateNewCluster(nodeConfigs, contractConfigs) {
 
-    const server = new SorobanRpc.Server(constants.rpcUrl, {allowHttp: true})
+    const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
 
-    await ensureTokenData(server)
+    await ensureTokenData()
     await ensureRSAKeys()
 
     //generate system account
     const systemAccount = Keypair.random()
-    await createAccount(server, systemAccount.publicKey())
+    await createAccount(systemAccount.publicKey())
 
     console.log('System secret:' + systemAccount.secret())
 
@@ -120,7 +120,7 @@ async function generateNewCluster(nodeConfigs, contractConfigs) {
     for (const contractConfig of contractConfigs) {
         const {dataSource} = contractConfig
         const config = await generateNewContract(server, nodes, ContractTypes.ORACLE, dataSource)
-        contracts[config.oracleId] = config
+        contracts[config.contractId] = config
     }
 
     const subscriptionsContract = await generateNewContract(server, nodes, ContractTypes.SUBSCRIPTIONS)
@@ -165,11 +165,11 @@ async function startNodes(nodesCount) {
     }
 }
 
-async function ensureTokenData(server) {
+async function ensureTokenData() {
     const tokenDataFile = path.join('./tests', 'token-data.json')
     if (!fs.existsSync(tokenDataFile)) {
         const tokenAdmin = Keypair.random()
-        await createAccount(server, tokenAdmin.publicKey())
+        await createAccount(tokenAdmin.publicKey())
         const tokenContract = await generateAssetContract(`XRF:${tokenAdmin.publicKey()}`, tokenAdmin.secret())
         tokenData = {secret: tokenAdmin.secret(), publicKey: tokenAdmin.publicKey(), tokenId: tokenContract}
         fs.writeFileSync(tokenDataFile, JSON.stringify(tokenData, null, 2), {encoding: 'utf-8'})
@@ -207,7 +207,7 @@ const nodeConfigs = [
 ]
 
 const contractConfigs = [
-    //{dataSource: constants.sources.pubnet},
+    {dataSource: constants.sources.pubnet},
     {dataSource: constants.sources.exchanges}
 ]
 

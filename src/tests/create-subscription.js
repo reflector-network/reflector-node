@@ -1,7 +1,7 @@
 const fs = require('fs')
 const {Config, ContractTypes} = require('@reflector/reflector-shared')
 const {SubscriptionsClient} = require('@reflector/oracle-client')
-const {Keypair, SorobanRpc, scValToNative} = require('@stellar/stellar-sdk')
+const {Keypair, rpc, scValToNative} = require('@stellar/stellar-sdk')
 const axios = require('axios')
 const {encrypt, importRSAKey} = require('../utils/crypto-helper')
 const quotes = require('../domain/subscriptions/valid-symbols.json')
@@ -43,7 +43,7 @@ async function createSubscription() {
     }
     const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subscriptionContract.contractId)
     const keypair = Keypair.fromSecret(tokenData.secret)
-    const server = new SorobanRpc.Server(constants.rpcUrl)
+    const server = new rpc.Server(constants.rpcUrl)
     const source = await getAccountInfo(server, keypair.publicKey())
 
     const webhook = await getWebhook()
@@ -81,12 +81,12 @@ async function cancelSubscriptions() {
     }
     const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subscriptionContract.contractId)
     const keypair = Keypair.fromSecret(tokenData.secret)
-    const server = new SorobanRpc.Server(constants.rpcUrl)
+    const server = new rpc.Server(constants.rpcUrl)
 
     const arrayRange = (start, end) =>
         [...Array(end - start + 1).keys()].map(i => i + start)
 
-    const subscriptions = arrayRange(42, 51)
+    const subscriptions = arrayRange(5, 6)
 
     for (const id of subscriptions) {
         try {
