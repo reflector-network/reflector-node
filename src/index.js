@@ -25,7 +25,7 @@ try {
     const WsServer = require('./ws-server')
     const HandlersManager = require('./ws-server/handlers/handlers-manager')
 
-    logger.info('Starting reflector node')
+    logger.info(`Starting reflector node v${container.version}`)
 
     container.settingsManager = new SettingsManager()
     container.handlersManager = new HandlersManager()

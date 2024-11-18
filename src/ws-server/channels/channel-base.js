@@ -85,6 +85,10 @@ class ChannelBase {
                 }
             }
             try {
+                if (!this.__ws || this.__ws.readyState !== WebSocket.OPEN) {
+                    reject(new Error(`Connection is not open. ${this.__getConnectionInfo()}`))
+                    return
+                }
                 this.__ws.send(JSON.stringify(message), (err) => {
                     if (err) {
                         reject(err)
@@ -132,6 +136,34 @@ class ChannelBase {
             .addListener('close', (code, reason) => this.__onClose(code, reason))
             .addListener('error', (error) => this.__onError(error))
             .addListener('message', async (message) => await this.__onMessage(message))
+            .addListener('pong', () => this.__onPong())
+    }
+
+    __pingTimeout
+
+    __pongTimeout
+
+    __onPong() {
+        this.__pongTimeout && clearTimeout(this.__pongTimeout)
+
+        this.__pingTimeout = this.__pingTimeout || setTimeout(() => {
+            this.__pingTimeout = null
+            this.__startPingPong()
+        }, 10000)
+    }
+
+    __startPingPong() {
+        if (this.__ws?.readyState !== WebSocket.OPEN) {
+            this.close(1001, `Connection closed due to state ${this.__ws?.readyState}`, this.isIncoming)
+            return
+        }
+
+        const timeout = isDebugging() ? 60 * 1000 * 60 : 1000
+        this.__pongTimeout = setTimeout(() => {
+            this.close(1001, `Connection closed due to inactivity after ${timeout} ${this.__getConnectionInfo()}`, this.isIncoming)
+        }, timeout)
+
+        this.__ws.ping()
     }
 
     /**
@@ -139,6 +171,7 @@ class ChannelBase {
      * @protected
      */
     async __onMessage(rawMessage) {
+        this.__pongTimeout && clearTimeout(this.__pongTimeout)
         try {
             const message = JSON.parse(rawMessage)
             let result = undefined
@@ -183,6 +216,10 @@ class ChannelBase {
     }
 
     __onClose(code, reason) {
+        this.__pingTimeout && clearTimeout(this.__pingTimeout)
+        this.__pongTimeout && clearTimeout(this.__pongTimeout)
+        this.__pingTimeout = null
+        this.__pongTimeout = null
         this.__closeAndInvalidate(this.__ws, code, reason)
     }
 
@@ -208,7 +245,7 @@ class ChannelBase {
     __onError(error) {
         logger.trace(`${this.__getConnectionInfo()} websocket error. ${error.code || error.message}`)
         if (error.code === 'ECONNREFUSED' || error.code === 'EAI_AGAIN' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
-            if (error.connectionAttempts > 0 && error.connectionAttempts % 100 === 0)
+            if (error.connectionAttempts !== undefined || error.connectionAttempts % 100 === 0)
                 logger.debug(`${this.__getConnectionInfo()} websocket error ${error.code}. Connection attempts: ${error.connectionAttempts}`)
         } else {
             logger.debug(`${this.__getConnectionInfo()} websocket error`)
@@ -218,6 +255,10 @@ class ChannelBase {
 
     __getConnectionInfo() {
         return `${this.type === ChannelTypes.ORCHESTRATOR ? 'Orchestrator' : this.pubkey} ${this.type} ${this.__ws?.id || 'N/A'}`
+    }
+
+    get isIncoming() {
+        return this.type === ChannelTypes.INCOMING
     }
 }
 

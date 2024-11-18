@@ -27,24 +27,22 @@ class OutgoingChannelBase extends ChannelBase {
     }
 
     __connect() {
-        const ws = new WebSocket(this.url,
+        this.__ws = new WebSocket(this.url,
             {
                 headers: {'pubkey': container.settingsManager.appConfig.publicKey, ...this.headers}
             })
-        this.__connectionTimeoutId = setTimeout(() => {
-            logger.trace(`Connection timeout ${this.__getConnectionInfo()}. ws.readyState: ${ws.readyState}`)
-            if (ws.readyState !== WebSocket.OPEN) {
-                ws.close()
-            }
+        //start ping pong, if it's not connected in time, the connection will be closed
+        this.__connectionTimeout = setTimeout(() => {
+            logger.trace(`Connection timeout ${this.__getConnectionInfo()}. ws.readyState: ${this.__ws?.readyState}`)
+            this.__startPingPong()
         }, container.settingsManager.appConfig.handshakeTimeout)
-        ws.id = uuidv4()
-        this.__ws = ws
+        this.__ws.id = uuidv4()
         this.__assignListeners()
     }
 
     close(code, reason, terminate = true) {
         //eslint-disable-next-line no-unused-expressions
-        logger.trace(`Close ${this.__getConnectionInfo()} ${code} ${reason}`)
+        logger.trace(`Close ${this.__getConnectionInfo()} ${code} ${reason}, terminate: ${terminate}`)
         this.__clearTimeouts()
         super.close(code, reason, terminate)
     }
@@ -61,7 +59,8 @@ class OutgoingChannelBase extends ChannelBase {
     }
 
     __onOpen() {
-        this.__clearTimeouts()
+        logger.trace(`Connection open ${this.__getConnectionInfo()}`)
+        this.__clearReconnectionTimeout()
         this.__resetConnectionAttempts()
     }
 
@@ -102,10 +101,18 @@ class OutgoingChannelBase extends ChannelBase {
     }
 
     __clearTimeouts() {
-        this.__connectionTimeoutId && clearTimeout(this.__connectionTimeoutId)
+        this.__clearReconnectionTimeout()
+        this.__clearConnectionTimeout()
+    }
+
+    __clearReconnectionTimeout() {
         this.__reconnectionTimeoutId && clearTimeout(this.__reconnectionTimeoutId)
-        this.__connectionTimeoutId = null
         this.__reconnectionTimeoutId = null
+    }
+
+    __clearConnectionTimeout() {
+        this.__connectionTimeout && clearTimeout(this.__connectionTimeout)
+        this.__connectionTimeout = null
     }
 
     type = 'outgoing'
