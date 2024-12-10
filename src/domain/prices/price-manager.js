@@ -20,8 +20,6 @@ function calcPrice(volumes, decimals, prevPrices) {
         const assetVolumes = volumes[i] || []
         const vwaps = assetVolumes.map(v => getVWAP(v.volume, v.quoteVolume, decimals))
         prices[i] = getMedianPrice(vwaps) || prevPrices[i] || 0n
-        if (prices[i] === 0n)
-            logger.debug(`Price for asset ${i} is zero`)
     }
 
     return prices

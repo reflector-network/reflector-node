@@ -304,12 +304,10 @@ class PendingTradesData {
         //iterate over the pending data from current node. We will not validate the data from other nodes if it not present in the current node data
         const currentNodeData = this.__pendingData
             .get(container.settingsManager.appConfig.publicKey)
-            .reverse()
 
         //get all nodes data except the current node
         const allNodesData = [...this.__pendingData.entries()]
             .filter(([pubkey]) => pubkey !== container.settingsManager.appConfig.publicKey)
-            .map(([pubkey, data]) => [pubkey, data.reverse()])
 
         const verifiedData = new Map()
 
@@ -332,24 +330,25 @@ class PendingTradesData {
                         const [pubkey, nodeDataValue] = nodeData
                         const nodeAssetSourceData = nodeDataValue[j]?.[assetIndex]?.find(d => d.source === assetSourceData.source)
                         if (!nodeAssetSourceData) {
-                            logger.debug(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not found in node ${pubkey}`)
+                            logger.trace(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not found in node ${pubkey}`)
                             continue
                         } else if (
                             nodeAssetSourceData.quoteVolume !== assetSourceData.quoteVolume
                             || nodeAssetSourceData.volume !== assetSourceData.volume
+                            || nodeAssetSourceData.ts !== assetSourceData.ts
                         ) {
-                            logger.debug(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not matching in node ${pubkey}`)
+                            logger.trace(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not matching in node ${pubkey}`)
                             continue
                         }
                         verifiedCount++
                     }
-                    if (assetSourceData.quoteVolume === 0n || assetSourceData.volume === 0n) {
-                        logger.debug(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, zero volume`)
+                    if (assetSourceData.ts * 1000 !== currentTimestamp) {
+                        logger.warn(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not matching timestamp`)
                         continue
                     }
                     //if we have majority, push the data to the cache, otherwise skip it
                     if (!hasMajority(container.settingsManager.config.nodes.size, verifiedCount)) {
-                        logger.debug(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not verified`)
+                        logger.info(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not verified`)
                         continue
                     }
                     currentAssetMajorityData.push(assetSourceData)
