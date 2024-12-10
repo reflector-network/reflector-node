@@ -23,6 +23,10 @@ class PriceRunner extends RunnerBase {
     get __delay() {
         return container.settingsManager.appConfig.dbSyncDelay
     }
+
+    get delay() {
+        return this.__delay
+    }
 }
 
 module.exports = PriceRunner

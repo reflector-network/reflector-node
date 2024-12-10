@@ -2,7 +2,6 @@ const {buildDAOInitTransaction, buildDAOUnlockTransaction, getContractState, Con
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
 const logger = require('../../logger')
-const nodesManager = require('../nodes/nodes-manager')
 const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
 

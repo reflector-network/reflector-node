@@ -2,6 +2,7 @@ const ChannelTypes = require('../channels/channel-types')
 const NodeStates = require('../../domain/nodes/node-states')
 const runnerManager = require('../../domain/runners/runner-manager')
 const SubscriptionsRunner = require('../../domain/runners/subscriptions-runner')
+const container = require('../../domain/container')
 const BaseHandler = require('./base-handler')
 
 
@@ -18,6 +19,7 @@ class StateHandler extends BaseHandler {
                         runner.broadcastSyncData()
                     }
                 }
+                container.tradesManager.sendPendingTradesData(ws.pubkey)
             }
                 break
             default:
