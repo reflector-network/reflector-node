@@ -105,34 +105,40 @@ class StatisticsManager {
         this.totalProcessed = 0
         this.submittedTransactions = 0
         this.gatewaysMetrics = []
+        this.__lastGatewayMetricsDate = this.startTime
         this.__metricsWorker()
     }
 
     async __metricsWorker() {
         try {
-            if (!container?.settingsManager?.gateways)
-                return
-            const {urls, gatewayValidationKey} = container.settingsManager.gateways
+            const {urls, gatewayValidationKey} = container?.settingsManager?.gateways || {urls: [], gatewayValidationKey: ''}
 
-            const gatewaysMetrics = []
+            const gatewaysMetrics = {
+                info: {
+                    gatewaysCount: urls.length,
+                    from: this.__lastGatewayMetricsDate
+                },
+                metrics: []
+            }
             const requests = []
             for (let i = 0; i < urls.length; i++) {
                 const currentGateway = urls[i]
                 requests[i] =
-                    makeRequest(`${currentGateway}/metrics`,
-                        {
-                            headers: {'x-gateway-validation': gatewayValidationKey},
-                            timeout: 5000
-                        })
-                        .then(response => {
-                            gatewaysMetrics[i] = response.data
-                        })
-                        .catch(e => {
-                            gatewaysMetrics[i] = 'n/a'
-                            logger.debug(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
-                        })
+                        makeRequest(`${currentGateway}/metrics`,
+                            {
+                                headers: {'x-gateway-validation': gatewayValidationKey},
+                                timeout: 5000
+                            })
+                            .then(response => {
+                                gatewaysMetrics.metrics[i] = response.data
+                            })
+                            .catch(e => {
+                                gatewaysMetrics.metrics[i] = 'n/a'
+                                logger.warn(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
+                            })
             }
             await Promise.all(requests)
+            gatewaysMetrics.info.to = this.__lastGatewayMetricsDate = Date.now()
             this.gatewaysMetrics = gatewaysMetrics
         } catch (err) {
             logger.error(err, 'Metrics worker error')

@@ -52,9 +52,6 @@ async function getPricesForContract(contractId, timestamp) {
     //start of the current timeframe
     let currentVolumeTimestamp = timestamp
 
-    //make sure we have the latest trades data
-    await tradesManager.loadTradesData()
-
     //get volumes
     const totalVolumes = Array(assets.length).fill(0n).map(() => new Map())
     while (currentVolumeTimestamp <= timestamp) {

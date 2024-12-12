@@ -246,7 +246,6 @@ class PendingTradesData {
         this.key = key
         this.timestamp = timestamp
         this.isProcessed = false
-        this.isTimedOut = false
 
         const currentTimestamp = timestamp + minute //trades data timestamp, basically current normalized timestamp - 1 minute, so add 1 minute to the timestamp
         this.maxTime = currentTimestamp
@@ -261,10 +260,9 @@ class PendingTradesData {
             const timeout = this.maxTime - Date.now()
             const timeoutId = setTimeout(() => {
                 logger.debug(`Pending trades data timed out. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
-                this.isTimedOut = true
-                if (this.isProcessed) //if the transaction is already submitted, we need to wait for the result
+                if (this.isProcessed) //if the data is already processed
                     return
-                reject(new Error('Pending trades data timed out'))
+                this.reject(new Error('Pending trades data timed out'))
             }, timeout)
 
             this.resolve = (value) => {
@@ -295,11 +293,11 @@ class PendingTradesData {
             && this.__pendingData.size >= nodesManager.getConnectedNodes().length //if we have all possible nodes data
             && hasMajority(container.settingsManager.config.nodes.size, this.__pendingData.size)) { //if we have majority
             this.isProcessed = true
-            this.process()
+            this.__process()
         }
     }
 
-    process() {
+    __process() {
         //reverse the data to have the latest data first
         //iterate over the pending data from current node. We will not validate the data from other nodes if it not present in the current node data
         const currentNodeData = this.__pendingData
@@ -515,14 +513,15 @@ class TradesManager {
         const promises = []
         for (const assetMap of assetMaps)
             promises.push(this.loadTradesDataForSource(assetMap))
-        return Promise.allSettled(promises)
+        return Promise.all(promises)
     }
 
     async getTradesData(source, baseAsset, assets, timestamp) {
         const key = formatSourceAssetKey(source, baseAsset)
         //ensure we have latest data
         const {tradesTimestamp} = getCurrentTimestampInfo()
-        await this.__getOrAddPendingTradesData(key, tradesTimestamp).majorityPromise
+        if (this.trades.getLastTimestamp() < tradesTimestamp)
+            await this.__getOrAddPendingTradesData(key, tradesTimestamp).majorityPromise
         return this.trades.getTradesData(key, timestamp, assets)
     }
 }
