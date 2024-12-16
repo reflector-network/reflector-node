@@ -184,7 +184,7 @@ async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc
             break
         eventsResponse.events.forEach(e => events.set(e.id, e))
         cursorLedger = eventsResponse.events[eventsResponse.events.length - 1].ledger - 1
-        logger.debug(`Loaded ${events.length} events for contract ${contractId}. Has more: ${hasMore}. Last event ledger: ${cursorLedger}.`)
+        logger.debug(`Loaded ${events.size} events for contract ${contractId}. Has more: ${hasMore}. Last event ledger: ${cursorLedger}.`)
     }
 
     return {events: [...events.values()], lastLedger: latestLedger}

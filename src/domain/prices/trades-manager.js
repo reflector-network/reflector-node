@@ -281,6 +281,17 @@ class PendingTradesData {
                 }
             }
         })
+
+        this.readyPromise = new Promise((resolve, reject) => {
+            this.readyResolve = () => {
+                logger.trace(`Pending trades data ready. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+                resolve()
+            }
+            this.readyReject = (err) => {
+                logger.error({err}, `Error processing pending trades data. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+                reject(err)
+            }
+        })
     }
 
     __pendingData = new Map()
@@ -357,8 +368,8 @@ class PendingTradesData {
             verifiedData.set(currentTimestamp, currentTimestampMajorityData)
             currentTimestamp = currentTimestamp - minute
         }
-        logger.debug(`Verified data for key ${this.key}, timestamp ${this.timestamp}`)
-        logger.debug(normalizeTradeData([...verifiedData.values()], true))
+        //logger.debug(`Verified data for key ${this.key}, timestamp ${this.timestamp}`)
+        //logger.debug(normalizeTradeData([...verifiedData.values()], true))
         //resolve the promise
         this.resolve(verifiedData)
     }
@@ -453,6 +464,8 @@ class TradesManager {
      * @param {AssetMap} assetMap - asset map
      */
     async loadTradesDataForSource(assetMap) {
+        /**@type {PendingTradesData} */
+        let pendingTradesData = null
         try {
             const {currentTimestamp, tradesTimestamp} = getCurrentTimestampInfo()
             logger.trace({assetMap: assetMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${tradesTimestamp}, current timestamp ${currentTimestamp}`)
@@ -469,7 +482,7 @@ class TradesManager {
                 return
             }
 
-            const pendingTradesData = this.__getOrAddPendingTradesData(key, tradesTimestamp)
+            pendingTradesData = this.__getOrAddPendingTradesData(key, tradesTimestamp)
 
             const from = tradesTimestamp - ((count - 1) * minute)
 
@@ -478,17 +491,24 @@ class TradesManager {
             logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${tradesTimestamp}, from ${from}, count ${count}`)
 
             const dataSource = dataSourcesManager.get(source)
-            //load volumes
+
+            //normalize assets
             const normalizedAssets = assetMap.assets.map(a => a.asset)
-            const tradesData = await loadTradesData(dataSource, baseAsset, normalizedAssets, from, count)
 
-            //broadcast the data to the nodes
-            nodesManager.broadcast(getPriceSyncMessage(key, tradesTimestamp, tradesData))
+            //load the data
+            const tradesPromise = loadTradesData(dataSource, baseAsset, normalizedAssets, from, count)
+                .then(tradesData => {
+                    //broadcast the data to the nodes
+                    nodesManager.broadcast(getPriceSyncMessage(key, tradesTimestamp, tradesData))
 
-            //add the data to the pending data
-            pendingTradesData.add(currentNodePubkey, tradesData)
+                    //add the data to the pending data
+                    pendingTradesData.add(currentNodePubkey, tradesData)
+                })
 
-            //wait for the majority promise to resolve
+            //wait for the data to loaded and approved by the majority
+            await Promise.all([pendingTradesData.majorityPromise, tradesPromise])
+
+            //get the verified data
             const verifiedData = await pendingTradesData.majorityPromise
 
             //push the data to the cache
@@ -496,9 +516,13 @@ class TradesManager {
                 this.trades.push(key, assetMap, ts, tsData)
             }
 
+            //resolve the current timestamp
+            pendingTradesData.readyResolve()
+
             logger.trace(`Pushed trades data for source ${source}, base asset ${baseAsset}, from ${from}, to ${from + (count - 1) * minute}`)
         } catch (err) {
             logger.error({err}, `Error loading prices for source ${assetMap.source} and base asset ${assetMap.baseAsset}`)
+            pendingTradesData?.readyReject(err)
         }
     }
 
@@ -521,7 +545,9 @@ class TradesManager {
         //ensure we have latest data
         const {tradesTimestamp} = getCurrentTimestampInfo()
         if (this.trades.getLastTimestamp() < tradesTimestamp)
-            await this.__getOrAddPendingTradesData(key, tradesTimestamp).majorityPromise
+            await this.__getOrAddPendingTradesData(key, tradesTimestamp)
+                .readyPromise
+                .catch(err => logger.error({err}, `Error getting pending trades data for key ${key}, timestamp ${tradesTimestamp}`))
         return this.trades.getTradesData(key, timestamp, assets)
     }
 }
