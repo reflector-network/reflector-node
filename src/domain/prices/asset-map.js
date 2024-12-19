@@ -60,7 +60,7 @@ class AssetsMap {
     }
 
     /**
-     * @param {string} code
+     * @param {string} code - asset code
      * @return {{asset: Asset, index: number}}
      */
     getAssetInfo(code) {

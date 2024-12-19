@@ -1,4 +1,4 @@
-const {normalizeTimestamp, Asset, AssetType, ContractTypes} = require('@reflector/reflector-shared')
+const {normalizeTimestamp, Asset, AssetType, ContractTypes, hasMajority} = require('@reflector/reflector-shared')
 const {getTradesData} = require('@reflector/reflector-exchanges-connector')
 const {aggregateTrades} = require('@reflector/reflector-db-connector')
 const DataSourceTypes = require('../../models/data-source-types')
@@ -6,8 +6,12 @@ const dataSourcesManager = require('../data-sources-manager')
 const logger = require('../../logger')
 const container = require('../container')
 const {getAllSubscriptions} = require('../subscriptions/subscriptions-data-manager')
+const nodesManager = require('../nodes/nodes-manager')
+const MessageTypes = require('../../ws-server/handlers/message-types')
 const TradesCache = require('./trades-cache')
 const AssetMap = require('./asset-map')
+
+//TODO: implement timestamp manager, to avoid confusion with the timestamps
 
 const cacheSize = 15
 const minute = 60 * 1000
@@ -193,78 +197,357 @@ function formatSourceAssetKey(source, baseAsset) {
     return `${source}_${baseAsset.code}`
 }
 
+/**
+ * @param {AggregatedTradeData} data - aggregated trade data
+ * @param {boolean} toString - direction of conversion
+ * @returns {AggregatedTradeData}
+ */
+function normalizeTradeData(data, toString) {
+    return data.map(timestampTradeData =>
+        timestampTradeData.map(assetTradeData =>
+            assetTradeData.map(tradeData => ({
+                ...tradeData,
+                volume: toString ? tradeData.volume.toString() : BigInt(tradeData.volume),
+                quoteVolume: toString ? tradeData.quoteVolume.toString() : BigInt(tradeData.quoteVolume)
+            }))
+        )
+    )
+}
+
+function getPriceSyncMessage(key, timestamp, trades) {
+    return {
+        type: MessageTypes.PRICE_SYNC,
+        data: {
+            key,
+            timestamp,
+            trades: normalizeTradeData(trades, true)
+        }
+    }
+}
+
+/**
+ * @returns {{currentTimestamp: number, tradesTimestamp: number}}
+ */
+function getCurrentTimestampInfo() {
+    const currentTimestamp = normalizeTimestamp(Date.now(), minute)
+    const timestamp = currentTimestamp - minute
+    return {
+        currentTimestamp,
+        tradesTimestamp: timestamp
+    }
+}
+
+class PendingTradesData {
+    /**
+     * @param {string} key - key
+     * @param {number} timestamp - timestamp
+     */
+    constructor(key, timestamp) {
+        this.key = key
+        this.timestamp = timestamp
+        this.isProcessed = false
+
+        const currentTimestamp = timestamp + minute //trades data timestamp, basically current normalized timestamp - 1 minute, so add 1 minute to the timestamp
+        this.maxTime = currentTimestamp
+            + container.settingsManager.appConfig.dbSyncDelay //add db sync delay
+            + 35 * 1000 //30 seconds for trades data fetching, and 5 seconds for the nodes sync
+
+        if (this.maxTime < Date.now())
+            throw new Error(`Timestamp ${timestamp} is too old to process. Max time: ${this.maxTime}, current time: ${Date.now()}`)
+
+        this.majorityPromise = new Promise((resolve, reject) => {
+            let isSettled = false
+            const timeout = this.maxTime - Date.now()
+            const timeoutId = setTimeout(() => {
+                logger.debug(`Pending trades data timed out. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+                if (this.isProcessed) //if the data is already processed
+                    return
+                this.reject(new Error('Pending trades data timed out'))
+            }, timeout)
+
+            this.resolve = (value) => {
+                if (!isSettled) {
+                    isSettled = true
+                    clearTimeout(timeoutId)
+                    resolve(value)
+                }
+            }
+
+            this.reject = (reason) => {
+                if (!isSettled) {
+                    isSettled = true
+                    clearTimeout(timeoutId)
+                    reject(reason)
+                }
+            }
+        })
+
+        this.readyPromise = new Promise((resolve, reject) => {
+            this.readyResolve = () => {
+                logger.trace(`Pending trades data ready. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+                resolve()
+            }
+            this.readyReject = (err) => {
+                logger.error({err}, `Error processing pending trades data. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+                reject(err)
+            }
+        })
+    }
+
+    __pendingData = new Map()
+
+    add(pubkey, data) {
+        this.__pendingData.set(pubkey, data)
+        const currentNodePubkey = container.settingsManager.appConfig.publicKey
+        if (!this.isProcessed //if not processed yet
+            && this.__pendingData.has(currentNodePubkey) //if the current node is in the list
+            && this.__pendingData.size >= nodesManager.getConnectedNodes().length //if we have all possible nodes data
+            && hasMajority(container.settingsManager.config.nodes.size, this.__pendingData.size)) { //if we have majority
+            this.isProcessed = true
+            this.__process()
+        }
+    }
+
+    __process() {
+        //reverse the data to have the latest data first
+        //iterate over the pending data from current node. We will not validate the data from other nodes if it not present in the current node data
+        const currentNodeData = this.__pendingData
+            .get(container.settingsManager.appConfig.publicKey)
+
+        //get all nodes data except the current node
+        const allNodesData = [...this.__pendingData.entries()]
+            .filter(([pubkey]) => pubkey !== container.settingsManager.appConfig.publicKey)
+
+        const verifiedData = new Map()
+
+        //iterate over the data from the current node, starting from the latest timestamp
+        let currentTimestamp = this.timestamp
+        //push volumes to the cache
+        for (let j = currentNodeData.length - 1; j >= 0; j--) {
+            const currentTimestampMajorityData = []
+            const currentTimestampData = currentNodeData[j]
+            for (let assetIndex = 0; assetIndex < currentTimestampData.length; assetIndex++) {
+                const assetData = currentTimestampData[assetIndex]
+                const currentAssetMajorityData = []
+                currentTimestampMajorityData.push(currentAssetMajorityData)
+                //iterate over the sources data for the asset
+                for (const assetSourceData of assetData) {
+                    let verifiedCount = 1 //count the current node as verified
+
+                    //find the data for the source in the other nodes data
+                    for (const nodeData of allNodesData) {
+                        const [pubkey, nodeDataValue] = nodeData
+                        const nodeAssetSourceData = nodeDataValue[j]?.[assetIndex]?.find(d => d.source === assetSourceData.source)
+                        if (!nodeAssetSourceData) {
+                            logger.trace(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not found in node ${pubkey}`)
+                            continue
+                        } else if (
+                            nodeAssetSourceData.quoteVolume !== assetSourceData.quoteVolume
+                            || nodeAssetSourceData.volume !== assetSourceData.volume
+                            || nodeAssetSourceData.ts !== assetSourceData.ts
+                        ) {
+                            logger.trace(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not matching in node ${pubkey}`)
+                            continue
+                        }
+                        verifiedCount++
+                    }
+                    if (assetSourceData.ts * 1000 !== currentTimestamp) {
+                        logger.warn(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not matching timestamp`)
+                        continue
+                    }
+                    //if we have majority, push the data to the cache, otherwise skip it
+                    if (!hasMajority(container.settingsManager.config.nodes.size, verifiedCount)) {
+                        logger.info(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not verified`)
+                        continue
+                    }
+                    currentAssetMajorityData.push(assetSourceData)
+                }
+            }
+
+            //push the data to verified data
+            verifiedData.set(currentTimestamp, currentTimestampMajorityData)
+            currentTimestamp = currentTimestamp - minute
+        }
+        //logger.debug(`Verified data for key ${this.key}, timestamp ${this.timestamp}`)
+        //logger.debug(normalizeTradeData([...verifiedData.values()], true))
+        //resolve the promise
+        this.resolve(verifiedData)
+    }
+}
+
 class TradesManager {
 
+    constructor() {
+        this.__clearPendingTradesDataWorker()
+    }
+
+    __clearPendingTradesDataWorker() {
+        const twoMinutes = 2 * minute
+        setTimeout(() => {
+            const currentTimestamp = normalizeTimestamp(Date.now(), minute)
+            for (const [timestamp] of this.__pendingTradesData) {
+                if (timestamp < currentTimestamp - twoMinutes) {
+                    logger.debug(`Clearing pending trades data for timestamp ${timestamp}`)
+                    this.__pendingTradesData.delete(timestamp)
+                }
+            }
+            this.__clearPendingTradesDataWorker()
+        }, twoMinutes)
+    }
+
     trades = new TradesCache()
+
+    __pendingTradesData = new Map()
+
+    /**
+     * @param {string} pubkey - public key
+     * @param {{timestamp: number, key: string, trades: any}} priceData - price data
+     * @returns {PendingTradesData}
+     */
+    addPendingTradesData(pubkey, priceData) {
+        const {timestamp, key, trades} = priceData || {}
+        if (!key)
+            throw new Error('Key is required')
+        if (!timestamp)
+            throw new Error('Timestamp is required')
+        if (!trades)
+            throw new Error('Trades data is required')
+
+        const pendingData = this.__getOrAddPendingTradesData(key, timestamp)
+        pendingData.add(pubkey, normalizeTradeData(trades, false))
+
+        return pendingData
+    }
+
+    /**
+     * @param {string} pubKey - public key
+     * @returns {void}
+     */
+    sendPendingTradesData(pubKey) {
+        const currentNodePubkey = container.settingsManager.appConfig.publicKey
+        for (const [timestamp, timestampData] of this.__pendingTradesData) {
+            for (const [key, pendingData] of timestampData) {
+                if (pendingData.isProcessed)
+                    continue
+                const currentNodeData = pendingData.__pendingData.get(currentNodePubkey)
+                if (currentNodeData) {
+                    nodesManager.sendTo(pubKey, getPriceSyncMessage(key, timestamp, currentNodeData))
+                }
+            }
+        }
+    }
+
+    /**
+     * @param {string} key - key
+     * @param {number} timestamp - timestamp
+     * @returns {PendingTradesData}
+     */
+    __getOrAddPendingTradesData(key, timestamp) {
+        let timestampPendingData = this.__pendingTradesData.get(timestamp)
+        if (!timestampPendingData) {
+            if (timestamp % minute !== 0)
+                throw new Error(`Timestamp ${timestamp} is invalid`)
+            if (normalizeTimestamp(Date.now(), minute) - timestamp > 2 * minute)
+                throw new Error(`Timestamp ${timestamp} is too old`)
+            timestampPendingData = new Map()
+            this.__pendingTradesData.set(timestamp, timestampPendingData)
+        }
+        let pendingData = timestampPendingData.get(key)
+        if (!pendingData) {
+            pendingData = new PendingTradesData(key, timestamp)
+            timestampPendingData.set(key, pendingData)
+        }
+        return pendingData
+    }
 
     /**
      * @param {AssetMap} assetMap - asset map
      */
     async loadTradesDataForSource(assetMap) {
+        /**@type {PendingTradesData} */
+        let pendingTradesData = null
         try {
-            const currentNormalizedTimestamp = normalizeTimestamp(Date.now(), minute)
-            const timestamp = currentNormalizedTimestamp - minute
-            logger.trace({assetMap: assetMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${timestamp}, current timestamp ${currentNormalizedTimestamp}`)
+            const {currentTimestamp, tradesTimestamp} = getCurrentTimestampInfo()
+            logger.trace({assetMap: assetMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${tradesTimestamp}, current timestamp ${currentTimestamp}`)
 
             const {source, baseAsset} = assetMap
 
             const key = formatSourceAssetKey(source, baseAsset)
             const lastTimestamp = this.trades.getLastTimestamp(key)
 
-            const count = getSampleSize(lastTimestamp, timestamp)
+            const count = getSampleSize(lastTimestamp, tradesTimestamp)
             //if count is greater than 0, then we need to load volumes
             if (count === 0) {
-                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}, last timestamp ${lastTimestamp}, current timestamp ${currentNormalizedTimestamp}`)
+                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, timestamp ${tradesTimestamp}, last timestamp ${lastTimestamp}, current timestamp ${currentTimestamp}`)
                 return
             }
 
-            const from = timestamp - ((count - 1) * minute)
+            pendingTradesData = this.__getOrAddPendingTradesData(key, tradesTimestamp)
 
-            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${timestamp}, from ${from}, count ${count}`)
+            const from = tradesTimestamp - ((count - 1) * minute)
+
+            const currentNodePubkey = container.settingsManager.appConfig.publicKey
+
+            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${tradesTimestamp}, from ${from}, count ${count}`)
 
             const dataSource = dataSourcesManager.get(source)
-            //load volumes
+
+            //normalize assets
             const normalizedAssets = assetMap.assets.map(a => a.asset)
-            const tradesData = await loadTradesData(dataSource, baseAsset, normalizedAssets, from, count)
-            //push volumes to the cache
-            for (let j = 0; j < tradesData.length; j++) {
-                const currentTimestamp = from + j * minute
-                this.trades.push(key, assetMap, currentTimestamp, tradesData[j])
+
+            //load the data
+            const tradesPromise = loadTradesData(dataSource, baseAsset, normalizedAssets, from, count)
+                .then(tradesData => {
+                    //broadcast the data to the nodes
+                    nodesManager.broadcast(getPriceSyncMessage(key, tradesTimestamp, tradesData))
+
+                    //add the data to the pending data
+                    pendingTradesData.add(currentNodePubkey, tradesData)
+                })
+
+            //wait for the data to loaded and approved by the majority
+            await Promise.all([pendingTradesData.majorityPromise, tradesPromise])
+
+            //get the verified data
+            const verifiedData = await pendingTradesData.majorityPromise
+
+            //push the data to the cache
+            for (const [ts, tsData] of verifiedData) {
+                this.trades.push(key, assetMap, ts, tsData)
             }
+
+            //resolve the current timestamp
+            pendingTradesData.readyResolve()
+
             logger.trace(`Pushed trades data for source ${source}, base asset ${baseAsset}, from ${from}, to ${from + (count - 1) * minute}`)
         } catch (err) {
             logger.error({err}, `Error loading prices for source ${assetMap.source} and base asset ${assetMap.baseAsset}`)
+            pendingTradesData?.readyReject(err)
         }
     }
 
     /**
+     * Load trades data
+     * @param {[string]} key - key to load
+     * @param {number} timestamp - timestamp
      * @returns {Promise}
      */
     loadTradesData() {
-        if (this.__loadTradesPromise)
-            return this.__loadTradesPromise
         const assetMaps = getAssetsMap()
         const promises = []
-        for (const assetMap of assetMaps) {
+        for (const assetMap of assetMaps)
             promises.push(this.loadTradesDataForSource(assetMap))
-        }
-        this.__loadTradesPromise = Promise.all(promises)
-            .then(() => {
-                this.__loadTradesPromise = null
-            })
-
-        return this.__loadTradesPromise
+        return Promise.all(promises)
     }
 
     async getTradesData(source, baseAsset, assets, timestamp) {
         const key = formatSourceAssetKey(source, baseAsset)
-        let attempts = 3
-        while (attempts-- > 0) {
-            const lastTimestamp = this.trades.getLastTimestamp(key)
-            if (lastTimestamp >= timestamp)
-                break
-            await this.loadTradesData()
-        }
+        //ensure we have latest data
+        const {tradesTimestamp} = getCurrentTimestampInfo()
+        if (this.trades.getLastTimestamp() < tradesTimestamp)
+            await this.__getOrAddPendingTradesData(key, tradesTimestamp)
+                .readyPromise
+                .catch(err => logger.error({err}, `Error getting pending trades data for key ${key}, timestamp ${tradesTimestamp}`))
         return this.trades.getTradesData(key, timestamp, assets)
     }
 }
