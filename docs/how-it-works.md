@@ -32,8 +32,8 @@ Check [examples](https://github.com/reflector-network/reflector-contract#usage-e
   Contract implementation that incorporates consumer-facing interface with admin functionality
 - **[Contract JavaScript bindings](https://github.com/reflector-network/oracle-client)**  
   Provides convenient JS wrappers for interaction with the contract from JS runtime  
-- **[Stellar Core DB connector](https://github.com/reflector-network/reflector-db-connector)**  
-  Database connector library responsible for retrieving and parsing data from Stellar Core
+- **[Stellar Core Stellar connector](https://github.com/reflector-network/reflector-stellar-connector)**  
+  Stellar connector library responsible for retrieving and parsing data from Stellar Core
 - **[Admin dashboard](https://github.com/reflector-network/admin-dashboard)**  
   Web interface for Reflector node operators, toolkit for managing Reflector cluster and orchestrating updates
 - **Node API emulator**  

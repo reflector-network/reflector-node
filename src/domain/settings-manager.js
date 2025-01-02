@@ -272,8 +272,6 @@ class SettingsManager {
             throw new Error(`Network passphrase not found: ${this.config.network}`)
         if (!sorobanRpc)
             throw new Error(`Soroban rpc urls not found: ${this.config.network}`)
-        if (!dbConnector)
-            throw new Error(`Blockchain connector not found: ${this.config.network}`)
         return {networkPassphrase, sorobanRpc, blockchainConnector: dbConnector}
     }
 

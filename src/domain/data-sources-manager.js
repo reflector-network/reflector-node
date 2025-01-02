@@ -1,14 +1,13 @@
-const {createDbConnection} = require('@reflector/reflector-db-connector')
 const {setGateway} = require('@reflector/reflector-exchanges-connector')
 const {ValidationError, IssuesContainer} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
 const logger = require('../logger')
 
 /**
- * @typedef {import('@reflector/reflector-db-connector').AggregatedTradeResult} AggregatedTradeResult
- * @typedef {import('@reflector/reflector-db-connector').AccountProps} AccountProps
- * @typedef {import('@reflector/reflector-db-connector').Signer} Signer
- * @typedef {import('@reflector/reflector-db-connector').TradeAggregationParams} TradeAggregationParams
+ * @typedef {import('@reflector/reflector-stellar-connector').AggregatedTradeResult} AggregatedTradeResult
+ * @typedef {import('@reflector/reflector-stellar-connector').AccountProps} AccountProps
+ * @typedef {import('@reflector/reflector-stellar-connector').Signer} Signer
+ * @typedef {import('@reflector/reflector-stellar-connector').TradeAggregationParams} TradeAggregationParams
  * @typedef {import('../models/data-source')} DataSource
  */
 
@@ -20,7 +19,7 @@ const networks = {
 const exchangesDataSourceName = 'exchanges'
 
 /**
- * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string }>}
+ * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], type: string, secret: [string], name: string }>}
  */
 const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.API, name: exchangesDataSourceName}]]) //exchanges is not required any configuration, so it is added by default
 
@@ -32,7 +31,6 @@ function __registerConnection(dataSource) {
         throw new ValidationError('dataSource is required')
     const {
         name,
-        dbConnection: source,
         sorobanRpc,
         secret,
         type
@@ -41,10 +39,7 @@ function __registerConnection(dataSource) {
         case DataSourceTypes.DB:
             {
                 const networkPassphrase = networks[name] || name
-                const dbConnector = createDbConnection({
-                    connectionString: source
-                })
-                __connections.set(name, {networkPassphrase, dbConnector, sorobanRpc, type, name})
+                __connections.set(name, {networkPassphrase, sorobanRpc, type, name})
             }
             break
         case DataSourceTypes.API:

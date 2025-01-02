@@ -1,6 +1,6 @@
 const {normalizeTimestamp, Asset, AssetType, ContractTypes, hasMajority} = require('@reflector/reflector-shared')
 const {getTradesData} = require('@reflector/reflector-exchanges-connector')
-const {aggregateTrades} = require('@reflector/reflector-db-connector')
+const {aggregateTrades} = require('@reflector/reflector-stellar-connector')
 const DataSourceTypes = require('../../models/data-source-types')
 const dataSourcesManager = require('../data-sources-manager')
 const logger = require('../../logger')
@@ -117,15 +117,28 @@ async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
  * @returns {Promise<AggregatedTradeData>}
  */
 async function loadDbTradesData(dataSource, baseAsset, assets, from, count) {
-    const {dbConnector} = dataSource
-    const tradesData = await aggregateTrades({db: dbConnector, baseAsset, assets, from, period: minute, limit: count})
+    const {sorobanRpc} = dataSource
+    let tradesData = null
+    for (const rpcUrl of sorobanRpc) {
+        try {
+            const options = {rpcUrl, baseAsset, assets, from, period: minute / 1000, limit: count}
+            tradesData = await aggregateTrades(options)
+            break
+        } catch (err) {
+            logger.error({err}, `Error loading trades data from ${rpcUrl}`)
+        }
+    }
+
+    if (!tradesData)
+        throw new Error(`Failed to load trades data from ${dataSource.name}`)
 
     //normalize data to the same format as API data
     for (let tsIndex = 0; tsIndex < tradesData.length; tsIndex++) {
         const tsTrades = tradesData[tsIndex]
         for (let assetIndex = 0; assetIndex < tsTrades.length; assetIndex++) {
-            const {volume, quoteVolume} = tsTrades[assetIndex]
-            tsTrades[assetIndex] = [{volume, quoteVolume, source: dataSource.name, ts: from + tsIndex * minute / 1000}]
+            const tradesData = tsTrades[assetIndex]
+            tradesData.source = dataSource.name
+            tsTrades[assetIndex] = [tradesData]
         }
     }
     return tradesData

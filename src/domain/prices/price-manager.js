@@ -89,8 +89,11 @@ async function getPricesForContract(contractId, timestamp) {
             }
         currentVolumeTimestamp += minute
     }
+    const volumes = totalVolumes.map(v => [...v.values()])
+    if (!volumes.some(v => v.length !== 0)) //if all volumes are empty
+        throw new Error(`Volumes not found for contract ${contractId} for timestamp ${timestamp}`)
     //compute price
-    const prices = calcPrice(totalVolumes.map(v => [...v.values()]), settingsManager.getDecimals(contractId), prevPrices)
+    const prices = calcPrice(volumes, settingsManager.getDecimals(contractId), prevPrices)
     return prices
 }
 

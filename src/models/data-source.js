@@ -7,7 +7,6 @@ class DataSource {
         }
         this.__setType(raw.type)
         this.__setName(raw.name)
-        this.__setDbConnection(raw.dbConnection)
         this.__setSorobanRpc(raw.sorobanRpc)
         this.__setSecret(raw.secret)
     }
@@ -16,11 +15,6 @@ class DataSource {
      * @type {string}
      */
     type = null
-
-    /**
-     * @type {string}
-     */
-    dbConnection = null
 
     /**
      * @type {string[]}
@@ -46,13 +40,6 @@ class DataSource {
             default:
                 throw new Error(`Invalid DataSource type: ${type}`)
         }
-    }
-
-    __setDbConnection(dbConnection) {
-        if (!dbConnection && this.type === DataSourceTypes.DB) {
-            throw new Error('DataSource dbConnection is undefined')
-        }
-        this.dbConnection = dbConnection
     }
 
     __setName(name) {
