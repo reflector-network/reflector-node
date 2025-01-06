@@ -17,28 +17,24 @@ Prepare `app.config.json` file and save it to the `home` directory which will be
 ```json
 {
   "secret": "SA5G...1DKG", //secret key of the node
+  "port": 30347,
   "dataSources": {
     "pubnet": {
       "name": "pubnet",
       "type": "db",
-      "dbConnection": "postgres://stellar:@{server_ip_address}:{server_port}/stellar-core",
-      "sorobanRpc": ["https://localhost:8003/", "https://soroban-rpc.mainnet.stellar.gateway.fm/"],
-    },
-    "exchanges": {
-      "name": "exchanges",
-      "type": "api"
+      "sorobanRpc": ["http://172.16.5.4:8003/", "https://stellar-rpc.local/"],
     }
-  },
-  "dbSyncDelay": 15, //delay in seconds for database synchronization. Optional, default is 15
-  "port": 30347 //default port for inbound connections
+  }
 }
 ```
 
 Where:
-- `secret` - the secret key of the node
-- `dataSources` - price data sources cofigurations
-- `dbSyncDelay` - [optional] delay in seconds for database synchronization (should be identical for all nodes in the cluster)
-- `port` - [optional] custom TCP port for inbound connections
+- `secret` (string) - node secret key (should be unique for every node in the cluster) 
+- `dataSources` (settings[]) - price data sources configuration
+- `dbSyncDelay` (number) - [optional] delay in seconds for database synchronization, should be identical for all nodes in the cluster (15)
+- `port` (number) - [optional] TCP port for inbound connections (30347)
+- `trace` (true|false) - [optional] detailed events tracing (false)
+- `handshakeTimeout` (number) - [optional] timeout to drop hanging incoming node connections
  
 If you are joining the existing cluster, ask other node operators to share their basic config params, then override `secret` and data sources configuration parameters.
 
@@ -56,7 +52,7 @@ Prerequisites:
 Example startup script:
 
 ```bash
-docker run -it -d \
+docker run -it -d --network host \
     -p 30347:30347 \
     -v "REFLECTOR_WORKDIR:/reflector-node/app/home" \
     --name=reflector-node \
@@ -64,24 +60,6 @@ docker run -it -d \
 ```
 - `REFLECTOR_WORKDIR` - path to the working directory where Reflector will store config and logs
 
-If you want to use Stellar Docker image as DB source, you can use the following command:
-
-```bash
-docker run -it -d \
-    -e POSTGRES_PASSWORD=123456 \
-    -p 5432:5432 \
-    -v "STELLAR_WORKDIR:/opt/stellar" \
-    --name stellar \
-    stellar/quickstart:soroban-dev \
-    --testnet
-```
-
-- `POSTGRES_PASSWORD` - password for the PostgreSQL database
-- `STELLAR_WORKDIR` - path to the working directory where Stellar will store data
-- `5432` - port of the local PostgreSQL database
-
-**_Note:_** You need to set `dbConnection` in `app.config.json` to `postgres://stellar:123456@127.0.0.1:5432/stellar-core` where `123456` is the
-password for the PostgreSQL database.
 
 #### Default ports 
 
