@@ -13,7 +13,7 @@
     "pubnet": {
       "sorobanRpc": ["https://soroban-testnet.stellar.org"],
       "type": "db",
-      "name": "testnet"
+      "name": "pubnet"
     }
   }
 }
@@ -55,13 +55,6 @@ Every node must have at least 3 active gateways before updating the node softwar
 
 ⓘ Please note: do not leave or refresh the initial gateway config page until you finish the setup of all gateways and
 download the config, as it might generate a new secret, not compatible with the gateways that you already deployed.
-
-https://node-admin.reflector.network/gateway-initial-config
-
-Just added a validation tool for gateways config file.
-Visit https://node-admin.reflector.network/gateway-initial-config
-Upload your config file
-It will load servers and will display connection problems if any (see screenshots)
 
 ## Joining Reflector cluster
 
