@@ -118,6 +118,10 @@ function generateOracleContractConfig(admin, contractId, dataSource) {
             assets.baseAsset = constants.baseStellarPubnetAsset
             assets.assets = constants.stellarPubnetAssets
             break
+        case 'forex':
+            assets.baseAsset = constants.baseGenericAsset
+            assets.assets = constants.fiatAssets
+            break
         default:
             throw new Error('Unknown data source')
     }

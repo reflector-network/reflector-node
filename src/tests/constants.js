@@ -17,7 +17,16 @@ const stellarPubnetAssets = [
 const genericAssets = [
     {type: 2, code: 'BTC'},
     {type: 2, code: 'ETH'},
-    {type: 2, code: 'USDT'}
+    {type: 2, code: 'USDT'},
+    {type: 2, code: 'EURt'}
+]
+
+const fiatAssets = [
+    {type: 2, code: 'EUR'},
+    {type: 2, code: 'PLN'},
+    {type: 2, code: 'GBP'},
+    {type: 2, code: 'JPY'},
+    {type: 2, code: 'XAU'}
 ]
 
 const baseGenericAsset = {type: 2, code: 'USD'}
@@ -26,6 +35,14 @@ const sources = {
     exchanges: {
         type: 'api',
         name: 'exchanges'
+    },
+    forex: {
+        type: 'api',
+        name: 'forex',
+        providers: {
+            'nbp': {},
+            'ecb': {},
+        }
     },
     pubnet: {
         dbConnection: 'postgres://stellar:pass@127.0.0.1:5432/stellar-pubnet-core',
@@ -51,6 +68,7 @@ module.exports = {
     baseStellarPubnetAsset,
     stellarPubnetAssets,
     baseGenericAsset,
+    fiatAssets,
     genericAssets,
     decimals: 14,
     timeframe: 300000,

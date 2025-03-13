@@ -1,5 +1,6 @@
 const {normalizeTimestamp, Asset, AssetType, ContractTypes, hasMajority} = require('@reflector/reflector-shared')
 const {getTradesData} = require('@reflector/reflector-exchanges-connector')
+const {getTradesData: getFiatTradesData} = require('@reflector/fiat-exchanges-connector')
 const {aggregateTrades} = require('@reflector/reflector-stellar-connector')
 const DataSourceTypes = require('../../models/data-source-types')
 const dataSourcesManager = require('../data-sources-manager')
@@ -103,6 +104,19 @@ async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
             )
             return tradesData
         }
+        case 'forex': {
+            const tradesData = await getFiatTradesData(
+                assets.map(asset => asset.code),
+                baseAsset.code,
+                from,
+                minute / 1000,
+                count,
+                {
+                    sources: dataSource.providers,
+                    timeout: 15000
+                })
+            return tradesData
+        }
         default:
             throw new Error(`Data source ${dataSource.name} not supported`)
     }
@@ -150,6 +164,7 @@ const baseStellarAsset = new Asset(AssetType.STELLAR, 'USDC:GA5ZSEJYB37JRC5AVCIA
 function getSourceDefaultBaseAsset(source) {
     switch (source) {
         case 'exchanges':
+        case 'forex':
             return baseExchangesAsset
         case 'pubnet':
         case 'testnet':
@@ -220,8 +235,14 @@ function normalizeTradeData(data, toString) {
         timestampTradeData.map(assetTradeData =>
             assetTradeData.map(tradeData => ({
                 ...tradeData,
-                volume: toString ? tradeData.volume.toString() : BigInt(tradeData.volume),
-                quoteVolume: toString ? tradeData.quoteVolume.toString() : BigInt(tradeData.quoteVolume)
+                ...(tradeData.type !== 'price'
+                    ? {
+                        volume: toString ? tradeData.volume.toString() : BigInt(tradeData.volume),
+                        quoteVolume: toString ? tradeData.quoteVolume.toString() : BigInt(tradeData.quoteVolume)
+                    }
+                    : {
+                        price: toString ? tradeData.price.toString() : BigInt(tradeData.price)
+                    })
             }))
         )
     )
@@ -273,8 +294,15 @@ class PendingTradesData {
             const timeout = this.maxTime - Date.now()
             const timeoutId = setTimeout(() => {
                 logger.debug(`Pending trades data timed out. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__pendingData.keys()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+
                 if (this.isProcessed) //if the data is already processed
                     return
+                else if (this.__isReadyToProcess(true)) { //if we have majority
+                    logger.debug(`Processing pending trades data on timeout. Key: ${this.key}.`)
+                    this.__process()
+                    return
+                }
+
                 this.reject(new Error('Pending trades data timed out'))
             }, timeout)
 
@@ -311,17 +339,23 @@ class PendingTradesData {
 
     add(pubkey, data) {
         this.__pendingData.set(pubkey, data)
-        const currentNodePubkey = container.settingsManager.appConfig.publicKey
-        if (!this.isProcessed //if not processed yet
-            && this.__pendingData.has(currentNodePubkey) //if the current node is in the list
-            && this.__pendingData.size >= nodesManager.getConnectedNodes().length //if we have all possible nodes data
-            && hasMajority(container.settingsManager.config.nodes.size, this.__pendingData.size)) { //if we have majority
-            this.isProcessed = true
+        if (this.__isReadyToProcess()) { //if we have majority
+            logger.debug(`Processing pending trades data. Key: ${this.key}.`)
             this.__process()
         }
     }
 
+    __isReadyToProcess(majorityEnought = false) {
+        const currentNodePubkey = container.settingsManager.appConfig.publicKey
+        return !this.isProcessed //if not processed yet
+            && this.__pendingData.has(currentNodePubkey) //if the current node is in the list
+            && (majorityEnought || (this.__pendingData.size - 1) >= nodesManager.getConnectedNodes().length) //if we have all possible nodes data or we majority is enough
+            && hasMajority(container.settingsManager.config.nodes.size, this.__pendingData.size) //if we have majority
+    }
+
+
     __process() {
+        this.isProcessed = true
         //reverse the data to have the latest data first
         //iterate over the pending data from current node. We will not validate the data from other nodes if it not present in the current node data
         const currentNodeData = this.__pendingData
@@ -355,7 +389,9 @@ class PendingTradesData {
                             logger.trace(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not found in node ${pubkey}`)
                             continue
                         } else if (
-                            nodeAssetSourceData.quoteVolume !== assetSourceData.quoteVolume
+                            nodeAssetSourceData.type !== assetSourceData.type
+                            || nodeAssetSourceData.price !== assetSourceData.price
+                            || nodeAssetSourceData.quoteVolume !== assetSourceData.quoteVolume
                             || nodeAssetSourceData.volume !== assetSourceData.volume
                             || nodeAssetSourceData.ts !== assetSourceData.ts
                         ) {

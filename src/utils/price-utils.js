@@ -47,6 +47,34 @@ function getVWAP(volume, quoteVolume, decimals) {
 }
 
 /**
+ * Normalize price. The prices from providers are a BigInt with 7 decimals.
+ * @param {BigInt} price - price
+ * @param {number} decimals - number of decimals
+ * @returns {BigInt}
+ */
+function normalizePrice(price, decimals) {
+    if (decimals > 7) {
+        return price * (BigInt(10) ** BigInt(decimals - 7))
+    } else if (decimals < 7) {
+        return price / (BigInt(10) ** BigInt(7 - decimals))
+    }
+    return price
+}
+
+/**
+ * Calculate price from sum and number of entries
+ * @param {BigInt} sum - sum of prices
+ * @param {number} entries - number of entries
+ * @param {number} decimals - number of decimals
+ * @returns {BigInt}
+ */
+function getAveragePrice(sum, entries, decimals) {
+    if (entries === 0)
+        return 0n
+    return normalizePrice(sum, decimals) / BigInt(entries)
+}
+
+/**
  * @param {BigInt[]} range - list of prices
  * @return {BigInt}
  */
@@ -88,5 +116,6 @@ module.exports = {
     getPreciseValue,
     calcCrossPrice,
     getVWAP,
+    getAveragePrice,
     getMedianPrice
 }

@@ -1,5 +1,5 @@
 const {getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
-const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
+const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice, getAveragePrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
 
@@ -9,17 +9,22 @@ const container = require('../container')
  */
 
 /**
- * @param {TimestampTradeData} volumes - volumes
+ * @param {TimestampTradeData} tradesData - trades data
  * @param {number} decimals - decimals
  * @param {BigInt[]} prevPrices - previous prices
  * @returns {BigInt[]}
  */
-function calcPrice(volumes, decimals, prevPrices) {
-    const prices = Array(volumes.length).fill(0n)
-    for (let i = 0; i < volumes.length; i++) {
-        const assetVolumes = volumes[i] || []
-        const vwaps = assetVolumes.map(v => getVWAP(v.volume, v.quoteVolume, decimals))
-        prices[i] = getMedianPrice(vwaps) || prevPrices[i] || 0n
+function calcPrice(tradesData, decimals, prevPrices) {
+    const prices = Array(tradesData.length).fill(0n)
+    for (let i = 0; i < tradesData.length; i++) {
+        const assetTradesData = tradesData[i] || []
+        const assetPrices = assetTradesData.map(td => {
+            if (td.type === 'price')
+                return getAveragePrice(td.sum, td.entries, decimals)
+            else
+                return getVWAP(td.volume, td.quoteVolume, decimals)
+        })
+        prices[i] = getMedianPrice(assetPrices) || prevPrices[i] || 0n
     }
 
     return prices
@@ -50,50 +55,55 @@ async function getPricesForContract(contractId, timestamp) {
     logger.trace({msg: `Previous prices for contract ${contractId}, timestamp: ${contractState.lastTimestamp}`, prevPrices})
 
     //start of the current timeframe
-    let currentVolumeTimestamp = timestamp
+    let currentTradesDataTimestamp = timestamp
 
-    //get volumes
-    const totalVolumes = Array(assets.length).fill(0n).map(() => new Map())
-    while (currentVolumeTimestamp <= timestamp) {
-        //load volumes for the current timestamp
+    //get trades data
+    const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
+    while (currentTradesDataTimestamp <= timestamp + contract.timeframe) {
+        //load trades data for the current timestamp
         const tradesData = await tradesManager.getTradesData(
             contract.dataSource,
             contract.baseAsset,
             assets,
-            currentVolumeTimestamp
+            currentTradesDataTimestamp
         )
         if (!tradesData)
-            logger.debug(`Volumes not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
-        else //aggregate volumes
+            logger.debug(`Trades data not found for timestamp ${currentTradesDataTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
+        else //aggregate trades data
             for (let i = 0; i < assets.length; i++) {
-                if (tradesData.length <= i) //if the asset was added recently, we don't have volumes for it yet
+                if (tradesData.length <= i) //if the asset was added recently, we don't have trades data for it yet
                     break
-                //get total volume for the asset
-                const totalAssetVolumes = totalVolumes[i]
-                //get volumes for the asset
+                //get total trades data for the asset
+                const totalAssetTradesData = totalTradesData[i]
+                //get trades data for the asset
                 const assetTradeData = tradesData[i]
                 //iterate over sources
                 for (const sourceTradeData of assetTradeData) {
-                    let sourceTotalVolume = totalAssetVolumes.get(sourceTradeData.source)
-                    if (!sourceTotalVolume) {
-                        sourceTotalVolume = {volume: 0n, quoteVolume: 0n}
-                        totalAssetVolumes.set(sourceTradeData.source, sourceTotalVolume)
+                    let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
+                    if (!sourceTotalTradesData) {
+                        sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
+                        totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
                     }
-                    if (sourceTradeData.ts * 1000 !== currentVolumeTimestamp) {
-                        logger.warn(`Volume for source ${sourceTradeData.source} not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
+                    if (sourceTradeData.ts * 1000 !== currentTradesDataTimestamp) {
+                        logger.warn(`Trades data for source ${sourceTradeData.source} not found for timestamp ${currentTradesDataTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
                         continue
                     }
-                    sourceTotalVolume.volume += sourceTradeData.volume
-                    sourceTotalVolume.quoteVolume += sourceTradeData.quoteVolume
+                    if (sourceTotalTradesData.type === 'price') {
+                        sourceTotalTradesData.sum += sourceTradeData.price
+                        sourceTotalTradesData.entries++
+                    } else {
+                        sourceTotalTradesData.volume += sourceTradeData.volume
+                        sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
+                    }
                 }
             }
-        currentVolumeTimestamp += minute
+        currentTradesDataTimestamp += minute
     }
-    const volumes = totalVolumes.map(v => [...v.values()])
-    if (!volumes.some(v => v.length !== 0)) //if all volumes are empty
-        throw new Error(`Volumes not found for contract ${contractId} for timestamp ${timestamp}`)
+    const tradesData = totalTradesData.map(v => [...v.values()])
+    if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
+        throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
     //compute price
-    const prices = calcPrice(volumes, settingsManager.getDecimals(contractId), prevPrices)
+    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId), prevPrices)
     return prices
 }
 
