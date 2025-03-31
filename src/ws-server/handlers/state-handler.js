@@ -19,7 +19,7 @@ class StateHandler extends BaseHandler {
                         runner.broadcastSyncData()
                     }
                 }
-                container.tradesManager.sendPendingTradesData(ws.pubkey)
+                container.tradesManager.sendTradesData(ws.pubkey)
             }
                 break
             default:

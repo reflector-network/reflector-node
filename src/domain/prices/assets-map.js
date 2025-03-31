@@ -6,29 +6,26 @@ class AssetsMap {
     /**
      * @param {string} source - source
      * @param {Asset} baseAsset - base asset
+     * @param {Asset[]} assets - assets
      */
-    constructor(source, baseAsset) {
+    constructor(source, baseAsset, assets = []) {
         if (!source)
             throw new Error('Source is required')
         if (!baseAsset)
             throw new Error('Base asset is required')
         this.source = source
         this.baseAsset = baseAsset
-        this.mappedAssets = new Map()
+        this.assets = assets
     }
 
     /**
      * @param {Asset[]} assets - assets
      */
     push(assets) {
-        let lastIndex = this.mappedAssets.size
         for (const asset of assets) {
-            if (!asset)
+            if (!asset || this.assets.findIndex(a => a.code === asset.code) !== -1)
                 continue
-            if (!this.mappedAssets.get(asset.code)) {
-                this.mappedAssets.set(asset.code, {asset, index: lastIndex})
-                lastIndex++
-            }
+            this.assets.push(asset)
         }
     }
 
@@ -46,32 +43,27 @@ class AssetsMap {
 
     /**
      * Asset code to index map
-     * @type {Map<string,{asset: Asset, index: number}>}
+     * @type {Asset[]}>}
      * @private
      */
-    mappedAssets
-
-    /**
-     * Get all mapped assets
-     * @return {{asset: Asset, index: number}[]}
-     */
-    get assets() {
-        return Array.from(this.mappedAssets.values())
-    }
+    assets
 
     /**
      * @param {string} code - asset code
      * @return {{asset: Asset, index: number}}
      */
     getAssetInfo(code) {
-        return this.mappedAssets.get(code)
+        const asset = this.assets.find(a => a.code === code)
+        if (!asset)
+            return undefined
+        return {asset, index: this.assets.indexOf(asset)}
     }
 
     toPlainObject() {
         return {
             source: this.source,
-            baseAsset: this.baseAsset.code,
-            assets: [...this.mappedAssets.keys()]
+            baseAsset: this.baseAsset.toPlainObject(),
+            assets: this.assets.map(a => a.toPlainObject())
         }
     }
 }

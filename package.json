@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@reflector/oracle-client": "github:reflector-network/oracle-client#v6.0.1",
-    "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v3.3.0",
+    "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v3.3.1",
     "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v0.4.0",
     "@reflector/fiat-exchanges-connector": "github:hawthorne-abendsen/fiat-exchanges-connector#v0.4.2",
     "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v6.0.2",

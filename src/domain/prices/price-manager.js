@@ -59,7 +59,7 @@ async function getPricesForContract(contractId, timestamp) {
 
     //get trades data
     const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
-    while (currentTradesDataTimestamp <= timestamp + contract.timeframe) {
+    while (currentTradesDataTimestamp < timestamp + contract.timeframe) {
         //load trades data for the current timestamp
         const tradesData = await tradesManager.getTradesData(
             contract.dataSource,
