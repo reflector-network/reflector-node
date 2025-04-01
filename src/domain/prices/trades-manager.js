@@ -471,19 +471,6 @@ class TradesManager {
             //push volumes to the cache
             for (let j = tradesData.length - 1; j >= 0; j--) {
                 const currentTimestampData = tradesData[j]
-                //TODO: remove this check
-                logger.trace(`Performing timestamp ${currentIterationTimestamp} check for source ${source}, base asset ${baseAsset}`)
-                for (let assetIndex = 0; assetIndex < currentTimestampData.length; assetIndex++) {
-                    const assetData = currentTimestampData[assetIndex]
-                    //iterate over the sources data for the asset
-                    for (const assetSourceData of assetData) {
-                        if (assetSourceData.ts * 1000 !== currentIterationTimestamp) {
-                            logger.warn(`Data for source ${assetSourceData.source}, timestamp ${currentTimestamp}, assetIndex ${assetIndex}, not matching timestamp`)
-                            continue
-                        }
-                    }
-                }
-
                 //push the data to verified data
                 const tradeDataItem = this.__trades.push(
                     container.settingsManager.appConfig.publicKey,
