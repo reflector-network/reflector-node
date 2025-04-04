@@ -1,4 +1,5 @@
-const {setGateway} = require('@reflector/reflector-exchanges-connector')
+const {setGateway: setDexGateways} = require('@reflector/reflector-exchanges-connector')
+const {setGateway: setForexGateways} = require('@reflector/fiat-exchanges-connector')
 const {ValidationError, IssuesContainer} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
 const logger = require('../logger')
@@ -85,10 +86,8 @@ class DataSourcesManager extends IssuesContainer {
      */
     setGateways(gateways) {
         const {urls, gatewayValidationKey} = gateways || {}
-        for (const connection of __connections.values()) {
-            if (connection.type === DataSourceTypes.API)
-                setGateway(urls, gatewayValidationKey, false)
-        }
+        setDexGateways(urls, gatewayValidationKey)
+        setForexGateways(urls, gatewayValidationKey)
     }
 
     /**
