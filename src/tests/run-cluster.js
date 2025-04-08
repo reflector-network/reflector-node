@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const {rpc, Keypair, Asset} = require('@stellar/stellar-sdk')
-const {ContractTypes} = require('@reflector/reflector-shared')
+const {ContractTypes, getMajority} = require('@reflector/reflector-shared')
 const {generateRSAKeyPair} = require('../utils/crypto-helper')
 const {
     deployContract,
@@ -19,7 +19,7 @@ const {
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
-let tokenData = null
+const tokenData = null
 let rsa = null
 
 function getNodeDirName(nodeNumber) {
@@ -34,6 +34,46 @@ function getNodesCount() {
     return fs.readdirSync(configsPath).filter(f => f.startsWith('node')).length
 }
 
+const initDAOAmount = '100000000000'
+
+const contractConfigs = [
+    {dataSource: constants.sources.pubnet},
+    {dataSource: constants.sources.exchanges},
+    {dataSource: constants.sources.forex}
+]
+
+const nodeConfigs = [
+]
+
+function generateClusterConfigData() {
+    function genearateKeypairData() {
+        const keypair = Keypair.random()
+        return {
+            pubkey: keypair.publicKey(),
+            secret: keypair.secret()
+        }
+    }
+
+    const clusterConfig = {
+        contracts: [
+            {type: ContractTypes.SUBSCRIPTIONS, admin: genearateKeypairData(), salt: 'subscriptions'},
+            {type: ContractTypes.DAO, admin: genearateKeypairData(), salt: 'dao'},
+            ...contractConfigs.map(c => ({
+                type: ContractTypes.ORACLE,
+                admin: genearateKeypairData(),
+                dataSource: c.dataSource.name,
+                salt: c.dataSource.name
+            }))
+        ],
+        deployer: genearateKeypairData(),
+        nodes: nodeConfigs,
+        sysAccount: genearateKeypairData(),
+        tokenIssuer: genearateKeypairData(),
+        token: 'XRF'
+    }
+
+    return clusterConfig
+}
 
 async function closeEndRemoveIfExist(name) {
     const nodeExists = await runCommand(`docker ps -aq --filter name=${name}`)
@@ -48,95 +88,106 @@ async function closeEndRemoveIfExist(name) {
 
 /**
  * @param {rpc.Server} server
- * @param {string[]} nodes
- * @param {string} contractType
- * @param {string} dataSource
+ * @param {KeypairData} deployer
+ * @param {KeypairData[]} nodes
+ * @param {{salt: string, type: string, admin: KeypairData, dataSource: string}} contractConfig
+ * @param {{secret: string, pubkey: string, symbol: string, tokenId: string}} token
  */
-async function generateNewContract(server, nodes, contractType, dataSource) {
-    const admin = Keypair.random()
-    await createAccount(admin.publicKey())
-    console.log('Admin ' + admin.publicKey() + ' secret:' + admin.secret())
-    const contractId = await deployContract(admin.secret(), contractType)
+async function generateNewContract(server, deployer, nodes, contractConfig, token) {
+    const contractId = await deployContract(server, deployer.secret, contractConfig.type, contractConfig.salt)
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
 
-    if (contractType === ContractTypes.DAO) {
-        const tokenKeypair = Keypair.fromSecret(tokenData.secret)
+    if (contractConfig.type === ContractTypes.DAO) {
+        const tokenKeypair = Keypair.fromSecret(token.secret)
 
-        const asset = new Asset('XRF', tokenKeypair.publicKey())
+        const asset = new Asset(token.symbol, token.pubkey)
 
-        let account = await getAccountInfo(server, admin.publicKey())
-        await addTrust(server, asset, account, admin)
+        let account = await getAccountInfo(server, contractConfig.admin.pubkey)
+        await addTrust(server, asset, account, nodes.slice(0, getMajority(nodes.length)).map(n => Keypair.fromSecret(n.secret)))
 
-        account = await getAccountInfo(server, tokenKeypair.publicKey())
-        await mint(server, asset, admin.publicKey(), '100000000000', account, tokenKeypair)
+        account = await getAccountInfo(server, token.pubkey)
+        await mint(server, asset, contractConfig.admin.pubkey, initDAOAmount, account, tokenKeypair)
     }
 
     const contractConfigData = {
         contractId,
-        contractType,
-        dataSource,
-        admin: admin.publicKey(),
-        token: tokenData.tokenId,
-        initAmount: '100000000000',
-        developer: nodes[0]
+        contractType: contractConfig.type,
+        dataSource: contractConfig.dataSource,
+        admin: contractConfig.admin.pubkey,
+        token: token.tokenId,
+        initAmount: initDAOAmount,
+        developer: nodes[0].pubkey
     }
-
-    await updateAdminToMultiSigAccount(server, admin, nodes)
 
     const config = generateContractConfig(contractConfigData)
     return config
 }
 
-/**
- * @param {{isInitNode: boolean, stellarCore: boolean}[]} nodeConfigs
- * @param {{dataSource: any}[]} contractConfigs
- */
-async function generateNewCluster(nodeConfigs, contractConfigs) {
 
+async function accountExists(server, publicKey) {
+    try {
+        const account = await getAccountInfo(server, publicKey)
+        return !!account
+    } catch (e) {
+        return false
+    }
+}
+
+/**
+ * @param {ClusterConfig} clusterConfig
+ */
+async function ensureClusterDataReady(clusterConfig) {
     const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
 
-    await ensureTokenData()
-    await ensureRSAKeys()
-
-    //generate system account
-    const systemAccount = Keypair.random()
-    await createAccount(systemAccount.publicKey())
-
-    console.log('System secret:' + systemAccount.secret())
-
-    //generate nodes keypairs
-    for (let i = 0; i < nodeConfigs.length; i++) {
-        const nodeConfig = nodeConfigs[i]
-        nodeConfig.keypair = Keypair.fromSecret(nodeConfig.secret)
+    const createIfNotExists = async (pubKey, updateToMultisigKeypair) => {
+        if (await accountExists(server, pubKey))
+            return true
+        await createAccount(pubKey)
+        if (updateToMultisigKeypair)
+            await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
     }
 
-    const nodes = nodeConfigs.filter(n => n.isInitNode).map(n => n.keypair.publicKey())
-    await updateAdminToMultiSigAccount(server, systemAccount, nodes)
+    const multisigAccounts = [clusterConfig.sysAccount, ...clusterConfig.contracts.map(c => c.admin)]
+    for (const account of multisigAccounts) {
+        const accountKeypair = Keypair.fromSecret(account.secret)
+        await createIfNotExists(accountKeypair.publicKey(), accountKeypair)
+    }
 
-    //generate contract configs
+    await createIfNotExists(clusterConfig.deployer.pubkey)
+    await createIfNotExists(clusterConfig.tokenIssuer.pubkey)
+}
+
+/**
+ * @param {ClusterConfig} clusterConfig
+ */
+async function generateNewCluster(clusterConfig) {
+    const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
+
+    const tokenData = await ensureTokenData(server, clusterConfig.tokenIssuer, clusterConfig.token)
+    await ensureRSAKeys()
+
     const contracts = {}
-    for (const contractConfig of contractConfigs) {
-        const {dataSource} = contractConfig
-        const config = await generateNewContract(server, nodes, ContractTypes.ORACLE, dataSource)
+    for (const c of clusterConfig.contracts) {
+        const config = await generateNewContract(
+            server,
+            clusterConfig.deployer,
+            clusterConfig.nodes,
+            c,
+            tokenData
+        )
         contracts[config.contractId] = config
     }
 
-    const subscriptionsContract = await generateNewContract(server, nodes, ContractTypes.SUBSCRIPTIONS)
-    contracts[subscriptionsContract.contractId] = subscriptionsContract
-
-    const daoContract = await generateNewContract(server, nodes, ContractTypes.DAO)
-    contracts[daoContract.contractId] = daoContract
-
-    const config = generateConfig(systemAccount.publicKey(), contracts, nodes, constants.wasmHash, constants.minDate, 'testnet', 30347, rsa.privateKey)
+    const config = generateConfig(clusterConfig.sysAccount.pubkey, contracts, clusterConfig.nodes.map(n => n.pubkey), constants.wasmHash, constants.minDate, 'testnet', 30347, rsa.privateKey)
     fs.mkdirSync(configsPath, {recursive: true})
     const configPath = path.join(configsPath, '.config.json')
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), {encoding: 'utf-8'})
 
-    for (let i = 0; i < nodeConfigs.length; i++) {
+    for (let i = 0; i < clusterConfig.nodes.length; i++) {
         const nodeConfig = nodeConfigs[i]
-        const appConfig = generateAppConfig(nodeConfig.keypair.secret(), constants.getDataSources(), i)
+        const appConfig = generateAppConfig(nodeConfig.secret, constants.getDataSources(), i)
         const nodeHomeDir = getReflectorHomeDirName(i)
         fs.mkdirSync(nodeHomeDir, {recursive: true})
         fs.writeFileSync(path.join(nodeHomeDir, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
@@ -165,16 +216,23 @@ async function startNodes(nodesCount) {
     }
 }
 
-async function ensureTokenData() {
+async function ensureTokenData(server, issuer, tokenSymbol) {
     const tokenDataFile = path.join('./tests', 'token-data.json')
-    if (!fs.existsSync(tokenDataFile)) {
-        const tokenAdmin = Keypair.random()
-        await createAccount(tokenAdmin.publicKey())
-        const tokenContract = await generateAssetContract(`XRF:${tokenAdmin.publicKey()}`, tokenAdmin.secret())
-        tokenData = {secret: tokenAdmin.secret(), publicKey: tokenAdmin.publicKey(), tokenId: tokenContract}
-        fs.writeFileSync(tokenDataFile, JSON.stringify(tokenData, null, 2), {encoding: 'utf-8'})
-    } else
-        tokenData = JSON.parse(fs.readFileSync(tokenDataFile, {encoding: 'utf-8'}))
+    if (!fs.existsSync(tokenDataFile))
+        fs.writeFileSync(tokenDataFile, JSON.stringify({}, null, 2), {encoding: 'utf-8'})
+
+    const tokenData = JSON.parse(fs.readFileSync(tokenDataFile, {encoding: 'utf-8'}))
+
+    const tokenAdmin = Keypair.fromSecret(issuer.secret)
+    const token = `${tokenSymbol}:${tokenAdmin.publicKey()}`
+    if (tokenData[token])
+        return tokenData[token]
+
+    const tokenContract = await generateAssetContract(server, token, tokenAdmin.secret())
+    tokenData[token] = {secret: tokenAdmin.secret(), pubkey: tokenAdmin.publicKey(), tokenId: tokenContract, symbol: tokenSymbol}
+    fs.writeFileSync(tokenDataFile, JSON.stringify(tokenData, null, 2), {encoding: 'utf-8'})
+
+    return tokenData[token]
 }
 
 async function ensureRSAKeys() {
@@ -190,25 +248,39 @@ async function ensureRSAKeys() {
 }
 
 /**
- * @param {{isInitNode: boolean}[]} nodes
- * @param {{dataSource: any}[]} contractConfigs
+ * @typedef {Object} KeypairData
+ * @property {string} pubkey
+ * @property {string} secret
  */
-async function run(nodes, contractConfigs) {
+
+/**
+ * @typedef {Object} ClusterConfig
+ * @property {KeypairData} deployer
+ * @property {KeypairData[]} nodes
+ * @property {KeypairData} sysAccount
+ * @property {KeypairData} tokenIssuer
+ * @property {string} token
+ * @property {{salt: [string], type: string, admin: KeypairData, dataSource: string}[]} contracts
+ */
+
+/**
+ * @param {ClusterConfig} clusterConfig
+ */
+async function run(clusterConfig) {
     if (!fs.existsSync(configsPath)) {
-        await generateNewCluster(nodes, contractConfigs)
+        if (!clusterConfig) {
+            clusterConfig = generateClusterConfigData()
+            console.log('<-Cluster config generated->'.repeat(5))
+            console.log(JSON.stringify(clusterConfig, null, 2))
+        }
+        await ensureClusterDataReady(clusterConfig)
+        await generateNewCluster(clusterConfig)
     }
     await startNodes(getNodesCount())
 }
 
-const nodeConfigs = [
-    {isInitNode: true, secret: 'SCGO5GR4ZDAXU7BECOIFRO5J3STD2HQECPG4X3XQ4K75VZ64WOFVLQHR'},
-    {isInitNode: true, secret: 'SDMHSB2JYLSEMHCX6ZZX7X42YHOZSNNK3JOLAOQE7ORC63IJHWDIBCJ4'},
-    {isInitNode: true, secret: 'SB5KAGPBW3AIBUYGYQSMPKSGLLZSKJNRPLFQF4CDGKNKTZQ6XZJTWASO'}
-]
 
-const contractConfigs = [
-    {dataSource: constants.sources.pubnet},
-    {dataSource: constants.sources.exchanges}
-]
+const clusterConfig = {
+}
 
-run(nodeConfigs, contractConfigs).catch(console.error)
+run(clusterConfig).catch(console.error)

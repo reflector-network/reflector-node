@@ -281,40 +281,17 @@ class TimestampSyncItem {
 
         const timeout = this.maxTime - Date.now()
         const timeoutId = setTimeout(() => {
-            logger.debug(`Pending trades data timed out. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__presentedPubkeys.values()].join(',')}, current time: ${Math.floor(Date.now())}`)
-
-            if (this.isProcessed) //if the data is already processed
-                return
-            else if (this.__isReady(true)) { //if we have majority
-                logger.trace(`Processing pending trades data on timeout. Key: ${this.key}, timestamp: ${this.timestamp}.`)
-                this.resolve()
-                return
-            }
-
-            this.reject(new Error(`Pending trades data timed out. Key: ${this.key}, timestamp: ${this.timestamp}.`))
+            this.resolve(true)
         }, timeout)
 
-        const markProcessed = () => {
-            if (this.isProcessed)
-                return false
-            clearTimeout(timeoutId)
-            this.isProcessed = true
-            return true
-        }
-
-        this.readyPromise = new Promise((resolve, reject) => {
-            this.resolve = () => {
-                if (!markProcessed())
+        this.readyPromise = new Promise((resolve) => {
+            this.resolve = (timedOut = false) => {
+                if (this.isProcessed)
                     return
-                logger.trace(`Pending trades data ready. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, pubkeys: ${[...this.__presentedPubkeys.values()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
+                clearTimeout(timeoutId)
+                this.isProcessed = true
+                logger.trace(`Pending trades data resolved. ${this.getDebugInfo()}, timed out: ${timedOut}`)
                 resolve()
-                this.resolved = true
-            }
-            this.reject = (err) => {
-                if (!markProcessed())
-                    return
-                logger.error({err}, `Error processing pending trades data. Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, pubkeys: ${[...this.__presentedPubkeys.values()].join(',')}, current time: ${Math.floor(Date.now() / 1000)}`)
-                reject(err)
             }
         })
     }
@@ -323,24 +300,21 @@ class TimestampSyncItem {
 
     add(pubkey) {
         this.__presentedPubkeys.add(pubkey)
-        if (this.__isReady()) { //if we have all nodes data
-            logger.debug(`Pending timestamp ready. Key: ${this.key}, timestamp: ${this.timestamp}.`)
-            this.resolve()
-        }
-    }
-
-    __isReady(majorityEnought = false) {
-        const currentNodePubkey = container.settingsManager.appConfig.publicKey
-        return !this.isProcessed //if not processed yet
+        const isReady = () => {
+            const currentNodePubkey = container.settingsManager.appConfig.publicKey
+            return !this.isProcessed //if not processed yet
             && this.__presentedPubkeys.has(currentNodePubkey) //if the current node is in the list
             //if we have all possible nodes data or we majority is enough
             //subtract 1 because we already have the current node data, and it's not included in the connected nodes
-            && (majorityEnought || (this.__presentedPubkeys.size - 1) >= nodesManager.getConnectedNodes().length)
+            && (this.__presentedPubkeys.size - 1) >= nodesManager.getConnectedNodes().length
             && hasMajority(container.settingsManager.config.nodes.size, this.__presentedPubkeys.size) //if we have majority
+        }
+        if (isReady()) //if we have all nodes data
+            this.resolve()
     }
 
     getDebugInfo() {
-        return `Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__presentedPubkeys.values()].join(',')}, resolved: ${!!this.resolved}`
+        return `Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__presentedPubkeys.values()].join(',')}, current time: ${Date.now()}`
     }
 }
 
@@ -412,23 +386,20 @@ class TradesManager {
             + container.settingsManager.appConfig.dbSyncDelay //add db sync delay
             + 35 * 1000 //30 seconds for trades data fetching, and 5 seconds for the nodes sync
 
-        if (maxTime < Date.now())
-            throw new Error(`Timestamp ${timestamp} is too old. Current timestamp: ${currentTimestamp}, maxTime: ${maxTime}, current time: ${Math.floor(Date.now() / 1000)}`)
-
-        let timestampPendingData = this.__timestamps.get(timestamp)
-        if (!timestampPendingData) {
+        let timestampSyncData = this.__timestamps.get(timestamp)
+        if (!timestampSyncData) {
             if (timestamp % minute !== 0)
                 throw new Error(`Timestamp ${timestamp} is invalid`)
-            timestampPendingData = new Map()
-            this.__timestamps.set(timestamp, timestampPendingData)
+            timestampSyncData = new Map()
+            this.__timestamps.set(timestamp, timestampSyncData)
         }
-        let pendingData = timestampPendingData.get(key)
-        if (!pendingData) {
-            pendingData = new TimestampSyncItem(key, timestamp, maxTime)
-            timestampPendingData.set(key, pendingData)
+        let syncData = timestampSyncData.get(key)
+        if (!syncData) {
+            syncData = new TimestampSyncItem(key, timestamp, maxTime)
+            timestampSyncData.set(key, syncData)
         }
-        logger.trace(`Getting timestamp sync. ${pendingData.getDebugInfo()}`)
-        return pendingData
+        logger.trace(`Getting timestamp sync. ${syncData.getDebugInfo()}`)
+        return syncData
     }
 
     /**
@@ -490,7 +461,6 @@ class TradesManager {
             timestampSync.add(container.settingsManager.appConfig.publicKey)
         } catch (err) {
             logger.error({err}, `Error loading prices for source ${assetsMap.source} and base asset ${assetsMap.baseAsset}`)
-            timestampSync?.reject(err)
         }
     }
 
