@@ -15,19 +15,21 @@ const container = require('../container')
  * @param {boolean} toString - direction of conversion
  * @returns {Object} - normalized trade data
  */
+
 function normalizeTradeData(data, toString) {
+    function normalizeValue(value) {
+        return toString ? value.toString() : BigInt(value)
+    }
     return data.map(assetTradeData =>
-        assetTradeData.map(tradeData => ({
-            ...tradeData,
-            ...(tradeData.type !== 'price'
-                ? {
-                    volume: toString ? tradeData.volume.toString() : BigInt(tradeData.volume),
-                    quoteVolume: toString ? tradeData.quoteVolume.toString() : BigInt(tradeData.quoteVolume)
-                }
-                : {
-                    price: toString ? tradeData.price.toString() : BigInt(tradeData.price)
-                })
-        }))
+        assetTradeData.map(({ts, ...tradeData}) => {//we need ts only for debugging purposes, so we can remove it from the data that we send to sync
+            if (tradeData.type === 'price') {
+                tradeData.price = normalizeValue(tradeData.price, toString)
+            } else {
+                tradeData.volume = normalizeValue(tradeData.volume, toString)
+                tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
+            }
+            return tradeData
+        })
     )
 }
 
@@ -231,16 +233,11 @@ class Trades {
                                 || nodeAssetSourceData.price !== assetSourceData.price
                                 || nodeAssetSourceData.quoteVolume !== assetSourceData.quoteVolume
                                 || nodeAssetSourceData.volume !== assetSourceData.volume
-                                || nodeAssetSourceData.ts !== assetSourceData.ts
                     ) {
                         logger.trace(`Data for source ${assetSourceData.source}, timestamp ${timestamp}, assetIndex ${assetIndex}, not matching in node ${pubkey}`)
                         continue
                     }
                     verifiedCount++
-                }
-                if (assetSourceData.ts * 1000 !== timestamp) {
-                    logger.warn(`Data for source ${assetSourceData.source}, timestamp ${timestamp}, assetIndex ${assetIndex}, not matching timestamp`)
-                    continue
                 }
                 //if we have majority, push the data to the cache, otherwise skip it
                 if (!hasMajority(container.settingsManager.config.nodes.size, verifiedCount)) {

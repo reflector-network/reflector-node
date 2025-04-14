@@ -255,14 +255,14 @@ function getPriceSyncMessage(tradesData) {
 }
 
 /**
+ * Returns the normalized current timestamp and the timestamp of the last completed trades data (basically it's from timestamp)
  * @returns {{currentTimestamp: number, tradesTimestamp: number}}
  */
 function getCurrentTimestampInfo() {
     const currentTimestamp = normalizeTimestamp(Date.now(), minute)
-    const timestamp = currentTimestamp - minute
     return {
         currentTimestamp,
-        tradesTimestamp: timestamp
+        tradesTimestamp: currentTimestamp - minute
     }
 }
 
@@ -347,7 +347,6 @@ class TradesManager {
      */
     addSyncData(pubkey, tradesData) {
         for (const [key, timestampData] of Object.entries(tradesData)) {
-            let lastTimestamp = 0
             for (let [timestamp, data] of Object.entries(timestampData)) {
                 timestamp = Number(timestamp)
                 this.__trades.push(
@@ -357,12 +356,11 @@ class TradesManager {
                     timestamp,
                     data.trades
                 )
-                lastTimestamp = Math.max(lastTimestamp, timestamp)
-            }
-            try {
-                this.__getOrAddTimestampSync(key, lastTimestamp).add(pubkey)
-            } catch (err) {
-                logger.debug(`Error adding sync data for key ${key}, last timestamp ${lastTimestamp}. ${err.message}`)
+                try {
+                    this.__getOrAddTimestampSync(key, timestamp).add(pubkey)
+                } catch (err) {
+                    logger.debug(`Error adding sync data for key ${key}, last timestamp ${timestamp}. ${err.message}`)
+                }
             }
         }
     }
@@ -381,8 +379,7 @@ class TradesManager {
      * @returns {TimestampSyncItem}
      */
     __getOrAddTimestampSync(key, timestamp) {
-        const currentTimestamp = timestamp + minute //trades data timestamp, basically current normalized timestamp - 1 minute, so add 1 minute to the timestamp
-        const maxTime = currentTimestamp
+        const maxTime = timestamp
             + container.settingsManager.appConfig.dbSyncDelay //add db sync delay
             + 35 * 1000 //30 seconds for trades data fetching, and 5 seconds for the nodes sync
 
@@ -407,28 +404,25 @@ class TradesManager {
      */
     async loadTradesDataForSource(assetsMap) {
         /**@type {TimestampSyncItem} */
-        let timestampSync = null
         try {
             const {currentTimestamp, tradesTimestamp} = getCurrentTimestampInfo()
-            logger.trace({assetsMap: assetsMap.toPlainObject()}, `Loading trades data for the asset map at timestamp ${tradesTimestamp}, current timestamp ${currentTimestamp}`)
+            logger.trace({assetsMap: assetsMap.toPlainObject()}, `Loading trades data for the asset map at trades timestamp ${tradesTimestamp}, timestamp ${currentTimestamp}`)
 
             const {source, baseAsset} = assetsMap
 
             const key = formatSourceAssetKey(source, baseAsset)
             const lastTimestamp = this.__trades.getLastTimestamp(key)
 
-            const count = getSampleSize(lastTimestamp, tradesTimestamp)
+            const count = getSampleSize(lastTimestamp, currentTimestamp)
             //if count is greater than 0, then we need to load volumes
             if (count === 0) {
-                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, timestamp ${tradesTimestamp}, last timestamp ${lastTimestamp}, current timestamp ${currentTimestamp}`)
+                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, trades timestamp ${tradesTimestamp}, last timestamp ${lastTimestamp}, timestamp ${currentTimestamp}`)
                 return
             }
 
-            timestampSync = this.__getOrAddTimestampSync(key, tradesTimestamp)
-
             const from = tradesTimestamp - ((count - 1) * minute)
 
-            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset}, timestamp ${tradesTimestamp}, from ${from}, count ${count}`)
+            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset} for timestamp ${currentTimestamp}, trades timestamp ${tradesTimestamp}, from ${from}, count ${count}`)
 
             const dataSource = dataSourcesManager.get(source)
 
@@ -436,7 +430,7 @@ class TradesManager {
             const tradesData = await loadTradesData(dataSource, baseAsset, assetsMap.assets, from, count)
 
             //iterate over the data from the current node, starting from the latest timestamp
-            let currentIterationTimestamp = tradesTimestamp
+            let currentIterationTimestamp = currentTimestamp
             //broadcast items
             const broadcastItems = new Map([[key, new Map()]])
             //push volumes to the cache
@@ -450,6 +444,7 @@ class TradesManager {
                     currentIterationTimestamp,
                     currentTimestampData
                 )
+                this.__getOrAddTimestampSync(key, currentIterationTimestamp).add(container.settingsManager.appConfig.publicKey)
                 broadcastItems.get(key).set(currentIterationTimestamp, tradeDataItem)
                 currentIterationTimestamp = currentIterationTimestamp - minute
             }
@@ -457,8 +452,6 @@ class TradesManager {
             nodesManager.broadcast(getPriceSyncMessage(broadcastItems))
 
             logger.trace(`Pushed trades data for source ${source}, base asset ${baseAsset}, from ${from}, to ${from + (count - 1) * minute}`)
-            //add the current node to the list of nodes that have the data
-            timestampSync.add(container.settingsManager.appConfig.publicKey)
         } catch (err) {
             logger.error({err}, `Error loading prices for source ${assetsMap.source} and base asset ${assetsMap.baseAsset}`)
         }
@@ -480,12 +473,10 @@ class TradesManager {
 
     async getTradesData(source, baseAsset, assets, timestamp) {
         const key = formatSourceAssetKey(source, baseAsset)
-        //ensure we have latest data
-        const {tradesTimestamp} = getCurrentTimestampInfo()
-        if (this.__trades.getLastTimestamp(key) < tradesTimestamp)
-            await this.__getOrAddTimestampSync(key, tradesTimestamp)
+        if (this.__trades.getLastTimestamp(key) < timestamp)
+            await this.__getOrAddTimestampSync(key, timestamp)
                 .readyPromise
-                .catch(err => logger.error({err}, `Error getting pending trades data for key ${key}, timestamp ${tradesTimestamp}`))
+                .catch(err => logger.error({err}, `Error getting pending trades data for key ${key}, timestamp ${timestamp}`))
         return this.__trades.getTradesData(key, timestamp, assets)
     }
 }

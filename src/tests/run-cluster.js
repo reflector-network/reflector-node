@@ -43,6 +43,21 @@ const contractConfigs = [
 ]
 
 const nodeConfigs = [
+    {
+        isInitNode: true,
+        secret: 'SCGO5GR4ZDAXU7BECOIFRO5J3STD2HQECPG4X3XQ4K75VZ64WOFVLQHR',
+        pubkey: 'GC5YHXAY56CXQIWCDUXL62AOZNDSW4BLFSVPFPXW5UN4CC2ZZSRLH5KV'
+    },
+    {
+        isInitNode: true,
+        secret: 'SDMHSB2JYLSEMHCX6ZZX7X42YHOZSNNK3JOLAOQE7ORC63IJHWDIBCJ4',
+        pubkey: 'GD3CE7O6V77SM7W3UEXNQKG4UNJ6RKHAD2DJ4QEXOOSFXWBNL2CI6ODQ'
+    },
+    {
+        isInitNode: true,
+        secret: 'SB5KAGPBW3AIBUYGYQSMPKSGLLZSKJNRPLFQF4CDGKNKTZQ6XZJTWASO',
+        pubkey: 'GBQPZIGCRQZ3L6A5WGIK6YPZ7X4FMUJAWL44M7OY2Q63TPKANEWT5MMA'
+    }
 ]
 
 function generateClusterConfigData() {
@@ -186,14 +201,12 @@ async function generateNewCluster(clusterConfig) {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), {encoding: 'utf-8'})
 
     for (let i = 0; i < clusterConfig.nodes.length; i++) {
-        const nodeConfig = nodeConfigs[i]
+        const nodeConfig = clusterConfig.nodes[i]
         const appConfig = generateAppConfig(nodeConfig.secret, constants.getDataSources(), i)
         const nodeHomeDir = getReflectorHomeDirName(i)
         fs.mkdirSync(nodeHomeDir, {recursive: true})
         fs.writeFileSync(path.join(nodeHomeDir, 'app.config.json'), JSON.stringify(appConfig, null, 2), {encoding: 'utf-8'})
-        if (nodeConfig.isInitNode) {
-            fs.copyFileSync(configPath, path.join(nodeHomeDir, '.config.json'))
-        }
+        fs.copyFileSync(configPath, path.join(nodeHomeDir, '.config.json'))
     }
 }
 
@@ -270,8 +283,9 @@ async function run(clusterConfig) {
     if (!fs.existsSync(configsPath)) {
         if (!clusterConfig) {
             clusterConfig = generateClusterConfigData()
-            console.log('<-Cluster config generated->'.repeat(5))
+            console.log('<--Cluster config generated-->'.repeat(5))
             console.log(JSON.stringify(clusterConfig, null, 2))
+            console.log('<--Cluster config generated-->'.repeat(5))
         }
         await ensureClusterDataReady(clusterConfig)
         await generateNewCluster(clusterConfig)
