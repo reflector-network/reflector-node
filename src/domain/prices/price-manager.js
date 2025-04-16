@@ -144,7 +144,14 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
         logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
         return {price: 0n, decimals}
     }
-    const price = calcPrice(tradesData, decimals, [0n])[0]
+    function normalizeTradesData(tradesData) {
+        return tradesData.map(td => {
+            if (td.type === 'price')
+                return {...td, sum: td.price, entries: 1}
+            return td
+        })
+    }
+    const price = calcPrice(tradesData.map(normalizeTradesData), decimals, [0n])[0]
     if (price === 0n)
         logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals}

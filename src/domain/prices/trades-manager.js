@@ -1,6 +1,6 @@
 const {normalizeTimestamp, Asset, AssetType, ContractTypes, hasMajority} = require('@reflector/reflector-shared')
 const {getTradesData} = require('@reflector/reflector-exchanges-connector')
-const {getTradesData: getFiatTradesData} = require('@reflector/fiat-exchanges-connector')
+const {getTradesData: getFiatTradesData} = require('@reflector/reflector-fx-connector')
 const {aggregateTrades} = require('@reflector/reflector-stellar-connector')
 const DataSourceTypes = require('../../models/data-source-types')
 const dataSourcesManager = require('../data-sources-manager')

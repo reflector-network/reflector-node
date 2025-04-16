@@ -9,7 +9,8 @@ const baseStellarAsset = new Asset(AssetType.STELLAR, 'USDC:GA5ZSEJYB37JRC5AVCIA
 const defaultBaseAssets = new Map(Object.entries({
     exchanges: baseExchangesAsset,
     pubnet: baseStellarAsset,
-    testnet: baseStellarAsset
+    testnet: baseStellarAsset,
+    forex: baseExchangesAsset
 }))
 
 module.exports = {
