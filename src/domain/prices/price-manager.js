@@ -1,5 +1,5 @@
 const {getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
-const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
+const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice, getAveragePrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
 
@@ -8,18 +8,43 @@ const container = require('../container')
  * @typedef {import('./trades-manager').TimestampTradeData} TimestampTradeData
  */
 
+const lastPriceConsensus = new Map()
+
+function updatePriceConsensusTimestamp(contractId, priceData, timestamp) {
+    let assets = lastPriceConsensus.get(contractId)
+    if (!assets) {
+        assets = []
+        lastPriceConsensus.set(contractId, assets)
+    }
+    for (let i = 0; i < priceData.length; i++) {
+        const assetPriceData = priceData[i]
+        //if the asset price data is not empty or the asset is not in the list, update the timestamp
+        if (assetPriceData?.length < 1 && assets[i] !== undefined) {
+            logger.trace(`Price consensus for contract ${contractId} for asset ${i}: ${timestamp} is not updated`)
+            continue
+        }
+        assets[i] = timestamp
+    }
+    return assets
+}
+
 /**
- * @param {TimestampTradeData} volumes - volumes
+ * @param {TimestampTradeData} tradesData - trades data
  * @param {number} decimals - decimals
  * @param {BigInt[]} prevPrices - previous prices
  * @returns {BigInt[]}
  */
-function calcPrice(volumes, decimals, prevPrices) {
-    const prices = Array(volumes.length).fill(0n)
-    for (let i = 0; i < volumes.length; i++) {
-        const assetVolumes = volumes[i] || []
-        const vwaps = assetVolumes.map(v => getVWAP(v.volume, v.quoteVolume, decimals))
-        prices[i] = getMedianPrice(vwaps) || prevPrices[i] || 0n
+function calcPrice(tradesData, decimals, prevPrices) {
+    const prices = Array(tradesData.length).fill(0n)
+    for (let i = 0; i < tradesData.length; i++) {
+        const assetTradesData = tradesData[i] || []
+        const assetPrices = assetTradesData.map(td => {
+            if (td.type === 'price')
+                return getAveragePrice(td.sum, td.entries, decimals)
+            else
+                return getVWAP(td.volume, td.quoteVolume, decimals)
+        })
+        prices[i] = getMedianPrice(assetPrices) || prevPrices[i] || 0n
     }
 
     return prices
@@ -42,58 +67,72 @@ async function getPricesForContract(contractId, timestamp) {
 
     const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
     //get contract state
-    const contractState = await getOracleContractState(contractId, sorobanRpc)
+    const contractStatePromise = getOracleContractState(contractId, sorobanRpc)
     //get assets for the contract
     const assets = settingsManager.getAssets(contract.contractId, true)
-    const prevPrices = [...contractState.prices, ...Array(assets.length - contractState.prices.length).fill(0n)]
-
-    logger.trace({msg: `Previous prices for contract ${contractId}, timestamp: ${contractState.lastTimestamp}`, prevPrices})
 
     //start of the current timeframe
-    let currentVolumeTimestamp = timestamp
+    let currentTradesDataTimestamp = timestamp - contract.timeframe + minute
 
-    //get volumes
-    const totalVolumes = Array(assets.length).fill(0n).map(() => new Map())
-    while (currentVolumeTimestamp <= timestamp) {
-        //load volumes for the current timestamp
+    //get trades data
+    const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
+    while (currentTradesDataTimestamp <= timestamp) {
+        //load trades data for the current timestamp
         const tradesData = await tradesManager.getTradesData(
             contract.dataSource,
             contract.baseAsset,
             assets,
-            currentVolumeTimestamp
+            currentTradesDataTimestamp
         )
         if (!tradesData)
-            logger.debug(`Volumes not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
-        else //aggregate volumes
+            logger.debug(`Trades data not found for timestamp ${currentTradesDataTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
+        else //aggregate trades data
             for (let i = 0; i < assets.length; i++) {
-                if (tradesData.length <= i) //if the asset was added recently, we don't have volumes for it yet
+                if (tradesData.length <= i) //if the asset was added recently, we don't have trades data for it yet
                     break
-                //get total volume for the asset
-                const totalAssetVolumes = totalVolumes[i]
-                //get volumes for the asset
+                //get total trades data for the asset
+                const totalAssetTradesData = totalTradesData[i]
+                //get trades data for the asset
                 const assetTradeData = tradesData[i]
                 //iterate over sources
                 for (const sourceTradeData of assetTradeData) {
-                    let sourceTotalVolume = totalAssetVolumes.get(sourceTradeData.source)
-                    if (!sourceTotalVolume) {
-                        sourceTotalVolume = {volume: 0n, quoteVolume: 0n}
-                        totalAssetVolumes.set(sourceTradeData.source, sourceTotalVolume)
+                    let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
+                    if (!sourceTotalTradesData) {
+                        sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
+                        totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
                     }
-                    if (sourceTradeData.ts * 1000 !== currentVolumeTimestamp) {
-                        logger.warn(`Volume for source ${sourceTradeData.source} not found for timestamp ${currentVolumeTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
-                        continue
+                    if (sourceTotalTradesData.type === 'price') {
+                        sourceTotalTradesData.sum += sourceTradeData.price
+                        sourceTotalTradesData.entries++
+                    } else {
+                        sourceTotalTradesData.volume += sourceTradeData.volume
+                        sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
                     }
-                    sourceTotalVolume.volume += sourceTradeData.volume
-                    sourceTotalVolume.quoteVolume += sourceTradeData.quoteVolume
                 }
             }
-        currentVolumeTimestamp += minute
+        currentTradesDataTimestamp += minute
     }
-    const volumes = totalVolumes.map(v => [...v.values()])
-    if (!volumes.some(v => v.length !== 0)) //if all volumes are empty
-        throw new Error(`Volumes not found for contract ${contractId} for timestamp ${timestamp}`)
+    const tradesData = totalTradesData.map(v => [...v.values()])
+    if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
+        throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
+
+    //update price consensus timestamps
+    const lastPriceConsensus = updatePriceConsensusTimestamp(contractId, tradesData, timestamp)
+
+    //build prev prices
+    const contractState = await contractStatePromise
+    const prevPrices = Array(assets.length).fill(0n)
+    for (let assetIndex = 0; assetIndex < prevPrices.length; assetIndex++) {
+        //if price wasn't updated by consensus for more than 15 minutes, don't use previous price
+        if (timestamp - lastPriceConsensus[assetIndex] > 15 * minute) {
+            logger.warn(`Price consensus for asset ${assets[assetIndex].toString()} is too old: ${lastPriceConsensus[assetIndex] - timestamp}ms`)
+            continue
+        }
+        prevPrices[assetIndex] = contractState.prices[assetIndex] || 0n
+    }
+
     //compute price
-    const prices = calcPrice(volumes, settingsManager.getDecimals(contractId), prevPrices)
+    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId), prevPrices)
     return prices
 }
 
@@ -105,7 +144,14 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
         logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
         return {price: 0n, decimals}
     }
-    const price = calcPrice(tradesData, decimals, [0n])[0]
+    function normalizeTradesData(tradesData) {
+        return tradesData.map(td => {
+            if (td.type === 'price')
+                return {...td, sum: td.price, entries: 1}
+            return td
+        })
+    }
+    const price = calcPrice(tradesData.map(normalizeTradesData), decimals, [0n])[0]
     if (price === 0n)
         logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
     return {price, decimals}

@@ -8,7 +8,7 @@ class PriceSyncHandler extends BaseHandler {
     allowedChannelTypes = ChannelTypes.OUTGOING
 
     handle(ws, message) {
-        container.tradesManager.addPendingTradesData(ws.pubkey, message.data)
+        container.tradesManager.addSyncData(ws.pubkey, message.data)
     }
 }
 module.exports = PriceSyncHandler

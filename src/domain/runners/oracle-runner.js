@@ -48,7 +48,7 @@ class OracleRunner extends RunnerBase {
             && contractState.lastTimestamp < timestamp
             && !this.__isTxExpired(timestamp, this.__delay)) {
 
-            const prices = await getPricesForContract(this.contractId, timestamp - timeframe) //last completed timeframe
+            const prices = await getPricesForContract(this.contractId, timestamp)
 
             updateTxBuilder = async (account, fee, maxTime) => await buildOraclePriceUpdateTransaction({
                 account,

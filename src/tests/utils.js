@@ -1,6 +1,8 @@
 const {exec} = require('child_process')
-const {TransactionBuilder, Operation} = require('@stellar/stellar-sdk')
-const {getMajority, BallotCategories, ContractTypes} = require('@reflector/reflector-shared')
+const crypto = require('crypto')
+const fs = require('fs')
+const {TransactionBuilder, Operation, Address, Keypair} = require('@stellar/stellar-sdk')
+const {getMajority, ContractTypes} = require('@reflector/reflector-shared')
 const axios = require('axios')
 const constants = require('./constants')
 
@@ -11,6 +13,9 @@ const constants = require('./constants')
 const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
 const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
 const pathToDAOContractWasm = './tests/reflector_dao_contract.wasm'
+
+
+const contractExistsRegex = /"contract already exists",\s*Bytes\(([0-9a-fA-F]+)\)/
 
 async function runCommand(command, args) {
     return await new Promise((resolve, reject) => {
@@ -30,20 +35,85 @@ async function runCommand(command, args) {
     })
 }
 
-async function deployContract(admin, contractType) {
+async function deployContract(server, deployer, contractType, salt) {
+
     let pathToContractWasm = pathToOracleContractWasm
     if (contractType === ContractTypes.SUBSCRIPTIONS)
         pathToContractWasm = pathToSubscriptionsContractWasm
     else if (contractType === ContractTypes.DAO)
         pathToContractWasm = pathToDAOContractWasm
-    const command = `stellar contract deploy --wasm "${pathToContractWasm}" --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 100000000`
-    console.log(command)
-    return await runCommand(command)
+
+    const deployerKeypair = Keypair.fromSecret(deployer)
+
+    const account = await server.getAccount(deployerKeypair.publicKey())
+
+    const wasm = fs.readFileSync(pathToContractWasm)
+    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+        .setTimeout(30000)
+        .addOperation(Operation.uploadContractWasm({wasm}))
+
+    let tx = txBuilder.build()
+    tx = await server.prepareTransaction(tx)
+    tx.sign(deployerKeypair)
+
+    let response = await sendTransaction(server, tx)
+    const hash = response.returnValue.toXDR('hex').slice(16)
+
+    txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+        .setTimeout(30000)
+        .addOperation(Operation.createCustomContract({
+            address: new Address(deployerKeypair.publicKey()),
+            wasmHash: Buffer.from(hash, 'hex'),
+            salt: crypto.createHash('sha256').update(salt).digest()
+        }))
+    tx = txBuilder.build()
+    try {
+        tx = await server.prepareTransaction(tx)
+    } catch (e) {
+        const match = e.message.match(contractExistsRegex)
+
+        if (match) {
+            const bytesValue =  Buffer.from(match[1], 'hex')
+            const contractId = Address.contract(bytesValue).toString()
+            console.log("Contract already deployed:", contractId)
+            return contractId
+        }
+        throw e
+    }
+    tx.sign(deployerKeypair)
+
+    response =  await sendTransaction(server, tx)
+    const contractId = Address.contract(response.returnValue.address().contractId()).toString()
+
+    return contractId
 }
 
-async function generateAssetContract(asset, admin) {
-    const command = `stellar contract asset deploy --asset ${asset} --source ${admin} --rpc-url ${constants.rpcUrl} --network-passphrase "${constants.network}" --fee 1000000000`
-    return await runCommand(command)
+async function generateAssetContract(server, asset, admin) {
+    const adminKeypair = Keypair.fromSecret(admin)
+    const account = await server.getAccount(adminKeypair.publicKey())
+    const txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+        .setTimeout(30000)
+        .addOperation(Operation.createStellarAssetContract({asset}))
+
+    let tx = txBuilder.build()
+    try {
+        tx = await server.prepareTransaction(tx)
+    } catch (e) {
+        const match = e.message.match(contractExistsRegex)
+
+        if (match) {
+            const bytesValue =  Buffer.from(match[1], 'hex')
+            const contractId = Address.contract(bytesValue).toString()
+            console.log("Asset already deployed:", contractId)
+            return contractId
+        }
+        throw e
+    }
+    tx.sign(adminKeypair)
+
+    const response = await sendTransaction(server, tx)
+    const assetContractId = Address.contract(response.returnValue.value().value()).toString()
+    return assetContractId
 }
 
 async function mint(server, asset, destination, amount, account, signer) {
@@ -65,7 +135,7 @@ async function mint(server, asset, destination, amount, account, signer) {
     await sendTransaction(server, tx)
 }
 
-async function addTrust(server, asset, account, signer) {
+async function addTrust(server, asset, account, signers) {
     let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
     txBuilder = txBuilder
         .setTimeout(30000)
@@ -77,12 +147,12 @@ async function addTrust(server, asset, account, signer) {
 
     const tx = txBuilder.build()
 
-    tx.sign(signer)
+    tx.sign(...signers)
 
     await sendTransaction(server, tx)
 }
 
-function generateAppConfig(secret, dataSources, node) {
+function generateAppConfig(secret, dataSources) {
     return {
         handshakeTimeout: 0,
         secret,
@@ -109,7 +179,7 @@ function generateContractConfig(configData) {
 
 function generateOracleContractConfig(admin, contractId, dataSource) {
     const assets = {}
-    switch (dataSource.name) {
+    switch (dataSource) {
         case 'exchanges':
             assets.baseAsset = constants.baseGenericAsset
             assets.assets = constants.genericAssets
@@ -117,6 +187,10 @@ function generateOracleContractConfig(admin, contractId, dataSource) {
         case 'pubnet':
             assets.baseAsset = constants.baseStellarPubnetAsset
             assets.assets = constants.stellarPubnetAssets
+            break
+        case 'forex':
+            assets.baseAsset = constants.baseGenericAsset
+            assets.assets = constants.fiatAssets
             break
         default:
             throw new Error('Unknown data source')
@@ -130,7 +204,7 @@ function generateOracleContractConfig(admin, contractId, dataSource) {
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,
-        dataSource: dataSource.name
+        dataSource
     }
 }
 

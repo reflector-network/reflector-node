@@ -1,3 +1,4 @@
+const logger = require('../logger')
 const DataSourceTypes = require('./data-source-types')
 
 class DataSource {
@@ -8,7 +9,7 @@ class DataSource {
         this.__setType(raw.type)
         this.__setName(raw.name)
         this.__setSorobanRpc(raw.sorobanRpc)
-        this.__setSecret(raw.secret)
+        this.__setProviders(raw.providers)
     }
 
     /**
@@ -55,8 +56,10 @@ class DataSource {
         this.sorobanRpc = sorobanRpc
     }
 
-    __setSecret(secret) {
-        this.secret = secret
+    __setProviders(providers) {
+        if (!Array.isArray(providers) || providers.length === 0)
+            logger.warn(`No providers are defined for data source ${this.name}`)
+        this.providers = providers
     }
 }
 

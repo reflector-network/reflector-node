@@ -1,4 +1,5 @@
-const {setGateway} = require('@reflector/reflector-exchanges-connector')
+const {setGateway: setDexGateways} = require('@reflector/reflector-exchanges-connector')
+const {setGateway: setForexGateways} = require('@reflector/reflector-fx-connector')
 const {ValidationError, IssuesContainer} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
 const logger = require('../logger')
@@ -33,7 +34,8 @@ function __registerConnection(dataSource) {
         name,
         sorobanRpc,
         secret,
-        type
+        type,
+        providers
     } = dataSource
     switch (type) {
         case DataSourceTypes.DB:
@@ -44,7 +46,7 @@ function __registerConnection(dataSource) {
             break
         case DataSourceTypes.API:
             {
-                __connections.set(name, {type, secret, name})
+                __connections.set(name, {type, secret, name, providers})
             }
             break
         default:
@@ -84,10 +86,8 @@ class DataSourcesManager extends IssuesContainer {
      */
     setGateways(gateways) {
         const {urls, gatewayValidationKey} = gateways || {}
-        for (const connection of __connections.values()) {
-            if (connection.type === DataSourceTypes.API)
-                setGateway(urls, gatewayValidationKey, false)
-        }
+        setDexGateways(urls, gatewayValidationKey)
+        setForexGateways(urls, gatewayValidationKey)
     }
 
     /**

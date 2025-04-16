@@ -113,7 +113,7 @@ class SubscriptionsRunner extends RunnerBase {
             syncData,
             root,
             rootHex
-        } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp - this.__timeframe) //get actions for the completed timeframe
+        } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp) //get actions for the completed timeframe
 
         let chargeTimestamp = timestamp
 
