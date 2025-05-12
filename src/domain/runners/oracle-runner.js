@@ -1,4 +1,4 @@
-const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState, ContractTypes} = require('@reflector/reflector-shared')
+const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
 const {getPricesForContract} = require('../prices/price-manager')
@@ -28,10 +28,11 @@ class OracleRunner extends RunnerBase {
         //get account info
         const sourceAccount = await getAccount(admin, sorobanRpc)
 
-        const contractState = await getContractState(this.contractId, sorobanRpc)
+        const contractState = await getOracleContractState(this.contractId, sorobanRpc)
 
         logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
         statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
+        settingsManager.setAssetTtls(this.contractId, contractState.assetTtls)
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {

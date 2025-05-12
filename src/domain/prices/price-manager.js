@@ -123,6 +123,10 @@ async function getPricesForContract(contractId, timestamp) {
     const contractState = await contractStatePromise
     const prevPrices = Array(assets.length).fill(0n)
     for (let assetIndex = 0; assetIndex < prevPrices.length; assetIndex++) {
+        if (!assets[assetIndex]) {
+            logger.debug(`Asset ${assetIndex} not found for contract ${contractId}. Probably it has expired`)
+            continue
+        }
         //if price wasn't updated by consensus for more than 15 minutes, don't use previous price
         if (timestamp - lastPriceConsensus[assetIndex] > 15 * minute) {
             logger.warn(`Price consensus for asset ${assets[assetIndex].toString()} is too old: ${lastPriceConsensus[assetIndex] - timestamp}ms`)
@@ -133,6 +137,7 @@ async function getPricesForContract(contractId, timestamp) {
 
     //compute price
     const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId), prevPrices)
+    logger.trace(`Prices for contract ${contractId} at ${timestamp}: ${prices.map(p => p.toString())}`)
     return prices
 }
 

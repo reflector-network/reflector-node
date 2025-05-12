@@ -61,7 +61,7 @@ class TradesDataItem {
     getTradesData(assets) {
         const tradesData = []
         for (const asset of assets) {
-            const assetInfo = this.assetsMap.getAssetInfo(asset.code)
+            const assetInfo = this.assetsMap.getAssetInfo(asset?.code) //asset can be null, if it's expired
             if (assetInfo === undefined) {
                 tradesData.push([]) //no data for the asset
                 continue

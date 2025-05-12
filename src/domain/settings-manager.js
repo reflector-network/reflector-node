@@ -257,9 +257,29 @@ class SettingsManager {
      * @returns {Asset[]}
      */
     getAssets(contractId, includePending = false) {
+        let assets = null
         if (includePending && this.pendingConfig && this.pendingConfig.config.contracts.has(contractId)) //contract can be deleted in pending config
-            return __getContractConfig(this.pendingConfig.config, contractId).assets
-        return __getContractConfig(this.config, contractId).assets
+            assets = [...__getContractConfig(this.pendingConfig.config, contractId).assets]
+        assets = [...__getContractConfig(this.config, contractId).assets]
+        //set null for expired assets
+        const assetTtls = this.__assetTtls.get(contractId) || []
+        const now = BigInt(Date.now())
+        for (let i = 0; i < assetTtls.length; i++)
+            if (now > assetTtls[i]) //asset is expired
+                assets[i] = null
+        return assets
+    }
+
+    /**
+     * @param {string} contractId - contract id
+     * @param {BigInt[]} assetTtls - asset ttls
+     */
+    setAssetTtls(contractId, assetTtls) {
+        if (!contractId)
+            throw new Error('Contract id is required')
+        if (!assetTtls)
+            return
+        this.__assetTtls.set(contractId, assetTtls)
     }
 
     /**
@@ -297,6 +317,8 @@ class SettingsManager {
             isTraceEnabled: this.appConfig.trace
         }
     }
+
+    __assetTtls = new Map()
 }
 
 module.exports = SettingsManager

@@ -210,7 +210,13 @@ function getAssetsMap() {
     return Array.from(assetsMap.values())
 }
 
-//add asset to the map function
+/**
+ * Add asset to the map, ensure that the map is created if it doesn't exist
+ * @param {Map<string,AssetsMap>} assetsMap - assets map
+ * @param {string} source - source for the map
+ * @param {AssetsMap.Asset} baseAsset - base asset
+ * @param {AssetsMap.Asset[]} assets - assets
+ */
 function addAssetToMap(assetsMap, source, baseAsset, assets) {
     const key = formatSourceAssetKey(source, baseAsset)
     let am = assetsMap.get(key)
