@@ -7,6 +7,7 @@ const MessageTypes = require('../../ws-server/handlers/message-types')
 const nodesManager = require('../nodes/nodes-manager')
 const {submitTransaction, txTimeoutMessage} = require('../../utils')
 const statisticsManager = require('../statistics-manager')
+const {runWithContext} = require('../../async-storage')
 
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
@@ -129,7 +130,7 @@ class RunnerBase {
         const timestamp = normalizeTimestamp(Date.now(), this.__timeframe)
         this.isRunning = true
         //awoid starting before sync time
-        setTimeout(() => this.worker(timestamp), this.__getWorkerTimeout(timestamp))
+        setTimeout(() => this.__runWorker(timestamp), this.__getWorkerTimeout(timestamp))
         this.__clearPendingSignatures()
     }
 
@@ -214,7 +215,7 @@ class RunnerBase {
             const nextTimestamp = this.__getNextTimestamp(timestamp)
             const timeout = this.__getWorkerTimeout(nextTimestamp)
             logger.debug(`Worker timeout: ${timeout}, ${this.__contractInfo}`)
-            this.__workerTimeout = setTimeout(() => this.worker(nextTimestamp), timeout)
+            this.__workerTimeout = setTimeout(() => this.__runWorker(nextTimestamp), timeout)
         }
     }
 
@@ -415,6 +416,10 @@ class RunnerBase {
         if (!contractConfig)
             throw new Error(`Config not found for oracle id: ${this.contractId}`)
         return contractConfig
+    }
+
+    __runWorker(timestamp) {
+        return runWithContext(async () => await this.worker(timestamp))
     }
 }
 

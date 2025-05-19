@@ -87,7 +87,7 @@ class DataSourcesManager extends IssuesContainer {
     setGateways(gateways) {
         const {urls, gatewayValidationKey} = gateways || {}
         setDexGateways(urls, gatewayValidationKey)
-        setForexGateways(urls, gatewayValidationKey)
+        //setForexGateways(urls, gatewayValidationKey)
     }
 
     /**

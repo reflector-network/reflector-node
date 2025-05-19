@@ -4,6 +4,7 @@ const pino = require('pino')
 const rfs = require('rotating-file-stream')
 const container = require('./domain/container')
 const {isDebugging} = require('./utils/utils')
+const {storage} = require('./async-storage')
 
 const traceLevel = 'trace'
 const infoLevel = 'info'
@@ -123,6 +124,9 @@ const baseLogOptions = {
         bindings() {
             return {}
         }
+    },
+    mixin() {
+        return {ctxId: storage.getStore()?.id}
     }
 }
 

@@ -25,6 +25,7 @@ function updatePriceConsensusTimestamp(contractId, priceData, timestamp) {
         }
         assets[i] = timestamp
     }
+    logger.trace(`Price consensus for contract ${contractId}: ${assets.map(a => a.toString())}`)
     return assets
 }
 
