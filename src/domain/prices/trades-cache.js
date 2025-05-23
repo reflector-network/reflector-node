@@ -6,8 +6,6 @@
  * @typedef {import('./assets-map')} AssetsMap
  */
 
-const {hasMajority} = require('@reflector/reflector-shared')
-const logger = require('../../logger')
 const container = require('../container')
 
 /**
@@ -121,7 +119,7 @@ class NodeTradesCache {
     /**
      * @param {string} key - key
      * @param {number} timestamp - timestamp
-     * @param {string[]} assets - assets
+     * @param {Asset[]} assets - assets
      * @returns {TimestampTradeData}
      */
     getTradesData(key, timestamp, assets) {
@@ -190,66 +188,14 @@ class Trades {
      * @param {string} key - key
      * @param {number} timestamp - timestamp
      * @param {string[]} assets - assets
-     * @returns {TimestampTradeData}
+     * @returns {Map<string, TimestampTradeData>}}
      */
     getTradesData(key, timestamp, assets) {
-        //reverse the data to have the latest data first
-        //iterate over the pending data from current node. We will not validate the data from other nodes if it not present in the current node data
-        const currentNodeData = this.__trades
-            .get(container.settingsManager.appConfig.publicKey)
-            .getTradesData(key, timestamp, assets)
-
-        //no reason to validate the data if it's not present in the current node data
-        if (!currentNodeData)
-            return
-
         //get all nodes data except the current node
-        const allNodesData = [...this.__trades.keys()]
-            .filter(pubkey => pubkey !== container.settingsManager.appConfig.publicKey)
+        const data = [...this.__trades.keys()]
             .map(pubkey => [pubkey, this.__trades.get(pubkey).getTradesData(key, timestamp, assets)])
-
-        //iterate over the assets data from the current node and validate it with the data from the other nodes
-        const majorityData = []
-        for (let assetIndex = 0; assetIndex < currentNodeData.length; assetIndex++) {
-            const assetMajorityData = []
-            majorityData.push(assetMajorityData)
-            const assetData = currentNodeData[assetIndex]
-            //iterate over the sources data for the asset
-            for (const assetSourceData of assetData) {
-                let verifiedCount = 1 //count the current node as verified
-                //find the data for the source in the other nodes data
-                for (const nodeData of allNodesData) {
-                    const [pubkey, nodeTradeData] = nodeData
-                    if (!nodeTradeData) {
-                        logger.trace(`Data for source ${assetSourceData.source}, timestamp ${timestamp}, assetIndex ${assetIndex}, not found in node ${pubkey}`)
-                        continue
-                    }
-                    const nodeAssetSourceData = nodeTradeData[assetIndex]?.find(d => d.source === assetSourceData.source)
-                    if (!nodeAssetSourceData) {
-                        logger.trace(`Data for source ${assetSourceData.source}, timestamp ${timestamp}, assetIndex ${assetIndex}, not found in node ${pubkey}`)
-                        continue
-                    } else if (
-                        nodeAssetSourceData.type !== assetSourceData.type
-                                || nodeAssetSourceData.price !== assetSourceData.price
-                                || nodeAssetSourceData.quoteVolume !== assetSourceData.quoteVolume
-                                || nodeAssetSourceData.volume !== assetSourceData.volume
-                    ) {
-                        logger.trace(`Data for source ${assetSourceData.source}, timestamp ${timestamp}, assetIndex ${assetIndex}, not matching in node ${pubkey}`)
-                        continue
-                    }
-                    verifiedCount++
-                }
-                //if we have majority, push the data to the cache, otherwise skip it
-                if (!hasMajority(container.settingsManager.config.nodes.size, verifiedCount)) {
-                    logger.info(`Data for source ${assetSourceData.source}, timestamp ${timestamp}, assetIndex ${assetIndex}, not verified`)
-                    continue
-                }
-                assetMajorityData.push(assetSourceData)
-            }
-        }
-        logger.debug(`Verified data for key ${key}, timestamp ${timestamp}`)
-        logger.debug(normalizeTradeData(majorityData, true))
-        return majorityData
+        const allNodesData = new Map(data)
+        return allNodesData
     }
 
     getAll() {

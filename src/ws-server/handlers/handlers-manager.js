@@ -51,7 +51,7 @@ class HandlersManager {
         if (!handler.allowedChannelTypes & channel)
             throw new Error(`Message type ${message.type} is not supported for channel ${channel}`)
         return await runWithContext(async() => {
-            logger.trace(`Start handle message. Type: ${message.type}, channel: ${channel.type}`)
+            logger.trace(`Start handle message. Type: ${message.type}, channel: ${channel.type}, pubkey: ${channel.pubkey}`)
             return await handler.handle(channel, message)
         })
     }

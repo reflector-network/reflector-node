@@ -1,4 +1,4 @@
-const {getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
+const {getOracleContractState, ContractTypes, getMajority} = require('@reflector/reflector-shared')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice, getAveragePrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
@@ -59,7 +59,7 @@ const minute = 60 * 1000
  * @returns {Promise<BigInt[]>}
  */
 async function getPricesForContract(contractId, timestamp) {
-    const {settingsManager, tradesManager} = container
+    const {settingsManager} = container
     const contract = settingsManager.getContractConfig(contractId)
     if (!contract)
         throw new Error(`Contract ${contractId} not found`)
@@ -72,46 +72,40 @@ async function getPricesForContract(contractId, timestamp) {
     //get assets for the contract
     const assets = settingsManager.getAssets(contract.contractId, true)
 
-    //start of the current timeframe
-    let currentTradesDataTimestamp = timestamp - contract.timeframe + minute
-
     //get trades data
+    const concensusData = await getConcensusData(
+        contract.dataSource,
+        contract.baseAsset,
+        assets,
+        timestamp,
+        contract.timeframe
+    )
+    //aggregate trades data
     const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
-    while (currentTradesDataTimestamp <= timestamp) {
-        //load trades data for the current timestamp
-        const tradesData = await tradesManager.getTradesData(
-            contract.dataSource,
-            contract.baseAsset,
-            assets,
-            currentTradesDataTimestamp
-        )
-        if (!tradesData)
-            logger.debug(`Trades data not found for timestamp ${currentTradesDataTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
-        else //aggregate trades data
-            for (let i = 0; i < assets.length; i++) {
-                if (tradesData.length <= i) //if the asset was added recently, we don't have trades data for it yet
-                    break
-                //get total trades data for the asset
-                const totalAssetTradesData = totalTradesData[i]
-                //get trades data for the asset
-                const assetTradeData = tradesData[i]
-                //iterate over sources
-                for (const sourceTradeData of assetTradeData) {
-                    let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
-                    if (!sourceTotalTradesData) {
-                        sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
-                        totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
-                    }
-                    if (sourceTotalTradesData.type === 'price') {
-                        sourceTotalTradesData.sum += sourceTradeData.price
-                        sourceTotalTradesData.entries++
-                    } else {
-                        sourceTotalTradesData.volume += sourceTradeData.volume
-                        sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
-                    }
+    for (const timestampData of concensusData) {
+        for (let i = 0; i < assets.length; i++) {
+            if (timestampData.length <= i) //if the asset was added recently, we don't have trades data for it yet
+                break
+            //get total trades data for the asset
+            const totalAssetTradesData = totalTradesData[i]
+            //get trades data for the asset
+            const assetTradeData = timestampData[i]
+            //iterate over sources
+            for (const sourceTradeData of assetTradeData) {
+                let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
+                if (!sourceTotalTradesData) {
+                    sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
+                    totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
+                }
+                if (sourceTotalTradesData.type === 'price') {
+                    sourceTotalTradesData.sum += sourceTradeData.price
+                    sourceTotalTradesData.entries++
+                } else {
+                    sourceTotalTradesData.volume += sourceTradeData.volume
+                    sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
                 }
             }
-        currentTradesDataTimestamp += minute
+        }
     }
     const tradesData = totalTradesData.map(v => [...v.values()])
     if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
@@ -143,15 +137,15 @@ async function getPricesForContract(contractId, timestamp) {
 }
 
 async function getPriceForAsset(source, baseAsset, asset, timestamp) {
-    const {tradesManager, settingsManager} = container
-    const tradesData = await tradesManager.getTradesData(source, baseAsset, [asset], timestamp)
+    const {settingsManager} = container
+    const tradesData = await getConcensusData(source, baseAsset, [asset], timestamp)
     const decimals = settingsManager.getDecimals()
     if (!tradesData || tradesData.length === 0 || tradesData[0] === null) {
         logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
         return {price: 0n, decimals}
     }
-    function normalizeTradesData(tradesData) {
-        return tradesData.map(td => {
+    function normalizeTradesData(data) {
+        return data.map(td => {
             if (td.type === 'price')
                 return {...td, sum: td.price, entries: 1}
             return td
@@ -188,7 +182,121 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
     return {price, decimals}
 }
 
+/**
+ * @param {string} source - source of the data
+ * @param {string} base - base asset
+ * @param {string[]} assets - assets to get data for
+ * @param {number} timestamp - timestamp to get data for
+ * @param {number} timeframe - timeframe to get data for
+ * @returns {Promise<TimestampTradeData[]>}
+ */
+async function getConcensusData(source, base, assets, timestamp, timeframe) {
+    const {settingsManager, tradesManager} = container
+
+    const majorityCount = getMajority(settingsManager.nodes.length)
+    const currentPubkey = settingsManager.appConfig.publicKey
+
+    const nodes = settingsManager.nodes.map(({pubkey}, index) => ({
+        pubkey,
+        mask: 1 << index
+    }))
+
+    const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask
+
+    const isSameData = (a, b) =>
+        a.type === b.type &&
+      a.price === b.price &&
+      a.quoteVolume === b.quoteVolume &&
+      a.volume === b.volume
+
+    let currentTimestamp = timestamp - timeframe
+    const masks = new Map()
+    const candidate = []
+
+    //get trades data for the current timestamp
+    while (currentTimestamp <= timestamp) {
+        currentTimestamp += minute
+
+        const tradesData = await tradesManager.getTradesData(
+            source,
+            base,
+            assets,
+            currentTimestamp
+        )
+
+        //skip if majority is not possible
+        if (tradesData.size < majorityCount) {
+            logger.debug(`No majority for ts ${currentTimestamp}, contract ${source}, base ${base.code}`)
+            continue
+        }
+
+        //skip if no data for the current node
+        const currentNodeData = tradesData.get(currentPubkey)
+        if (!currentNodeData) {
+            logger.debug(`Current node data missing for ts ${currentTimestamp}, contract ${source}`)
+            continue
+        }
+
+        //iterate over the current node data and check if it matches with the other nodes
+        for (const assetData of currentNodeData) {
+            for (let sourceIndex = assetData.length - 1; sourceIndex >= 0; sourceIndex--) {
+                const sourceData = assetData[sourceIndex]
+                sourceData.nodes = currentNodeMask
+
+                let matchingNodesCount = 1
+                for (const {pubkey, mask} of nodes) {
+                    if (pubkey === currentPubkey)
+                        continue
+
+                    const nodeData = tradesData
+                        .get(pubkey)?.[currentNodeData.indexOf(assetData)]
+                        ?.find(d => d.source === sourceData.source)
+
+                    //skip if no data for the node or if the data doesn't match
+                    if (!nodeData || !isSameData(nodeData, sourceData))
+                        continue
+
+                    //add the node mask to the source data nodes
+                    sourceData.nodes |= mask
+                    //increment the matching nodes count
+                    matchingNodesCount++
+                }
+
+                //skip if the majority is not reached and remove the asset data
+                if (matchingNodesCount < majorityCount) {
+                    assetData.splice(sourceIndex, 1)
+                    continue
+                }
+
+                //increment the mask count for the source data nodes
+                masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
+            }
+        }
+        //push the current node data to the candidate list
+        candidate.push(currentNodeData)
+    }
+
+    if (masks.size === 0) {
+        logger.debug(`No matching nodes found for contract ${source}, base ${base.code}`)
+        return []
+    }
+    const [bestMask] = [...masks.entries()].sort((a, b) => b[1] - a[1])[0]
+
+    for (const assetList of candidate) {
+        for (const assetData of assetList) {
+            for (let i = assetData.length - 1; i >= 0; i--) {
+                //remove the asset data if the nodes don't match with the best mask
+                if ((assetData[i].nodes & bestMask) !== bestMask)
+                    assetData.splice(i, 1)
+            }
+        }
+    }
+    return candidate
+}
+
+
 module.exports = {
     getPricesForContract,
-    getPricesForPair
+    getPricesForPair,
+    getConcensusData
 }
