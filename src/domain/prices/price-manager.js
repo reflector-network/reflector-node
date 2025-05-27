@@ -193,10 +193,10 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 async function getConcensusData(source, base, assets, timestamp, timeframe) {
     const {settingsManager, tradesManager} = container
 
-    const majorityCount = getMajority(settingsManager.nodes.length)
+    const majorityCount = getMajority(settingsManager.nodes.size)
     const currentPubkey = settingsManager.appConfig.publicKey
 
-    const nodes = settingsManager.nodes.map(({pubkey}, index) => ({
+    const nodes = [...settingsManager.nodes.values()].map(({pubkey}, index) => ({
         pubkey,
         mask: 1 << index
     }))
@@ -214,7 +214,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
     const candidate = []
 
     //get trades data for the current timestamp
-    while (currentTimestamp <= timestamp) {
+    while (currentTimestamp < timestamp) {
         currentTimestamp += minute
 
         const tradesData = await tradesManager.getTradesData(
