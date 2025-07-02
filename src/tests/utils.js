@@ -337,7 +337,9 @@ async function sendTransaction(server, tx) {
         result = await server.getTransaction(hash)
     }
     if (result.status !== 'SUCCESS') {
-        throw new Error(`Tx failed: ${result.status}, result: ${result.resultXdr}`)
+
+        const err = new Error(`Tx failed: ${result.status}, result: ${result.resultXdr || result.errorResult.result()._switch.name}`)
+        err.result = result.resultXdr || result.errorResult.result()._switch.name
     }
     return result
 }

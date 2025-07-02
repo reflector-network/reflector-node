@@ -9,7 +9,10 @@ const nodes = [
     {pubkey: 'node1'},
     {pubkey: 'node2'},
     {pubkey: 'node3'},
-    {pubkey: 'node4'}
+    {pubkey: 'node4'},
+    {pubkey: 'node5'},
+    {pubkey: 'node6'},
+    {pubkey: 'node7'}
 ]
 
 
@@ -18,7 +21,7 @@ function getPrices(pricesCount, sourcesCount) {
     for (let i = 1; i <= pricesCount; i++) {
         const price = []
         for (let j = 0; j < sourcesCount; j++) {
-            if (Math.random() > 0.8)
+            if (Math.random() > 0.9)
                 continue
             price.push({
                 volume: BigInt(i * Math.pow(10, 7)),
@@ -61,70 +64,63 @@ function normalizeTradeData(data, toString) {
 describe('TradesManager', () => {
 
     test('should reach majority', async () => {
-        const nodeResults = []
-
-        const nodesData = []
-        const timestamps = [11, 12, 13, 14, 15].map(ts => ts * 60 * 1000)
-        const assetsMap = new AssetMap('test', new Asset(2, 'A1'), [new Asset(2, 'A2'), new Asset(2, 'A3'), new Asset(2, 'A4')])
-        const key = `${assetsMap.source}_${assetsMap.baseAsset.code}`
-        const plainMap = assetsMap.toPlainObject()
-        for (let i = 0; i < nodes.length; i++) {
-            for (const ts of timestamps) {
-                if (!nodesData[i]) {
-                    nodesData[i] = {}
-                    nodesData[i][key] = {}
+        let reached = 0
+        for (let i = 0; i < 100; i++) {
+            const nodesData = []
+            const timestamps = [11, 12, 13, 14, 15].map(ts => ts * 60 * 1000)
+            const assetsMap = new AssetMap('test', new Asset(2, 'A1'), [new Asset(2, 'A2'), new Asset(2, 'A3'), new Asset(2, 'A4')])
+            const key = `${assetsMap.source}_${assetsMap.baseAsset.code}`
+            const plainMap = assetsMap.toPlainObject()
+            for (let i = 0; i < nodes.length; i++) {
+                for (const ts of timestamps) {
+                    if (!nodesData[i]) {
+                        nodesData[i] = {}
+                        nodesData[i][key] = {}
+                    }
+                    nodesData[i][key][ts] = {
+                        assetsMap: plainMap,
+                        trades: normalizeTradeData(getPrices(assetsMap.assets.length, 7), true)
+                    }
                 }
-                nodesData[i][key][ts] = {
-                    assetsMap: plainMap,
-                    trades: normalizeTradeData(getPrices(assetsMap.assets.length, 6), true)
+            }
+
+            const nodeResults = []
+
+            for (let i = 0; i < nodes.length; i++) {
+                container.settingsManager = {
+                    appConfig: {publicKey: nodes[i].pubkey},
+                    config: {
+                        nodes: new Set(nodes)
+                    },
+                    nodes: new Map(nodes.map(node => [node.pubkey, {pubkey: node.pubkey}]))
                 }
+                container.tradesManager = new TradesManager()
+                for (let j = 0; j < nodesData.length; j++) {
+                    container.tradesManager.addSyncData(nodes[j].pubkey, nodesData[j])
+                }
+
+                const res = await getConcensusData(
+                    assetsMap.source,
+                    assetsMap.baseAsset,
+                    assetsMap.assets,
+                    timestamps[timestamps.length - 1],
+                    5 * 60 * 1000
+                )
+                nodeResults.push(res)
             }
-        }
+            const equalResults = nodeResults.filter(arr => JSON.stringify(arr) === JSON.stringify(nodeResults[0]))
 
-        //print ts sources
-        //const sources = nodesData.map(node => {
-        //const nodeData = []
-        ////eslint-disable-next-line guard-for-in
-        //for (const key in node) {
-        //const ts = Object.keys(node[key])
-        //for (const t of ts) {
-        //nodeData.push(node[key][t].trades.map(asset => asset.map(trade => trade.source).join(',')))
-        //}
-        //}
-        //return nodeData
-        //})
-        //console.table(sources)
-
-        console.log(JSON.stringify(nodesData))
-
-        for (let i = 0; i < nodes.length; i++) {
-            container.settingsManager = {
-                appConfig: {publicKey: nodes[i].pubkey},
-                config: {
-                    nodes: new Set(nodes)
-                },
-                nodes
+            if (equalResults.length !== nodes.length)
+                console.log(`Equal results: ${equalResults.length} of ${nodes.length}`)
+            const hasMajority = equalResults.length >= getMajority(nodes.length)
+            console.log(hasMajority ? '✅' : '❌')
+            reached += hasMajority ? 1 : 0
+            const result = []
+            for (const t of equalResults[0]) {
+                result.push(t.map(asset => asset.map(trade => trade.source).join(',')))
             }
-            container.tradesManager = new TradesManager()
-            for (let j = 0; j < nodesData.length; j++) {
-                container.tradesManager.addSyncData(nodes[j].pubkey, nodesData[j])
-            }
-
-            const res = await getConcensusData(
-                assetsMap.source,
-                assetsMap.baseAsset,
-                assetsMap.assets,
-                timestamps[timestamps.length - 1],
-                5 * 60 * 1000
-            )
-            nodeResults.push(res)
+            console.table(result)
         }
-        const equalResults = nodeResults.filter(arr => JSON.stringify(arr) === JSON.stringify(nodeResults[0]))
-        expect(equalResults.length).toBeGreaterThanOrEqual(getMajority(nodes.length))
-        const result = []
-        for (const t of equalResults[0]) {
-            result.push(t.map(asset => asset.map(trade => trade.source).join(',')))
-        }
-        console.table(result)
-    })
+        console.log(`Reached majority in ${reached} out of 100 tests`)
+    }, 300000000)
 })

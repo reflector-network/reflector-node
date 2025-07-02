@@ -61,7 +61,7 @@ class NodesManager {
     }
 
     /**
-     * @param {Map<string, ConfigNode>}} nodes - nodes from settings
+     * @param {Map<string, ConfigNode>} configNodes - nodes from settings
      */
     setNodes(configNodes) {
         const allNodePubkeys = new Set([...configNodes.keys(), ...this.__nodes.keys()])

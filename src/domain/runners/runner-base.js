@@ -357,6 +357,7 @@ class RunnerBase {
                     if (this.contractId
                         && resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
                         statisticsManager.incSubmittedTransactions(this.contractId)
+                    statisticsManager.setProcessedTx(this.contractId, resultTx.hash().toString('hex'))
                 }
                 return response
             } catch (e) {

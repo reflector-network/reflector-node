@@ -19,7 +19,6 @@ const {
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
-const tokenData = null
 let rsa = null
 
 function getNodeDirName(nodeNumber) {
@@ -157,11 +156,16 @@ async function ensureClusterDataReady(clusterConfig) {
     const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
 
     const createIfNotExists = async (pubKey, updateToMultisigKeypair) => {
-        if (await accountExists(server, pubKey))
-            return true
-        await createAccount(pubKey)
+        if (!(await accountExists(server, pubKey)))
+            await createAccount(pubKey)
         if (updateToMultisigKeypair)
-            await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
+            try {
+                await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
+            } catch (e) {
+                if (e.result === 'txBadAuth')
+                    return
+                throw e
+            }
     }
 
     const multisigAccounts = [clusterConfig.sysAccount, ...clusterConfig.contracts.map(c => c.admin)]
@@ -219,7 +223,7 @@ async function startNodes(nodesCount) {
             const port = 30347 + (i * 100)
             //closeEndRemoveIfExist(nodeName)
 
-            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
+            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`//`reflectornet/reflector-node:v0.11.0`//
 
             console.log(startCommand)
             await runCommand(startCommand)
@@ -294,7 +298,6 @@ async function run(clusterConfig) {
 }
 
 
-const clusterConfig = {
-}
+const clusterConfig = null
 
 run(clusterConfig).catch(console.error)

@@ -32,6 +32,7 @@
     "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v3.3.1",
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
     "@stellar/stellar-sdk": "13.3.0",
+    "@types/jest": "^29.5.14",
     "bufferutil": "4.0.9",
     "pino": "9.6.0",
     "rotating-file-stream": "3.2.6",

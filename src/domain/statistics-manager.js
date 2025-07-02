@@ -105,6 +105,7 @@ class StatisticsManager {
         this.totalProcessed = 0
         this.submittedTransactions = 0
         this.gatewaysMetrics = []
+        this.processedHashes = new Map()
         this.__lastGatewayMetricsDate = this.startTime
         this.__metricsWorker()
     }
@@ -173,6 +174,13 @@ class StatisticsManager {
         return contractStatistics
     }
 
+    __getContractHashes(contractId) {
+        if (!this.processedHashes.has(contractId)) {
+            this.processedHashes.set(contractId, [])
+        }
+        return this.processedHashes.get(contractId)
+    }
+
     setLastProcessedTimestamp(contractId, type, timestamp) {
         const contractStatistics = this.__getContracStatistics(contractId, type)
         contractStatistics.setLastProcessedTimestamp(timestamp)
@@ -201,10 +209,19 @@ class StatisticsManager {
         contractStatistics.setLastDAOData(lastBallotId, lastUnlock, isInitialized)
     }
 
+    setProcessedTx(contractId, txHash) {
+        const hashes = this.__getContractHashes(contractId)
+        hashes.push(txHash)
+        if (hashes.length > 10) {
+            hashes.shift() //keep only last 1000 hashes
+        }
+    }
+
     getStatistics() {
         const settingsStatistics = container.settingsManager.statistics
         const connectedNodes = nodesManager.getConnectedNodes()
         const contractStatistics = mapToPlainObject(this.__contractStatistics)
+        const processedHashes = mapToPlainObject(this.processedHashes)
         const currentTime = Date.now()
         return {
             startTime: this.startTime,
@@ -217,6 +234,7 @@ class StatisticsManager {
             oracleStatistics: contractStatistics, //legacy
             contractStatistics,
             gatewaysMetrics: this.gatewaysMetrics,
+            processedHashes,
             ...settingsStatistics
         }
     }
@@ -232,8 +250,10 @@ class StatisticsManager {
     setContractIds(contractIds) {
         const allKeys = [...this.__contractStatistics.keys()]
         for (const contractId of allKeys) {
-            if (contractIds.indexOf(contractId) === -1)
+            if (contractIds.indexOf(contractId) === -1) {
                 this.remove(contractId)
+                this.processedHashes.delete(contractId)
+            }
         }
     }
 }
