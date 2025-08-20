@@ -1,3 +1,5 @@
+const PROVIDER_PRICE_DECIMALS = 14
+
 /**
  * Get сross price
  * @param {BigInt} quoteAssetPrice - quote asset price
@@ -39,24 +41,23 @@ function getPreciseValue(value, decimals) {
  * @returns {BigInt}
  */
 function getVWAP(volume, quoteVolume, decimals) {
-    const totalVolumeBigInt = getPreciseValue(volume, decimals)
-    const totalQuoteVolumeBigInt = getPreciseValue(quoteVolume, decimals * 2) //multiply decimals by 2 to get correct price
-    if (totalQuoteVolumeBigInt === 0n || totalVolumeBigInt === 0n)
+    const scaledtotalVolume = volume * BigInt(Math.pow(10, decimals)) //multiply decimals by 10^decimals to get correct price
+    if (quoteVolume === 0n || scaledtotalVolume === 0n)
         return 0n
-    return totalQuoteVolumeBigInt / totalVolumeBigInt
+    return scaledtotalVolume / quoteVolume
 }
 
 /**
- * Normalize price. The prices from providers are a BigInt with 7 decimals.
+ * Normalize price. The prices from providers are a BigInt with 14 decimals.
  * @param {BigInt} price - price
  * @param {number} decimals - number of decimals
  * @returns {BigInt}
  */
 function normalizePrice(price, decimals) {
-    if (decimals > 7) {
-        return price * (BigInt(10) ** BigInt(decimals - 7))
-    } else if (decimals < 7) {
-        return price / (BigInt(10) ** BigInt(7 - decimals))
+    if (decimals > PROVIDER_PRICE_DECIMALS) {
+        return price * (BigInt(10) ** BigInt(decimals - PROVIDER_PRICE_DECIMALS))
+    } else if (decimals < PROVIDER_PRICE_DECIMALS) {
+        return price / (BigInt(10) ** BigInt(PROVIDER_PRICE_DECIMALS - decimals))
     }
     return price
 }

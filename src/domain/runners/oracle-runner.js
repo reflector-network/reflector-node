@@ -43,7 +43,8 @@ class OracleRunner extends RunnerBase {
                 config: contractConfig,
                 fee,
                 maxTime,
-                decimals: settingsManager.getDecimals(this.contractId)
+                decimals: settingsManager.getDecimals(this.contractId),
+                cacheSize: contractConfig.cacheSize || 0
             })
         } else if (isTimestampValid(timestamp, timeframe)
             && contractState.lastTimestamp < timestamp

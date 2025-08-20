@@ -131,11 +131,11 @@ async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
  * @returns {Promise<AggregatedTradeData>}
  */
 async function loadDbTradesData(dataSource, baseAsset, assets, from, count) {
-    const {sorobanRpc} = dataSource
+    const {sorobanRpc, networkPassphrase: network} = dataSource
     let tradesData = null
     for (const rpcUrl of sorobanRpc) {
         try {
-            const options = {rpcUrl, baseAsset, assets, from, period: minute / 1000, limit: count}
+            const options = {rpcUrl, baseAsset, assets, from, period: minute / 1000, limit: count, network}
             tradesData = await aggregateTrades(options)
             break
         } catch (err) {
@@ -188,7 +188,7 @@ function getAssetsMap() {
 
     //push all oracle assets to the map
     for (const contract of oracleContracts.sort((a, b) => a.contractId.localeCompare(b.contractId))) {
-        addAssetToMap(assetsMap, contract.dataSource, contract.baseAsset, settingsManager.getAssets(contract.contractId, true))
+        addAssetToMap(assetsMap, contract.dataSource, contract.baseAsset, settingsManager.getAssets(contract.contractId))
     }
 
     //push all subscriptions assets to the map
@@ -224,7 +224,7 @@ function addAssetToMap(assetsMap, source, baseAsset, assets) {
         am = new AssetsMap(source, baseAsset)
         assetsMap.set(key, am)
     }
-    am.push(assets)
+    am.push(assets.filter(a => a !== null)) //can contain null assets, if they are expired
 }
 
 function formatSourceAssetKey(source, baseAsset) {

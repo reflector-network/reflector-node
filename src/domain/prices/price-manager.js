@@ -1,4 +1,4 @@
-const {getOracleContractState, ContractTypes, getMajority} = require('@reflector/reflector-shared')
+const {ContractTypes, getMajority} = require('@reflector/reflector-shared')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice, getAveragePrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
@@ -8,34 +8,12 @@ const container = require('../container')
  * @typedef {import('./trades-manager').TimestampTradeData} TimestampTradeData
  */
 
-const lastPriceConsensus = new Map()
-
-function updatePriceConsensusTimestamp(contractId, priceData, timestamp) {
-    let assets = lastPriceConsensus.get(contractId)
-    if (!assets) {
-        assets = []
-        lastPriceConsensus.set(contractId, assets)
-    }
-    for (let i = 0; i < priceData.length; i++) {
-        const assetPriceData = priceData[i]
-        //if the asset price data is not empty or the asset is not in the list, update the timestamp
-        if (assetPriceData?.length < 1 && assets[i] !== undefined) {
-            logger.trace(`Price consensus for contract ${contractId} for asset ${i}: ${timestamp} is not updated`)
-            continue
-        }
-        assets[i] = timestamp
-    }
-    logger.trace(`Price consensus for contract ${contractId}: ${assets.map(a => a.toString())}`)
-    return assets
-}
-
 /**
  * @param {TimestampTradeData} tradesData - trades data
  * @param {number} decimals - decimals
- * @param {BigInt[]} prevPrices - previous prices
  * @returns {BigInt[]}
  */
-function calcPrice(tradesData, decimals, prevPrices) {
+function calcPrice(tradesData, decimals) {
     const prices = Array(tradesData.length).fill(0n)
     for (let i = 0; i < tradesData.length; i++) {
         const assetTradesData = tradesData[i] || []
@@ -45,7 +23,7 @@ function calcPrice(tradesData, decimals, prevPrices) {
             else
                 return getVWAP(td.volume, td.quoteVolume, decimals)
         })
-        prices[i] = getMedianPrice(assetPrices) || prevPrices[i] || 0n
+        prices[i] = getMedianPrice(assetPrices) || 0n
     }
 
     return prices
@@ -66,11 +44,8 @@ async function getPricesForContract(contractId, timestamp) {
     if (contract.type !== ContractTypes.ORACLE)
         throw new Error(`Contract ${contractId} is not an oracle contract`)
 
-    const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
-    //get contract state
-    const contractStatePromise = getOracleContractState(contractId, sorobanRpc)
     //get assets for the contract
-    const assets = settingsManager.getAssets(contract.contractId, true)
+    const assets = settingsManager.getAssets(contract.contractId)
 
     //get trades data
     const concensusData = await getConcensusData(
@@ -98,6 +73,8 @@ async function getPricesForContract(contractId, timestamp) {
                     totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
                 }
                 if (sourceTotalTradesData.type === 'price') {
+                    if (sourceTradeData.price === 0n)
+                        continue //skip zero prices
                     sourceTotalTradesData.sum += sourceTradeData.price
                     sourceTotalTradesData.entries++
                 } else {
@@ -111,27 +88,8 @@ async function getPricesForContract(contractId, timestamp) {
     if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
         throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
 
-    //update price consensus timestamps
-    const lastPriceConsensus = updatePriceConsensusTimestamp(contractId, tradesData, timestamp)
-
-    //build prev prices
-    const contractState = await contractStatePromise
-    const prevPrices = Array(assets.length).fill(0n)
-    for (let assetIndex = 0; assetIndex < prevPrices.length; assetIndex++) {
-        if (!assets[assetIndex]) {
-            logger.debug(`Asset ${assetIndex} not found for contract ${contractId}. Probably it has expired`)
-            continue
-        }
-        //if price wasn't updated by consensus for more than 15 minutes, don't use previous price
-        if (timestamp - lastPriceConsensus[assetIndex] > 15 * minute) {
-            logger.warn(`Price consensus for asset ${assets[assetIndex].toString()} is too old: ${lastPriceConsensus[assetIndex] - timestamp}ms`)
-            continue
-        }
-        prevPrices[assetIndex] = contractState.prices[assetIndex] || 0n
-    }
-
     //compute price
-    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId), prevPrices)
+    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))
     logger.trace(`Prices for contract ${contractId} at ${timestamp}: ${prices.map(p => p.toString())}`)
     return prices
 }

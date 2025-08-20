@@ -21,6 +21,7 @@ const clusterPendingConfigPath = `${container.homeDir}/.pending.config.json`
  * @typedef {import('@reflector/reflector-shared').Node} Node
  * @typedef {import('@reflector/reflector-shared').OracleConfig} OracleConfig
  * @typedef {import('@reflector/reflector-shared').SubscriptionsConfig} SubscriptionsConfig
+ * @typedef {import('@reflector/reflector-shared').DAOConfig} DAOConfig
  * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
 
@@ -215,7 +216,7 @@ class SettingsManager {
 
     /**
      * @param {string} contractId - contract id
-     * @returns {OracleConfig|SubscriptionsConfig}
+     * @returns {OracleConfig|SubscriptionsConfig|DAOConfig}
      */
     getContractConfig(contractId) {
         return __getContractConfig(this.config, contractId)
@@ -253,14 +254,10 @@ class SettingsManager {
 
     /**
      * @param {string} contractId - contract id
-     * @param {boolean} includePending - include pending updates assets
      * @returns {Asset[]}
      */
-    getAssets(contractId, includePending = false) {
-        let assets = null
-        if (includePending && this.pendingConfig && this.pendingConfig.config.contracts.has(contractId)) //contract can be deleted in pending config
-            assets = [...__getContractConfig(this.pendingConfig.config, contractId).assets]
-        assets = [...__getContractConfig(this.config, contractId).assets]
+    getAssets(contractId) {
+        const assets = [...__getContractConfig(this.config, contractId).assets]
         //set null for expired assets
         const assetTtls = this.__assetTtls.get(contractId) || []
         const now = BigInt(Date.now())
