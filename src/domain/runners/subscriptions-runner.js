@@ -103,9 +103,6 @@ class SubscriptionsRunner extends RunnerBase {
             return true
         }
 
-        if (!this.__subscriptionsManager.isInitialized)
-            await this.__subscriptionsManager.init()
-
         const {
             events,
             charges,

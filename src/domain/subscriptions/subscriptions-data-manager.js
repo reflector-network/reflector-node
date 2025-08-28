@@ -1,6 +1,6 @@
 const {getSubscriptions, Asset, AssetType, getSubscriptionsContractState} = require('@reflector/reflector-shared')
 const {scValToNative} = require('@stellar/stellar-sdk')
-const {getLastContractEvents} = require('../../utils/rpc-helper')
+const {getLastContractEvents, getEventsLedgerInfo} = require('../../utils/rpc-helper')
 const {decrypt} = require('../../utils/crypto-helper')
 const logger = require('../../logger')
 const container = require('../container')
@@ -80,11 +80,10 @@ async function getWebhook(id, webhookBuffer) {
 /**
  * @param {string} contractId - contract id
  * @param {number} lastProcessedLedger - last processed ledger
+ * @param {string[]} sorobanRpc - soroban rpc
  * @returns {Promise<{events: any[], lastLedger: string}>}
  * */
-async function loadLastEvents(contractId, lastProcessedLedger) {
-    const {settingsManager} = container
-    const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
+async function loadLastEvents(contractId, lastProcessedLedger, sorobanRpc) {
     const {events: rawEvents, lastLedger} = await getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc)
     const events = rawEvents
         .map(raw => {
@@ -114,14 +113,7 @@ class SubscriptionContractManager {
     /**
      * @type {boolean}
      */
-    isInitialized = false
-
-    async init() {
-        if (this.isInitialized)
-            return
-        await this.__loadSubscriptionsData()
-        this.isInitialized = true
-    }
+    __isInitialized = false
 
     /**
      * @type {Map<BigInt, Subscription>}>}
@@ -143,14 +135,18 @@ class SubscriptionContractManager {
      */
     __lastLedger = null
 
-    async __loadSubscriptionsData() {
-        const {settingsManager} = container
-        const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
+    /**
+     * Load subscriptions data from the contract
+     * @param {string[]} sorobanRpc - soroban rpc
+     * @return {Promise<void>}
+     */
+    async __loadSubscriptionsData(sorobanRpc) {
         const {lastSubscriptionId} = await getSubscriptionsContractState(this.contractId, sorobanRpc)
         const rawData = await getSubscriptions(this.contractId, sorobanRpc, lastSubscriptionId)
         for (const raw of rawData)
             await this.__setSubscription(raw)
         logger.trace(`Loaded ${this.__subscriptions.size} subscriptions for contract ${this.contractId}`)
+        this.__isInitialized = true
     }
 
     /**
@@ -197,16 +193,36 @@ class SubscriptionContractManager {
         }
     }
 
-    async processLastEvents() {
-        logger.debug(`Processing events for contract ${this.contractId} from ${this.__lastLedger}`)
-        const {events, lastLedger} = await loadLastEvents(this.contractId, this.__lastLedger)
+    async __processLastEvents() {
+        //get rpc
+        const {settingsManager} = container
+        const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
+
+        //get events ledger info
+        const {oldestLedger, latestLedger} = await getEventsLedgerInfo(sorobanRpc, this.contractId)
+        //check if out of range
+        const isOutOfRange = oldestLedger > this.__lastLedger
+        //determine start ledger
+        const startLedger = isOutOfRange ? latestLedger - 360 : this.__lastLedger //if out of range, load last 360 ledgers
+        logger.debug(`Oldest ledger with events: ${oldestLedger}, last processed ledger: ${this.__lastLedger}, latest ledger: ${latestLedger}, isOutOfRange: ${isOutOfRange}`)
+
+        //get start ledger for events
+        if (isOutOfRange) {
+            logger.debug(`Initializing subscriptions data for contract ${this.contractId}. Last processed ledger: ${this.__lastLedger}, start ledger: ${startLedger}, isInitialized: ${this.__isInitialized}`)
+            this.__subscriptions.clear()
+            await this.__loadSubscriptionsData(sorobanRpc)
+            logger.debug(`Subscriptions data initialized for contract ${this.contractId}. Loaded ${this.__subscriptions.size} active subscriptions.`)
+        }
+
+        logger.debug(`Processing events for contract ${this.contractId} from ${startLedger}`)
+        const {events, lastLedger} = await loadLastEvents(this.contractId, startLedger, sorobanRpc)
         logger.debug(`Loaded ${events.length} events for contract ${this.contractId}, new last ledger: ${lastLedger}`)
         this.__lastLedger = lastLedger
 
         const triggerEvents = events
         for (const event of triggerEvents) {
             try {
-                const eventTopic = event.topic[1] === "triggers" //triggers topic appears in new version of the contract
+                const eventTopic = event.topic[1] === 'triggers' //triggers topic appears in new version of the contract
                     ? event.topic[2]
                     : event.topic[1]
                 switch (eventTopic) {

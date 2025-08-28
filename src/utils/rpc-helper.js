@@ -162,21 +162,12 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
  */
 async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc) {
     const limit = 1000
-    const lastLedger = (await makeServerRequest(sorobanRpc, async (server) => await server.getLatestLedger())).sequence
-    const startLedger = lastProcessedLedger ? lastProcessedLedger : lastLedger - 180 //180 is 15 minutes in ledgers
-    const loadEvents = async (startLedger) => {
-        const d = await makeServerRequest(sorobanRpc, async (server) => {
-            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit})
-            return data
-        })
-        return d
-    }
     const events = new Map()
     let hasMore = true
     let latestLedger = null
     let cursorLedger = null
     while (hasMore) {
-        const eventsResponse = await loadEvents(cursorLedger ? cursorLedger : startLedger)
+        const eventsResponse = await loadEvents(cursorLedger ? cursorLedger : lastProcessedLedger, limit, sorobanRpc, contractId)
         if (eventsResponse.events.length < limit)
             hasMore = false
         latestLedger = eventsResponse.latestLedger
@@ -191,6 +182,29 @@ async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc
 }
 
 /**
+ * @param {string[]} sorobanRpc - soroban rpc urls
+ * @param {string} contractId - contract id
+ * @returns {Promise<{oldestLedger: number, latestLedger: number}>}
+ */
+async function getEventsLedgerInfo(sorobanRpc, contractId) {
+    const lastLedger = await makeServerRequest(sorobanRpc, async (server) => (await server.getLatestLedger())?.sequence)
+    const {oldestLedger, latestLedger} = await loadEvents(lastLedger, 1, sorobanRpc, contractId)
+    return {oldestLedger, latestLedger}
+}
+
+async function loadEvents(startLedger, limit, sorobanRpc, contractId) {
+    return await makeServerRequest(sorobanRpc, async (server) => {
+        try {
+            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit})
+            return data
+        } catch (e) {
+            logger.error(`Error loading events for contract ${contractId} from ledger ${startLedger}: ${e.message}`)
+            throw e
+        }
+    })
+}
+
+/**
  * @param {string} account - account address
  * @param {string[]} sorobanRpc - soroban rpc urls
  * @returns {Account}
@@ -199,4 +213,4 @@ async function getAccount(account, sorobanRpc) {
     return await makeServerRequest(sorobanRpc, async (server) => await server.getAccount(account))
 }
 
-module.exports = {submitTransaction, getLastContractEvents, getAccount, txTimeoutMessage}
+module.exports = {submitTransaction, getLastContractEvents, getAccount, getEventsLedgerInfo, txTimeoutMessage}
