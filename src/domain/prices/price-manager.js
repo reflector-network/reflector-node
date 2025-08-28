@@ -169,6 +169,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
 
     let currentTimestamp = timestamp - timeframe
     const masks = new Map()
+    const nodeMasks = new Map()
     const candidate = []
 
     //get trades data for the current timestamp
@@ -200,6 +201,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             for (let sourceIndex = assetData.length - 1; sourceIndex >= 0; sourceIndex--) {
                 const sourceData = assetData[sourceIndex]
                 sourceData.nodes = currentNodeMask
+                sourceData.rawNodes = new Set([currentPubkey])
 
                 let matchingNodesCount = 1
                 for (const {pubkey, mask} of nodes) {
@@ -216,6 +218,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
 
                     //add the node mask to the source data nodes
                     sourceData.nodes |= mask
+                    sourceData.rawNodes = new Set([...(sourceData.rawNodes), pubkey])
                     //increment the matching nodes count
                     matchingNodesCount++
                 }
@@ -228,6 +231,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
 
                 //increment the mask count for the source data nodes
                 masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
+                nodeMasks.set(sourceData.nodes, sourceData.rawNodes)
             }
         }
         //push the current node data to the candidate list
@@ -249,6 +253,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             }
         }
     }
+    logger.debug(`Best matching mask for contract ${source}, base ${base.code}: ${bestMask.toString(16)} with ${masks.get(bestMask)} occurrences. Nodes: ${[...nodeMasks.get(bestMask)].join(', ')}`)
     return candidate
 }
 
