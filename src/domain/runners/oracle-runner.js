@@ -15,8 +15,6 @@ class OracleRunner extends RunnerBase {
 
     async __workerFn(timestamp) {
         const contractConfig = this.__getCurrentContract()
-        if (!contractConfig)
-            throw new Error(`Config not found for oracle id: ${this.contractId}`)
 
         const {settingsManager} = container
 
@@ -30,7 +28,7 @@ class OracleRunner extends RunnerBase {
 
         const contractState = await getOracleContractState(this.contractId, sorobanRpc)
 
-        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
+        logger.trace({msg: 'Contract state', lastTimestamp: Number(contractState.lastTimestamp), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
         settingsManager.setAssetTtls(this.contractId, contractState.assetTtls)
 

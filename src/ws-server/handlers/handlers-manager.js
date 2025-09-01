@@ -1,5 +1,6 @@
 const {runWithContext} = require('../../async-storage')
 const logger = require('../../logger')
+const ChannelTypes = require('../channels/channel-types')
 const MessageTypes = require('./message-types')
 const HandshakeRequestHandler = require('./handshake-request-handler')
 const HandshakeResponseHandler = require('./handshake-response-handler')
@@ -51,8 +52,10 @@ class HandlersManager {
         if (!handler.allowedChannelTypes & channel)
             throw new Error(`Message type ${message.type} is not supported for channel ${channel}`)
         return await runWithContext(async() => {
-            logger.trace(`Start handle message. Type: ${message.type}, channel: ${channel.type}, pubkey: ${channel.pubkey}`)
-            return await handler.handle(channel, message)
+            logger.trace({msg: 'Start handle message', msgType: MessageTypes.getName(message.type), msgChannel: ChannelTypes.getName(channel.type), msgSender: channel.pubkey})
+            const data = await handler.handle(channel, message)
+            logger.trace({msg: 'Finished handle message', msgType: MessageTypes.getName(message.type), msgChannel: ChannelTypes.getName(channel.type), msgSender: channel.pubkey})
+            return data
         })
     }
 }

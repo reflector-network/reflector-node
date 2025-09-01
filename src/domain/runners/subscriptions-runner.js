@@ -61,8 +61,6 @@ class SubscriptionsRunner extends RunnerBase {
 
     async __workerFn(timestamp) {
         const contractConfig = this.__getCurrentContract()
-        if (!contractConfig)
-            throw new Error(`Config not found for oracle id: ${this.contractId}`)
 
         const {settingsManager} = container
 
@@ -81,7 +79,7 @@ class SubscriptionsRunner extends RunnerBase {
         const subscriptionsContractManager = getManager(this.contractId)
         this.broadcastSyncData()
 
-        logger.trace(`Contract state: lastSubscriptionsId: ${Number(contractState.lastSubscriptionsId)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}}`)
+        logger.trace({msg: 'Contract state', lastSubscriptionsId: Number(contractState.lastSubscriptionsId), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastSubscriptionData(
             this.contractId,
             Number(contractState.lastSubscriptionsId),
@@ -205,7 +203,7 @@ class SubscriptionsRunner extends RunnerBase {
                 return {urls, data: envelope}
             }
         } catch (err) {
-            logger.error({err}, `Failed to process trigger event ${event.id}, ${this.contractId}`)
+            logger.error({err, msg: `Failed to process trigger event`, eventId: event.id, ...this.__contractInfo})
         }
         return null
     }
@@ -219,11 +217,11 @@ class SubscriptionsRunner extends RunnerBase {
     async __processTriggerData(eventItems, events, root, timestamp) {
         try {
             if (!(await this.__payloadMajorityData.promise)) {
-                logger.debug(`Payload not approved for contract ${this.contractId}, ${timestamp}. Skipping webhook data`)
+                logger.debug({msg: 'Payload not approved. Skipping webhook data', contract: this.contractId, timestamp})
                 return
             }
 
-            logger.debug(`Payload approved for contract ${this.contractId}, ${timestamp}. Sending webhook data`)
+            logger.debug({msg: 'Payload approved. Sending webhook data', contract: this.contractId, timestamp})
             const {settingsManager} = container
             const {urls, gatewayValidationKey} = settingsManager.gateways
             const notifications = []
@@ -237,9 +235,9 @@ class SubscriptionsRunner extends RunnerBase {
                 this.__postNotificationsViaGateway(urls, gatewayValidationKey, notifications, events, root)
             else
                 this.__postNotifications(notifications, events, root)
-            logger.debug(`Webhook data sent for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+            logger.debug({msg: 'Webhook data sent', contract: this.contractId, notificationsCount: notifications.length})
         } catch (err) {
-            logger.error({err}, `Failed to process trigger data ${this.contractId}`)
+            logger.error({err, msg: 'Failed to process trigger data', contract: this.contractId})
         }
     }
 
@@ -250,7 +248,7 @@ class SubscriptionsRunner extends RunnerBase {
 
         const unusedGateways = shuffleArray([...gateways]) //clone the gateways array to avoid mutations, and shuffle it
 
-        logger.debug(`Sending webhook data to gateways: ${unusedGateways.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+        logger.debug({msg: 'Sending webhook data to gateways', gateways: unusedGateways, contract: this.contractId, notificationsCount: notifications.length})
 
         const successfulGateways = []
         while (successfulGateways.length < 2 && unusedGateways.length > 0) {
@@ -271,17 +269,17 @@ class SubscriptionsRunner extends RunnerBase {
                     })
                 successfulGateways.push(currentGateway)
             } catch (e) {
-                logger.debug(`Failed to send webhook data to ${currentGateway}: ${e.message}`)
+                logger.debug({msg: 'Failed to send webhook data to gateway', gateway: currentGateway, message: e.message})
             }
         }
         if (successfulGateways.length === 0)
-            logger.error(`Failed to send webhook data to gateways for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+            logger.error({msg: 'Failed to send webhook data to gateways', contract: this.contractId, notificationsCount: notifications.length})
         else
-            logger.debug(`Webhook data sent to gateways: ${successfulGateways.join(', ')} for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+            logger.debug({msg: 'Webhook data sent to gateways', gateways: successfulGateways, contract: this.contractId, notificationsCount: notifications.length})
     }
 
     async __postNotifications(notifications, events, root) {
-        logger.debug(`Sending webhook data to webhooks for contract ${this.contractId}. Notifications count: ${notifications.length}`)
+        logger.debug({msg: 'Sending webhook data to webhooks', contract: this.contractId, notificationsCount: notifications.length})
 
         const verifier = container.settingsManager.appConfig.publicKey
         const contract = this.contractId

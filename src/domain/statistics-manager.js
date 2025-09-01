@@ -106,7 +106,7 @@ class StatisticsManager {
         this.submittedTransactions = 0
         this.gatewaysMetrics = []
         this.processedHashes = new Map()
-        this.__lastGatewayMetricsDate = this.startTime
+        this.__lastGatewayMetricsDate = new Date().toISOString()
         this.__metricsWorker()
     }
 
@@ -114,13 +114,7 @@ class StatisticsManager {
         try {
             const {urls, gatewayValidationKey} = container?.settingsManager?.gateways || {urls: [], gatewayValidationKey: ''}
 
-            const gatewaysMetrics = {
-                info: {
-                    gatewaysCount: urls.length,
-                    from: this.__lastGatewayMetricsDate
-                },
-                metrics: []
-            }
+            const metrics = []
             const requests = []
             for (let i = 0; i < urls.length; i++) {
                 const currentGateway = urls[i]
@@ -131,16 +125,21 @@ class StatisticsManager {
                                 timeout: 5000
                             })
                             .then(response => {
-                                gatewaysMetrics.metrics[i] = response.data
+                                metrics[i] = response.data
                             })
                             .catch(e => {
-                                gatewaysMetrics.metrics[i] = 'n/a'
+                                metrics[i] = 'n/a'
                                 logger.warn(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
                             })
             }
             await Promise.all(requests)
-            gatewaysMetrics.info.to = this.__lastGatewayMetricsDate = Date.now()
-            this.gatewaysMetrics = gatewaysMetrics
+            const gatewaysMetrics = {
+                gatewaysCount: urls.length,
+                from: this.__lastGatewayMetricsDate,
+                to: this.__lastGatewayMetricsDate = new Date().toISOString(),
+                metrics
+            }
+            logger.addMetrics(gatewaysMetrics)
         } catch (err) {
             logger.error(err, 'Metrics worker error')
         } finally {
@@ -233,7 +232,6 @@ class StatisticsManager {
             connectedNodes,
             oracleStatistics: contractStatistics, //legacy
             contractStatistics,
-            gatewaysMetrics: this.gatewaysMetrics,
             processedHashes,
             ...settingsStatistics
         }

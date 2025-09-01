@@ -2,7 +2,7 @@
 FROM node:lts-alpine
 
 # Install curl, jq, bash, and supervisor utilities
-RUN apk add --no-cache curl jq bash supervisor util-linux \
+RUN apk add --no-cache curl jq bash supervisor util-linux loki-promtail \
     && rm -rf /tmp/* /var/cache/apk/*
 
 # Set environment variables
@@ -15,6 +15,7 @@ RUN chmod +x /startnode
 
 # Set up supervisor configurations
 COPY /docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY /docker/promtail/config.yml.template /etc/promtail/config.yml.template
 
 # Set working directory
 WORKDIR /reflector-node

@@ -142,7 +142,7 @@ class SettingsManager {
      */
     setAppConfig(config) {
         this.appConfig = config
-        logger.setTrace(this.appConfig.trace)
+        logger.init(this.appConfig.trace)
         dataSourceManager.setDataSources([...config.dataSources.values()])
     }
 

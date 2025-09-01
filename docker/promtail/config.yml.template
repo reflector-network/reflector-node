@@ -1,0 +1,56 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /reflector-node/app/home/promtail/positions.yaml
+
+clients:
+  - url: __ORCHESTRATOR_URL__/loki-proxy/loki/api/v1/push
+
+scrape_configs:
+  - job_name: reflector-node
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          service_name: reflector-node
+          job: __PUBLIC_KEY__ 
+          __path__: /reflector-node/app/home/logs/*.log
+    
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            ctxId: ctxId
+            contract: contract
+            time: time
+            msgType: msgType
+            msgSender: msgSender
+
+      - labels:
+          level: level
+          contract: contract
+      
+      - timestamp:
+          source: time
+          format: RFC3339
+
+  - job_name: reflector-node-metrics
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          service_name: reflector-node-metrics
+          job: '__PUBLIC_KEY__'
+          __path__: /reflector-node/app/home/logs/metrics/*.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            from: from
+            to: to
+
+      - timestamp:
+          source: to
+          format: RFC3339

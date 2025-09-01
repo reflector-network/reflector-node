@@ -64,7 +64,7 @@ class RunnerManager {
      */
     get(contractId) {
         if (!this.runners.has(contractId))
-            throw new Error(`Oracle runner not found for contract id: ${contractId}`)
+            throw new Error({msg: 'Oracle runner not found for contract.', contract: contractId})
         return this.runners.get(contractId)
     }
 
@@ -88,15 +88,15 @@ class RunnerManager {
         switch (type) {
             case ContractTypes.ORACLE:
                 runner = new OracleRunner(contractId)
-                logger.debug(`RunnerManager -> add -> oracleRunner ${contractId} added`)
+                logger.debug({msg: 'RunnerManager -> add -> oracleRunner added', contract: contractId})
                 break
             case ContractTypes.SUBSCRIPTIONS:
                 runner = new SubscriptionsRunner(contractId)
-                logger.debug(`RunnerManager -> add -> subscriptionsRunner ${contractId} added`)
+                logger.debug({msg: 'RunnerManager -> add -> subscriptionsRunner added', contract: contractId})
                 break
             case ContractTypes.DAO:
                 runner = new DAORunner(contractId)
-                logger.debug(`DAORunner -> add -> clusterRunner ${contractId} added`)
+                logger.debug({msg: 'DAORunner -> add -> clusterRunner added', contract: contractId})
                 break
             default:
                 throw new Error(`RunnerManager -> add -> unknown contract type: ${type}`)

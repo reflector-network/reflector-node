@@ -1,12 +1,46 @@
 #!/usr/bin/env bash
 
 MOUNT_DIR="/reflector-node/app/home"
+CONFIG_FILE="$MOUNT_DIR/app.config.json"
+PROMTAIL_TEMPLATE="/etc/promtail/config.yml.template"
+PROMTAIL_CONFIG="/etc/promtail/config.yml"
+DEFAULT_ORCHESTRATOR_URL="https://orchestrator.reflector.network"
 
 # Check if the MOUNT_DIR directory is a mount point
 if ! mountpoint -q "$MOUNT_DIR"; then
     echo "ERROR: $MOUNT_DIR is not mounted!"
     exit 1
 fi
+
+# Ensure necessary directories exist
+mkdir -p "$MOUNT_DIR/logs"
+mkdir -p "$MOUNT_DIR/promtail"
+
+# Assign orchestrator URL
+ORCHESTRATOR_URL=""
+SECRET_KEY=""
+if [ -f "$CONFIG_FILE" ]; then
+    # Read the orchestrator URL from the JSON config file using jq
+    # Assumes the URL is in a key named "orchestratorUrl". Adjust the key name as needed.
+    ORCHESTRATOR_URL=$(jq -r '.orchestratorUrl' "$CONFIG_FILE")
+    SECRET_KEY=$(jq -r '.secret' "$CONFIG_FILE")
+fi
+
+if [ -z "$ORCHESTRATOR_URL" ] || [ "$ORCHESTRATOR_URL" == "null" ]; then
+    echo "orchestratorUrl not found in $CONFIG_FILE. Using default: $DEFAULT_ORCHESTRATOR_URL"
+    ORCHESTRATOR_URL=$DEFAULT_ORCHESTRATOR_URL
+fi
+
+# Log the orchestrator URL being used
+echo "Orchestrator URL: $ORCHESTRATOR_URL"
+
+# Get public key
+PUBLIC_KEY=$(node /reflector-node/app/utils/get-pubkey.js "$SECRET_KEY")
+
+echo "Public Key: $PUBLIC_KEY"
+
+# Replace the placeholder in the template and create the final config file
+sed "s|__ORCHESTRATOR_URL__|${ORCHESTRATOR_URL}|g" "$PROMTAIL_TEMPLATE" | sed "s|__PUBLIC_KEY__|${PUBLIC_KEY}|g" > "$PROMTAIL_CONFIG"
 
 SUPERVISORD_CONFIG="/etc/supervisor/conf.d/supervisord.conf"
 
