@@ -74,7 +74,7 @@ function loadTradesData(dataSource, baseAsset, assets, from, count) {
             throw new Error(`Data source ${dataSource.type} not supported`)
     }
     dataPromise
-        .then(data => logger.info(`Loaded ${data.length} trade data from ${dataSource.name} in ${Date.now() - start}ms`))
+        .then(data => logger.info({msg: 'Loaded trade data', count: data.length, source: dataSource.name, duration: Date.now() - start}))
     return dataPromise
 }
 
@@ -139,7 +139,7 @@ async function loadDbTradesData(dataSource, baseAsset, assets, from, count) {
             tradesData = await aggregateTrades(options)
             break
         } catch (err) {
-            logger.error({err}, `Error loading trades data from ${rpcUrl}`)
+            logger.error({err, msg: 'Error loading trades data', rpcUrl})
         }
     }
 
@@ -197,7 +197,7 @@ function getAssetsMap() {
         const baseAsset = getSourceDefaultBaseAsset(subscription.base.source)
         const quoteBaseAsset = getSourceDefaultBaseAsset(subscription.quote.source)
         if (!(baseAsset && quoteBaseAsset)) { //if the source is not supported
-            logger.debug(`Subscription ${subscription.id} source base asset(s) not found`)
+            logger.debug({msg: 'Subscription source base asset(s) not found', subscriptionId: subscription.id.toString()})
             continue
         }
 
@@ -296,7 +296,7 @@ class TimestampSyncItem {
                     return
                 clearTimeout(timeoutId)
                 this.isProcessed = true
-                logger.trace(`Pending trades data resolved. ${this.getDebugInfo()}, timed out: ${timedOut}`)
+                logger.trace({msg: 'Pending trades data resolved', ...this.getDebugInfo(), timedOut})
                 resolve()
             }
         })
@@ -320,7 +320,14 @@ class TimestampSyncItem {
     }
 
     getDebugInfo() {
-        return `Key: ${this.key}, timestamp: ${this.timestamp}, maxTime: ${this.maxTime}, isProcessed: ${this.isProcessed}, pubkeys: ${[...this.__presentedPubkeys.values()].join(',')}, current time: ${Date.now()}`
+        return {
+            key: this.key,
+            timestamp: this.timestamp,
+            maxTime: this.maxTime,
+            isProcessed: this.isProcessed,
+            pubkeys: [...this.__presentedPubkeys.values()],
+            currentTime: Date.now()
+        }
     }
 }
 
@@ -335,7 +342,7 @@ class TradesManager {
             const firstTimestamp = this.__trades.getAbsoluteFirstTimestamp()
             for (const [timestamp] of this.__timestamps) { //delete all timestamps that are older than the cache
                 if (timestamp < firstTimestamp) { //if the timestamp is older than the cache
-                    logger.debug(`Clearing pending trades data for timestamp ${timestamp}`)
+                    logger.debug({msg: 'Clearing pending trades data', timestamp})
                     this.__timestamps.delete(timestamp)
                 }
             }
@@ -365,7 +372,7 @@ class TradesManager {
                 try {
                     this.__getOrAddTimestampSync(key, timestamp).add(pubkey)
                 } catch (err) {
-                    logger.debug(`Error adding sync data for key ${key}, last timestamp ${timestamp}. ${err.message}`)
+                    logger.debug({msg: 'Error adding sync data', key, lastTimestamp: timestamp, error: err.message})
                 }
             }
         }
@@ -401,7 +408,7 @@ class TradesManager {
             syncData = new TimestampSyncItem(key, timestamp, maxTime)
             timestampSyncData.set(key, syncData)
         }
-        logger.trace(`Getting timestamp sync. ${syncData.getDebugInfo()}`)
+        logger.trace({msg: 'Getting timestamp sync', ...syncData.getDebugInfo()})
         return syncData
     }
 
@@ -412,7 +419,7 @@ class TradesManager {
         /**@type {TimestampSyncItem} */
         try {
             const {currentTimestamp, tradesTimestamp} = getCurrentTimestampInfo()
-            logger.trace({assetsMap: assetsMap.toPlainObject()}, `Loading trades data for the asset map at trades timestamp ${tradesTimestamp}, timestamp ${currentTimestamp}`)
+            logger.trace({assetsMap: assetsMap.toPlainObject(), msg: 'Loading trades data for the asset map', tradesTimestamp, currentTimestamp})
 
             const {source, baseAsset} = assetsMap
 
@@ -422,13 +429,13 @@ class TradesManager {
             const count = getSampleSize(lastTimestamp, currentTimestamp)
             //if count is greater than 0, then we need to load volumes
             if (count === 0) {
-                logger.trace(`Skipping trades loading for source ${source}, base asset ${baseAsset}, trades timestamp ${tradesTimestamp}, last timestamp ${lastTimestamp}, timestamp ${currentTimestamp}`)
+                logger.trace({msg: 'Skipping trades loading', source, baseAsset: baseAsset.toString(), tradesTimestamp, lastTimestamp, currentTimestamp})
                 return
             }
 
             const from = tradesTimestamp - ((count - 1) * minute)
 
-            logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset} for timestamp ${currentTimestamp}, trades timestamp ${tradesTimestamp}, from ${from}, count ${count}`)
+            logger.trace({msg: 'Loading trades data for source', source, baseAsset: baseAsset.toString(), currentTimestamp, tradesTimestamp, from, count})
 
             const dataSource = dataSourcesManager.get(source)
 
@@ -457,9 +464,9 @@ class TradesManager {
             //broadcast the data
             nodesManager.broadcast(getPriceSyncMessage(broadcastItems))
 
-            logger.trace(`Pushed trades data for source ${source}, base asset ${baseAsset}, from ${from}, to ${from + (count - 1) * minute}`)
+            logger.trace({msg: 'Pushed trades data for source', source, baseAsset, from, to: from + (count - 1) * minute})
         } catch (err) {
-            logger.error({err}, `Error loading prices for source ${assetsMap.source} and base asset ${assetsMap.baseAsset}`)
+            logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset})
         }
     }
 
@@ -482,7 +489,7 @@ class TradesManager {
         if (this.__trades.getLastTimestamp(key) < timestamp)
             await this.__getOrAddTimestampSync(key, timestamp)
                 .readyPromise
-                .catch(err => logger.error({err}, `Error getting pending trades data for key ${key}, timestamp ${timestamp}`))
+                .catch(err => logger.error({err, msg: 'Error getting pending trades data', key, timestamp}))
         return this.__trades.getTradesData(key, timestamp, assets)
     }
 }

@@ -90,7 +90,7 @@ async function getPricesForContract(contractId, timestamp) {
 
     //compute price
     const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))
-    logger.trace(`Prices for contract ${contractId} at ${timestamp}: ${prices.map(p => p.toString())}`)
+    logger.trace({msg: 'Prices for data', contract: contractId, timestamp, prices: prices.map(p => p.toString())})
     return prices
 }
 
@@ -99,7 +99,7 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     const tradesData = await getConcensusData(source, baseAsset, [asset], timestamp)
     const decimals = settingsManager.getDecimals()
     if (!tradesData || tradesData.length === 0 || tradesData[0] === null) {
-        logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
+        logger.warn({msg: 'Volume for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
         return {price: 0n, decimals}
     }
     function normalizeTradesData(data) {
@@ -111,7 +111,7 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     }
     const price = calcPrice(tradesData.map(normalizeTradesData), decimals, [0n])[0]
     if (price === 0n)
-        logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
+        logger.debug({msg: 'Price for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
     return {price, decimals}
 }
 
@@ -136,7 +136,7 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 
     const price = calcCrossPrice(quoteAssetPrice.price, baseAssetPrice.price, decimals)
     if (price === 0n)
-        logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp} is zero`)
+        logger.debug({msg: 'Price for pair not found', baseAsset: baseAsset.toString(), quoteAsset: quoteAsset.toString(), timestamp})
     return {price, decimals}
 }
 
@@ -185,14 +185,14 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
 
         //skip if majority is not possible
         if (tradesData.size < majorityCount) {
-            logger.debug(`No majority for ts ${currentTimestamp}, contract ${source}, base ${base.code}`)
+            logger.debug({msg: 'No majority for trades data', timestamp: currentTimestamp, source, base: base.code})
             continue
         }
 
         //skip if no data for the current node
         const currentNodeData = tradesData.get(currentPubkey)
         if (!currentNodeData) {
-            logger.debug(`Current node data missing for ts ${currentTimestamp}, contract ${source}`)
+            logger.debug({msg: 'Current node data missing', timestamp: currentTimestamp, source})
             continue
         }
 
@@ -239,7 +239,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
     }
 
     if (masks.size === 0) {
-        logger.debug(`No matching nodes found for contract ${source}, base ${base.code}`)
+        logger.debug({msg: 'No matching nodes found', source, base: base.code})
         return []
     }
     const [bestMask] = [...masks.entries()].sort((a, b) => b[1] - a[1])[0]
@@ -253,7 +253,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             }
         }
     }
-    logger.debug(`Best matching mask for contract ${source}, base ${base.code}: ${bestMask.toString(16)} with ${masks.get(bestMask)} occurrences. Nodes: ${[...nodeMasks.get(bestMask)].join(', ')}`)
+    logger.debug({msg: 'Best matching mask found', source, base: base.code, bestMask: bestMask.toString(16), occurrences: masks.get(bestMask), nodes: [...nodeMasks.get(bestMask)].join(', ')})
     return candidate
 }
 
