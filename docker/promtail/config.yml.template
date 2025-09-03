@@ -16,7 +16,7 @@ scrape_configs:
         labels:
           service_name: reflector-node
           job: __PUBLIC_KEY__ 
-          __path__: /reflector-node/app/home/logs/*combined.log
+          __path__: /reflector-node/app/home/logs/combined.log
     
     pipeline_stages:
       - json:
@@ -44,7 +44,7 @@ scrape_configs:
         labels:
           service_name: reflector-node-metrics
           job: '__PUBLIC_KEY__'
-          __path__: /reflector-node/app/home/logs/metrics/*metrics.log
+          __path__: /reflector-node/app/home/logs/metrics/metrics.log
 
     pipeline_stages:
       - json:

@@ -6,6 +6,7 @@ const container = require('../container')
 /**
  * @typedef {import('./trades-manager').AssetTradeData} AssetTradeData
  * @typedef {import('./trades-manager').TimestampTradeData} TimestampTradeData
+ * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
 
 /**
@@ -142,8 +143,8 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 
 /**
  * @param {string} source - source of the data
- * @param {string} base - base asset
- * @param {string[]} assets - assets to get data for
+ * @param {Asset} base - base asset
+ * @param {Asset[]} assets - assets to get data for
  * @param {number} timestamp - timestamp to get data for
  * @param {number} timeframe - timeframe to get data for
  * @returns {Promise<TimestampTradeData[]>}
@@ -158,6 +159,8 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
         pubkey,
         mask: 1 << index
     }))
+
+    logger.trace({msg: 'Getting concensus data', source, base: base.toString(), assets: assets.map(a => a.toString()), timestamp, timeframe, nodes})
 
     const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask
 
@@ -196,6 +199,16 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             continue
         }
 
+        const normalizePriceData = (data) => {
+            if (!data)
+                return null
+            return {
+                price: (data.price ? data.price.toString() : undefined),
+                volume: (data.volume ? data.volume.toString() : undefined),
+                quoteVolume: (data.quoteVolume ? data.quoteVolume.toString() : undefined)
+            }
+        }
+
         //iterate over the current node data and check if it matches with the other nodes
         for (const assetData of currentNodeData) {
             for (let sourceIndex = assetData.length - 1; sourceIndex >= 0; sourceIndex--) {
@@ -213,8 +226,10 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
                         ?.find(d => d.source === sourceData.source)
 
                     //skip if no data for the node or if the data doesn't match
-                    if (!nodeData || !isSameData(nodeData, sourceData))
+                    if (!nodeData || !isSameData(nodeData, sourceData)) {
+                        logger.debug({msg: 'Node data mismatch', timestamp: currentTimestamp, source, base: base.code, asset: currentNodeData.indexOf(assetData), node: pubkey, sourceData: normalizePriceData(sourceData), nodeData: normalizePriceData(nodeData)})
                         continue
+                    }
 
                     //add the node mask to the source data nodes
                     sourceData.nodes |= mask

@@ -143,24 +143,8 @@ const rfsOptions = {
     maxFiles: MAX_FILES
 }
 
-function createGenerator(filename) {
-    const pad = (num) => (num > 9 ? '' : '0') + num
-
-    return (time, index) => {
-        if (!time)
-            time = new Date()
-
-        const month = time.getFullYear() + '' + pad(time.getMonth() + 1)
-        const day = pad(time.getDate())
-        const hour = pad(time.getHours())
-        const minute = pad(time.getMinutes())
-
-        return month + day + '-' + hour + minute + '-' + pad(index || 0) + '-' + filename
-    }
-}
-
 const errorLogStream = rfs.createStream('error.log', rfsOptions)
-const combinedLogStream = rfs.createStream(createGenerator('combined.log'), rfsOptions)
+const combinedLogStream = rfs.createStream('combined.log', rfsOptions)
 
 
 const streams = [
@@ -195,7 +179,7 @@ logger.setTrace = (trace) => {
         logger.info(`Logger level set to ${logger.level}`)
 }
 
-const metricsLogStream = rfs.createStream(createGenerator('metrics.log'), {...rfsOptions, path: metricsDir})
+const metricsLogStream = rfs.createStream('metrics.log', {...rfsOptions, path: metricsDir})
 const metricsLogger = pino(baseLogOptions, metricsLogStream)
 metricsLogger.level = 'info'
 

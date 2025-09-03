@@ -200,7 +200,7 @@ class RunnerBase {
         if (!this.isRunning)
             return
         try {
-            logger.info(`${this.__contractInfo} -> worker, timestamp: ${timestamp}`)
+            logger.info({msg: 'Start worker', timestamp, ...this.__contractInfo})
             this.__payloadMajorityData = createMajorityPromiseData()
             const isTxProcessed = await this.__workerFn(timestamp)
             //update last processed timestamp
