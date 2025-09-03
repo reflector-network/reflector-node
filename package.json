@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.11.5",
+  "version": "0.11.6",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
@@ -25,11 +25,11 @@
     "jest": "^29.5.0"
   },
   "dependencies": {
-    "@reflector/oracle-client": "github:reflector-network/oracle-client#v6.0.1",
-    "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v3.3.1",
+    "@reflector/oracle-client": "github:reflector-network/oracle-client#v6.1.1",
+    "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v3.3.2",
     "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v0.4.1",
     "@reflector/reflector-fx-connector": "github:reflector-network/reflector-fx-connector#v1.0.0",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v6.0.2",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v6.1.2",
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
     "@stellar/stellar-sdk": "14.1.1",
     "@stellar/stellar-base": "14.0.0",
@@ -42,9 +42,5 @@
     "utf-8-validate": "6.0.5",
     "uuid": "9.0.1",
     "ws": "8.18.0"
-  },
-  "overrides": {
-    "@stellar/stellar-sdk": "14.0.0",
-    "@stellar/stellar-base": "14.1.1"
   }
 }
