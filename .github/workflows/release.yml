@@ -13,21 +13,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: pnpm-setup
-      uses: pnpm/action-setup@v4
-      with:
-        version: 10
-
     - name: Setup Node.js
       uses: actions/setup-node@v2
       with:
-        node-version: '18.x'
+        node-version: '22.x'
 
     - name: Install Dependencies
-      run: pnpm install
+      run: npm install
 
     - name: Run Build Script
-      run: pnpm run build
+      run: npm run build
 
     - name: Determine If Latest Tag Should Be Pushed
       id: determine_latest_push
