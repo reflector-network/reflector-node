@@ -486,13 +486,13 @@ class TradesManager {
 
     async getTradesData(source, baseAsset, assets, timestamp) {
         const key = formatSourceAssetKey(source, baseAsset)
-        if (this.__trades.getLastTimestamp(key) < timestamp) {
-            logger.debug({msg: 'Waiting for pending trades data', key, timestamp})
-            await this.__getOrAddTimestampSync(key, timestamp)
-                .readyPromise
-                .catch(err => logger.error({err, msg: 'Error getting pending trades data', key, timestamp}))
-            logger.debug({msg: 'Pending trades data is ready', key, timestamp})
-        }
+        //if (this.__trades.getLastTimestamp(key) < timestamp) {
+        logger.debug({msg: 'Waiting for pending trades data', key, timestamp})
+        await this.__getOrAddTimestampSync(key, timestamp)
+            .readyPromise
+            .catch(err => logger.error({err, msg: 'Error getting pending trades data', key, timestamp}))
+        logger.debug({msg: 'Pending trades data is ready', key, timestamp})
+        //}
         return this.__trades.getTradesData(key, timestamp, assets)
     }
 }
