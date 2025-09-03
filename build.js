@@ -39,6 +39,6 @@ copyDirectoryRecursive(srcDir, distAppDir)
 
 fs.copyFileSync(path.resolve(__dirname, 'package.json'), path.resolve(distDir, 'package.json'))
 
-execSync('pnpm install -P', {cwd: distDir, stdio: 'inherit'})
+execSync('pnpm install', {cwd: distDir, stdio: 'inherit'})
 
 console.log('Build completed successfully!')

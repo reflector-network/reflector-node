@@ -13,7 +13,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: PNPM-setup
+    - name: pnpm-setup
       uses: pnpm/action-setup@v4
       with:
         version: 10
