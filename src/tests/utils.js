@@ -268,11 +268,28 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
 }
 
 /**
- *@param {string} admin
+ * @param {Server} server
+ * @param {string} sponsor
+ * @param {string} address
  */
-async function createAccount(admin) {
-    await axios.get(`https://friendbot.stellar.org?addr=${admin}`)
-    //return await server.requestAirdrop(admin, 'https://friendbot.stellar.org')
+async function createAccount(server, sponsor, address) {
+    const sponsorKeypair = Keypair.fromSecret(sponsor)
+    const account = await server.getAccount(sponsorKeypair.publicKey())
+    const txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.network})
+        .setTimeout(30000)
+        .addOperation(
+            Operation.createAccount({
+                destination: address,
+                startingBalance: '1000'
+            })
+        )
+    const tx = txBuilder.build()
+    tx.sign(sponsorKeypair)
+    await sendTransaction(server, tx)
+}
+
+async function generateAccount(address) {
+    await axios.get(`https://friendbot.stellar.org?addr=${address}`)
 }
 
 /**
@@ -337,9 +354,7 @@ async function sendTransaction(server, tx) {
         result = await server.getTransaction(hash)
     }
     if (result.status !== 'SUCCESS') {
-
-        const err = new Error(`Tx failed: ${result.status}, result: ${result.resultXdr || result.errorResult.result()._switch.name}`)
-        err.result = result.resultXdr || result.errorResult.result()._switch.name
+        throw new Error(`Tx failed: ${result.status}, hash: ${hash}, result: ${result.resultXdr}`)
     }
     return result
 }
@@ -356,5 +371,6 @@ module.exports = {
     mint,
     addTrust,
     sendTransaction,
-    getAccountInfo
+    getAccountInfo,
+    generateAccount
 }

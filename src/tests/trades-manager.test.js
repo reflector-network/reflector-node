@@ -5,6 +5,7 @@ const container = require('../domain/container')
 const AssetMap = require('../domain/prices/assets-map')
 const {getConcensusData} = require('../domain/prices/price-manager')
 const TradesManager = require('../domain/prices/trades-manager')
+const logger = require('../logger')
 const nodes = [
     {pubkey: 'node1'},
     {pubkey: 'node2'},
@@ -21,12 +22,14 @@ function getPrices(pricesCount, sourcesCount) {
     for (let i = 1; i <= pricesCount; i++) {
         const price = []
         for (let j = 0; j < sourcesCount; j++) {
-            if (Math.random() > 0.9)
-                continue
+            //if (Math.random() > 0.9)
+            //continue
             price.push({
-                volume: BigInt(i * Math.pow(10, 7)),
-                quoteVolume: BigInt(i * Math.pow(10, 7)) * BigInt(1000000000 + i + j),
-                source: `source${j}`
+                //volume: BigInt(i * Math.pow(10, 7)),
+                //quoteVolume: BigInt(i * Math.pow(10, 7)) * (Math.random() > 0.9 ? BigInt(1000005378) : BigInt(1000000000 + i + j)),
+                price: Math.random() > 0.9 ? BigInt(1000005378) : BigInt(1000000000 + i + j),
+                source: `source${j}`,
+                type: 'price'
             })
         }
         prices.push(price)
@@ -64,8 +67,9 @@ function normalizeTradeData(data, toString) {
 describe('TradesManager', () => {
 
     test('should reach majority', async () => {
+        logger.setTrace(true)
         let reached = 0
-        for (let i = 0; i < 100; i++) {
+        for (let i = 0; i < 1000; i++) {
             const nodesData = []
             const timestamps = [11, 12, 13, 14, 15].map(ts => ts * 60 * 1000)
             const assetsMap = new AssetMap('test', new Asset(2, 'A1'), [new Asset(2, 'A2'), new Asset(2, 'A3'), new Asset(2, 'A4')])
@@ -79,7 +83,7 @@ describe('TradesManager', () => {
                     }
                     nodesData[i][key][ts] = {
                         assetsMap: plainMap,
-                        trades: normalizeTradeData(getPrices(assetsMap.assets.length, 7), true)
+                        trades: normalizeTradeData(getPrices(assetsMap.assets.length, 1), true)
                     }
                 }
             }
@@ -113,13 +117,17 @@ describe('TradesManager', () => {
             if (equalResults.length !== nodes.length)
                 console.log(`Equal results: ${equalResults.length} of ${nodes.length}`)
             const hasMajority = equalResults.length >= getMajority(nodes.length)
-            console.log(hasMajority ? '✅' : '❌')
+            if (!hasMajority) {
+                console.log(JSON.stringify(nodesData))
+                break
+            }
+            //console.log(hasMajority ? '✅' : '❌')
             reached += hasMajority ? 1 : 0
             const result = []
             for (const t of equalResults[0]) {
                 result.push(t.map(asset => asset.map(trade => trade.source).join(',')))
             }
-            console.table(result)
+            //console.table(result)
         }
         console.log(`Reached majority in ${reached} out of 100 tests`)
     }, 300000000)

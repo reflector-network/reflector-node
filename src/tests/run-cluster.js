@@ -14,11 +14,13 @@ const {
     generateAssetContract,
     mint,
     getAccountInfo,
-    addTrust
+    addTrust,
+    generateAccount
 } = require('./utils')
 const constants = require('./constants')
 
 const configsPath = './tests/clusterData'
+const tokenData = null
 let rsa = null
 
 function getNodeDirName(nodeNumber) {
@@ -37,7 +39,7 @@ const initDAOAmount = '100000000000'
 
 const contractConfigs = [
     {dataSource: constants.sources.pubnet},
-    {dataSource: constants.sources.exchanges},
+    //{dataSource: constants.sources.exchanges},
     {dataSource: constants.sources.forex}
 ]
 
@@ -155,17 +157,16 @@ async function accountExists(server, publicKey) {
 async function ensureClusterDataReady(clusterConfig) {
     const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
 
+    if (!await accountExists(server, clusterConfig.deployer.pubkey)) {
+        await generateAccount(clusterConfig.deployer.pubkey)
+    }
+
     const createIfNotExists = async (pubKey, updateToMultisigKeypair) => {
-        if (!(await accountExists(server, pubKey)))
-            await createAccount(pubKey)
+        if (await accountExists(server, pubKey))
+            return true
+        await createAccount(server, clusterConfig.deployer.secret, pubKey)
         if (updateToMultisigKeypair)
-            try {
-                await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
-            } catch (e) {
-                if (e.result === 'txBadAuth')
-                    return
-                throw e
-            }
+            await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
     }
 
     const multisigAccounts = [clusterConfig.sysAccount, ...clusterConfig.contracts.map(c => c.admin)]
@@ -174,7 +175,6 @@ async function ensureClusterDataReady(clusterConfig) {
         await createIfNotExists(accountKeypair.publicKey(), accountKeypair)
     }
 
-    await createIfNotExists(clusterConfig.deployer.pubkey)
     await createIfNotExists(clusterConfig.tokenIssuer.pubkey)
 }
 

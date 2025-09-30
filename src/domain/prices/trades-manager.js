@@ -59,66 +59,29 @@ function getSampleSize(lastTimestemp, targetTimestamp) {
  * @param {number} count - count of items to load
  * @return {Promise<AggregatedTradeData>}
  */
-function loadTradesData(dataSource, baseAsset, assets, from, count) {
+async function loadPriceData(dataSource, baseAsset, assets, from, count) {
     from = from / 1000 //convert to seconds
-    let dataPromise = null
     const start = Date.now()
-    switch (dataSource.type) {
-        case DataSourceTypes.API:
-            dataPromise = loadApiTradesData(dataSource, baseAsset, assets, from, count)
-            break
-        case DataSourceTypes.DB:
-            dataPromise = loadDbTradesData(dataSource, baseAsset, assets, from, count)
-            break
-        default:
-            throw new Error(`Data source ${dataSource.type} not supported`)
-    }
-    dataPromise
-        .then(data => logger.info({msg: 'Loaded trade data', count: data.length, source: dataSource.name, duration: Date.now() - start}))
-    return dataPromise
+    const requestOptions = normalizePriceDataFetchOptions(dataSource, baseAsset, assets, from, minute / 1000, count)
+    const tradesData = await dataSource.instance.getPriceData(requestOptions)
+    logger.info({msg: 'Loaded trade data', count: tradesData.length, source: dataSource.name, duration: Date.now() - start})
+    return tradesData
 }
 
-/**
- * @param {any} dataSource - source object
- * @param {Asset} baseAsset - base asset
- * @param {Asset[]} assets - assets
- * @param {number} from - timestamp
- * @param {number} count - count of items to load
- * @returns {Promise<AggregatedTradeData>}
- */
-async function loadApiTradesData(dataSource, baseAsset, assets, from, count) {
+function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, period, count) {
     const {settingsManager} = container
-    const gatewaysCount = settingsManager.gateways?.urls?.length || 1
-    switch (dataSource.name) {
-        case 'exchanges': {
-            const tradesData = await getTradesData(
-                assets.map(asset => asset.code),
-                baseAsset.code,
-                from,
-                minute / 1000,
-                count,
-                {
-                    batchSize: gatewaysCount * 10,
-                    batchDelay: 1500
-                }
-            )
-            return tradesData
+    return {
+        baseAsset: baseAsset.code,
+        assets: assets.map(a => a.code),
+        from,
+        period,
+        count,
+        options: {
+            batchSize: settingsManager.gateways?.urls?.length || 1,
+            batchDelay: 1500,
+            sources: datasource.providers,
+            timeout: 15000
         }
-        case 'forex': {
-            const tradesData = await getFiatTradesData(
-                assets.map(asset => asset.code),
-                baseAsset.code,
-                from,
-                minute / 1000,
-                count,
-                {
-                    sources: dataSource.providers,
-                    timeout: 15000
-                })
-            return tradesData
-        }
-        default:
-            throw new Error(`Data source ${dataSource.name} not supported`)
     }
 }
 
@@ -440,15 +403,15 @@ class TradesManager {
             const dataSource = dataSourcesManager.get(source)
 
             //load the data
-            const tradesData = await loadTradesData(dataSource, baseAsset, assetsMap.assets, from, count)
+            const priceData = await loadPriceData(dataSource, baseAsset, assetsMap.assets, from, count)
 
             //iterate over the data from the current node, starting from the latest timestamp
             let currentIterationTimestamp = currentTimestamp
             //broadcast items
             const broadcastItems = new Map([[key, new Map()]])
             //push volumes to the cache
-            for (let j = tradesData.length - 1; j >= 0; j--) {
-                const currentTimestampData = tradesData[j]
+            for (let j = priceData.length - 1; j >= 0; j--) {
+                const currentTimestampData = priceData[j]
                 //push the data to verified data
                 const tradeDataItem = this.__trades.push(
                     container.settingsManager.appConfig.publicKey,
@@ -466,7 +429,7 @@ class TradesManager {
 
             logger.trace({msg: 'Pushed trades data for source', source, baseAsset, from, to: from + (count - 1) * minute})
         } catch (err) {
-            logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset})
+            logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset.toString()})
         }
     }
 

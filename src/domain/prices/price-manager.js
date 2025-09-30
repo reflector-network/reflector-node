@@ -227,7 +227,16 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
 
                     //skip if no data for the node or if the data doesn't match
                     if (!nodeData || !isSameData(nodeData, sourceData)) {
-                        logger.debug({msg: 'Node data mismatch', timestamp: currentTimestamp, source, base: base.code, asset: currentNodeData.indexOf(assetData), node: pubkey, sourceData: normalizePriceData(sourceData), nodeData: normalizePriceData(nodeData)})
+                        logger.debug({
+                            msg: 'Node data mismatch',
+                            timestamp: currentTimestamp,
+                            source,
+                            base: base.code,
+                            asset: currentNodeData.indexOf(assetData),
+                            node: pubkey,
+                            sourceData: normalizePriceData(sourceData),
+                            nodeData: normalizePriceData(nodeData)
+                        })
                         continue
                     }
 

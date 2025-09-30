@@ -8,7 +8,13 @@ const dataSourceManager = require('../data-sources-manager')
 const PendingSyncDataCache = require('./pending-notifications-cache')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
-const validSymbols = require('./valid-symbols.json')
+let validSymbols = null
+function getValidSymbols() {
+    if (validSymbols === null) {
+        validSymbols = container.validSymbols || require('./valid-symbols.json')
+    }
+    return validSymbols
+}
 
 /**
  * @typedef {import('@reflector/reflector-shared').OracleConfig} OracleConfig
@@ -164,7 +170,19 @@ class SubscriptionContractManager {
                 return
             }
 
-            if (base.source === 'exchange' && !validSymbols.includes(base.asset.code) || quote.source === 'exchange' && !validSymbols.includes(quote.asset.code)) {
+            const isValidSymbol = (assetInfo) => {
+                const validSymbols = getValidSymbols()
+                const sourceValidSymbols = validSymbols[assetInfo.source]
+                if (sourceValidSymbols === '*')
+                    return true
+                else if (!(sourceValidSymbols instanceof Array)) {
+                    logger.warn(`Invalid symbols config for source ${assetInfo.source}. Subscription ${raw.id}. Contract ${this.contractId}`)
+                    return false
+                }
+                return sourceValidSymbols.includes(assetInfo.code)
+            }
+
+            if (!(isValidSymbol(base) && isValidSymbol(quote))) {
                 logger.warn(`Invalid symbol in subscription ${raw.id}. Contract ${this.contractId}`)
                 return
             }

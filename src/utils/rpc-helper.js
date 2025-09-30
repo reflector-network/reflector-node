@@ -86,7 +86,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
         if (error.errorName === 'TRY_AGAIN_LATER' || error.errorName === 'NOT_FOUND') {
             return
         } else if ((error.errorName === 'txBadSeq' || error.errorName === 'txTooLate') && !falseErrorHandled) { //when tx is already submitted, but was not found, txBadSeq or txTooLate can be thrown on submit
-            logger.debug(`${error.errorName} error. Retry attempt. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, falseErrorHandled: ${falseErrorHandled}`)
+            logger.debug({msg: `${error.errorName} error. Retry attempt`, ...runnerInfo, txType: pendingTx.type, hash, falseErrorHandled})
             falseErrorHandled = true
             return
         }
@@ -100,7 +100,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
 
     const ensureIsNotTimedOut = () => {
         if (isTxTooLate) {
-            logger.debug(`Transaction is too late. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, maxTime: ${maxTime}, latestLedgerCloseTime: ${latestLedgerCloseTime}`)
+            logger.debug({msg: `Transaction is too late`, ...runnerInfo, txType: pendingTx.type, hash, maxTime, latestLedgerCloseTime})
             throw new Error(txTimeoutMessage)
         }
     }
@@ -115,7 +115,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
         //check if the transaction is already submitted
         let response = await makeServerRequest(sorobanRpc, getTransactionFn)
         if (response.status === 'SUCCESS') {
-            logger.trace(`Transaction is already submitted. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}`)
+            logger.trace({msg: `Transaction is already submitted`, ...runnerInfo, txType: pendingTx.type, hash})
             response.hash = hash
             return response
         }
@@ -125,7 +125,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
             ensureIsNotTimedOut()
             const sendTransactionFn = async (server) => await server.sendTransaction(tx)
             const submitResult = await makeServerRequest(sorobanRpc, sendTransactionFn)
-            logger.debug(`Transaction is sent. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
+            logger.debug({msg: `Transaction is sent`, ...runnerInfo, txType: pendingTx.type, hash, status: submitResult.status})
             if (!['PENDING', 'DUPLICATE'].includes(submitResult.status)) {
                 processResponse(submitResult)
                 await new Promise(resolve => setTimeout(resolve, 1000))
@@ -151,7 +151,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
         }
         return response
     }
-    throw new Error(`Failed to submit transaction. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}`)
+    throw new Error(`Failed to submit transaction. ${JSON.stringify(runnerInfo)}. Tx type: ${pendingTx.type}, hash: ${hash}`)
 }
 
 /**

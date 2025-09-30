@@ -86,7 +86,7 @@ class SettingsManager {
             //shutdown the app if app config is invalid
             throw new Error(`Invalid app config. Issues: ${this.appConfig.issuesString}`)
         }
-        this.setAppConfig(this.appConfig)
+        await this.setAppConfig(this.appConfig)
 
         //set gateways
         const gatewaysExist = fs.existsSync(gatewaysPath)
@@ -140,10 +140,10 @@ class SettingsManager {
     /**
      * @param {AppConfig} config - config
      */
-    setAppConfig(config) {
+    async setAppConfig(config) {
         this.appConfig = config
         logger.init(this.appConfig.trace)
-        dataSourceManager.setDataSources([...config.dataSources.values()])
+        await dataSourceManager.setDataSources([...config.dataSources.values()])
     }
 
     /**

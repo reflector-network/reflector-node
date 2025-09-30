@@ -1,5 +1,6 @@
-const {setGateway: setDexGateways} = require('@reflector/reflector-exchanges-connector')
-const {setGateway: setForexGateways} = require('@reflector/reflector-fx-connector')
+const ExchangesPriceProvider = require('@reflector/reflector-exchanges-connector')
+const ForexPriceProvider = require('@reflector/reflector-fx-connector')
+const StellarProvider = require('@reflector/reflector-stellar-connector')
 const {ValidationError, IssuesContainer} = require('@reflector/reflector-shared')
 const DataSourceTypes = require('../models/data-source-types')
 const logger = require('../logger')
@@ -17,41 +18,58 @@ const networks = {
     pubnet: 'Public Global Stellar Network ; September 2015'
 }
 
+function getProviderByName(name) {
+    switch (name) {
+        case 'exchanges':
+            return new ExchangesPriceProvider()
+        case 'forex':
+            return new ForexPriceProvider()
+        case 'pubnet':
+        case 'testnet':
+            return new StellarProvider()
+        default:
+            throw new ValidationError(`unknown provider name: ${name}`)
+    }
+}
+
 const exchangesDataSourceName = 'exchanges'
 
 /**
  * @type {Map<string, { networkPassphrase: string, sorobanRpc: [string[]], type: string, secret: [string], name: string }>}
  */
-const __connections = new Map([[exchangesDataSourceName, {type: DataSourceTypes.API, name: exchangesDataSourceName}]]) //exchanges is not required any configuration, so it is added by default
+const __connections = new Map([
+    [exchangesDataSourceName, {
+        type: DataSourceTypes.API,
+        name: exchangesDataSourceName,
+        provider: getProviderByName(exchangesDataSourceName)
+    }]
+]) //exchanges does not require any configuration, so it is added by default
+
+/**
+ * @param {any} dataSourceConfig
+ * @returns {any}
+ */
+function getNormalizedInitOptions(dataSourceConfig) {
+    return {
+        rpcUrls: dataSourceConfig.sorobanRpc,
+        network: dataSourceConfig.networkPassphrase
+    }
+}
 
 /**
  * @param {DataSource} dataSource - data source
  */
-function __registerConnection(dataSource) {
+async function __registerConnection(dataSource) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
-    const {
-        name,
-        sorobanRpc,
-        secret,
-        type,
-        providers
-    } = dataSource
-    switch (type) {
-        case DataSourceTypes.DB:
-            {
-                const networkPassphrase = networks[name] || name
-                __connections.set(name, {networkPassphrase, sorobanRpc, type, name})
-            }
-            break
-        case DataSourceTypes.API:
-            {
-                __connections.set(name, {type, secret, name, providers})
-            }
-            break
-        default:
-            throw new ValidationError(`invalid dataSource type: ${type}`)
-    }
+    const dataSourceConfig =
+        {...dataSource,
+            networkPassphrase: networks[dataSource.name] || dataSource.name,
+            instance: getProviderByName(dataSource.name)
+        }
+    __connections.set(dataSource.name, dataSourceConfig)
+    if (dataSourceConfig.instance.init)
+        await dataSourceConfig.instance.init(getNormalizedInitOptions(dataSourceConfig))
 }
 
 function __deleteConnection(name) {
@@ -67,10 +85,10 @@ class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
      */
-    setDataSources(dataSources) {
+    async setDataSources(dataSources) {
         for (const source of dataSources) {
             try {
-                __registerConnection(source)
+                await __registerConnection(source)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))
@@ -86,13 +104,12 @@ class DataSourcesManager extends IssuesContainer {
      */
     setGateways(gateways) {
         const {urls, gatewayValidationKey} = gateways || {}
-        setDexGateways(urls, gatewayValidationKey)
-        //setForexGateways(urls, gatewayValidationKey)
+        this.get(exchangesDataSourceName).instance.setGateway(urls, gatewayValidationKey)
     }
 
     /**
      * @param {string} name - source name
-     * @returns {{ networkPassphrase: string, sorobanRpc: [string[]], dbConnector: [DbConnector], type: string, secret: [string], name: string}}
+     * @returns {{ networkPassphrase: string, sorobanRpc: [string[]], type: string, secret: [string], name: string}}
      */
     get(name) {
         if (!name)
