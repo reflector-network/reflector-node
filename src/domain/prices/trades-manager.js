@@ -70,7 +70,7 @@ async function loadPriceData(dataSource, baseAsset, assets, from, count) {
 
 function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, period, count) {
     const {settingsManager} = container
-    return {
+    const options = {
         baseAsset: baseAsset.code,
         assets: assets.map(a => a.code),
         from,
@@ -83,6 +83,17 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
             timeout: 15000
         }
     }
+    //remove all undefined options
+    const removeUndefinedOptions = (raw) => {
+        for (const key of Object.keys(raw)) {
+            if (raw[key] === undefined)
+                delete raw[key]
+            else if (typeof raw[key] === 'object' && !Array.isArray(raw[key]))
+                raw[key] = removeUndefinedOptions(raw[key])
+        }
+        return raw
+    }
+    return removeUndefinedOptions(options)
 }
 
 /**
