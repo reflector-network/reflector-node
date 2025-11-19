@@ -6,6 +6,8 @@ const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
 
+const DEFAULT_CACHE_SIZE = 3
+
 class OracleRunner extends RunnerBase {
     constructor(contractId) {
         if (!contractId)
@@ -26,7 +28,18 @@ class OracleRunner extends RunnerBase {
         //get account info
         const sourceAccount = await getAccount(admin, sorobanRpc)
 
-        const contractState = await getOracleContractState(this.contractId, sorobanRpc)
+        const contractState = await getOracleContractState(
+            this.contractId,
+            sorobanRpc,
+            sourceAccount,
+            {
+                networkPassphrase: network,
+                fee: baseFee,
+                timebounds: {minTime: 0, maxTime: 0}
+            }
+        )
+
+        const protocol = contractState.protocol || (contractState.version >= 6 ? 2 : 1)
 
         logger.trace({msg: 'Contract state', lastTimestamp: Number(contractState.lastTimestamp), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
@@ -42,7 +55,8 @@ class OracleRunner extends RunnerBase {
                 fee,
                 maxTime,
                 decimals: settingsManager.getDecimals(this.contractId),
-                cacheSize: contractConfig.cacheSize || 0
+                cacheSize: contractConfig.cacheSize ?? DEFAULT_CACHE_SIZE,
+                protocol
             })
         } else if (isTimestampValid(timestamp, timeframe)
             && contractState.lastTimestamp < timestamp
@@ -59,7 +73,8 @@ class OracleRunner extends RunnerBase {
                 timestamp,
                 contractId: this.contractId,
                 fee,
-                maxTime
+                maxTime,
+                protocol
             })
         } else {
             //nothing to do

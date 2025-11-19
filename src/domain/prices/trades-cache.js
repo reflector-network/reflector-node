@@ -191,7 +191,6 @@ class Trades {
      * @returns {Map<string, TimestampTradeData>}}
      */
     getTradesData(key, timestamp, assets) {
-        //get all nodes data except the current node
         const data = [...this.__trades.keys()]
             .map(pubkey => [pubkey, this.__trades.get(pubkey).getTradesData(key, timestamp, assets)])
         const allNodesData = new Map(data)
