@@ -69,7 +69,7 @@ async function getPricesForContract(contractId, timestamp) {
     //get contract state
     const contractStatePromise = getOracleContractState(contractId, sorobanRpc)
     //get assets for the contract
-    const assets = settingsManager.getAssets(contract.contractId, true)
+    const assets = settingsManager.getAssets(contract.contractId)
 
     //start of the current timeframe
     let currentTradesDataTimestamp = timestamp - contract.timeframe + minute

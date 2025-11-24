@@ -253,13 +253,10 @@ class SettingsManager {
 
     /**
      * @param {string} contractId - contract id
-     * @param {boolean} includePending - include pending updates assets
      * @returns {Asset[]}
      */
-    getAssets(contractId, includePending = false) {
-        if (includePending && this.pendingConfig && this.pendingConfig.config.contracts.has(contractId)) //contract can be deleted in pending config
-            return __getContractConfig(this.pendingConfig.config, contractId).assets
-        return __getContractConfig(this.config, contractId).assets
+    getAssets(contractId) {
+        return [...__getContractConfig(this.config, contractId).assets]
     }
 
     /**

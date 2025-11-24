@@ -188,7 +188,7 @@ function getAssetsMap() {
 
     //push all oracle assets to the map
     for (const contract of oracleContracts.sort((a, b) => a.contractId.localeCompare(b.contractId))) {
-        addAssetToMap(assetsMap, contract.dataSource, contract.baseAsset, settingsManager.getAssets(contract.contractId, true))
+        addAssetToMap(assetsMap, contract.dataSource, contract.baseAsset, settingsManager.getAssets(contract.contractId))
     }
 
     //push all subscriptions assets to the map
