@@ -425,6 +425,9 @@ class TradesManager {
             logger.trace(`Loading trades data for source ${source}, base asset ${baseAsset} for timestamp ${currentTimestamp}, trades timestamp ${tradesTimestamp}, from ${from}, count ${count}`)
 
             const dataSource = dataSourcesManager.get(source)
+            if (!dataSource) {
+                throw new Error(`Data source ${source} not found`)
+            }
 
             //load the data
             const tradesData = await loadTradesData(dataSource, baseAsset, assetsMap.assets, from, count)
