@@ -117,8 +117,8 @@ function createMajorityPromiseData() {
     return majorityPromiseData
 }
 
-const maxSubmitAttempts = 3
-const maxSubmitTimeout = 20000
+const maxSubmitAttempts = 4
+const maxSubmitTimeout = 15000
 
 class RunnerBase {
 
