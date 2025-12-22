@@ -9,10 +9,11 @@ const RunnerBase = require('./runner-base')
 const DEFAULT_CACHE_SIZE = 3
 
 class OracleRunner extends RunnerBase {
-    constructor(contractId) {
+    constructor(contractId, type) {
         if (!contractId)
             throw new Error('contractId is required')
         super(contractId)
+        this.__oracleType = type
     }
 
     async __workerFn(timestamp) {
@@ -42,7 +43,12 @@ class OracleRunner extends RunnerBase {
         const protocol = contractState.protocol || (contractState.version >= 6 ? 2 : 1)
 
         logger.trace({msg: 'Contract state', lastTimestamp: Number(contractState.lastTimestamp), initialized: contractState.isInitialized, ...this.__contractInfo})
-        statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
+        statisticsManager.setLastOracleData(
+            this.contractId,
+            Number(contractState.lastTimestamp),
+            contractState.isInitialized,
+            this.__contractType
+        )
         settingsManager.setAssetTtls(this.contractId, contractState.assetTtls)
 
         let updateTxBuilder = null
@@ -106,7 +112,7 @@ class OracleRunner extends RunnerBase {
     }
 
     get __contractType() {
-        return ContractTypes.ORACLE
+        return this.__oracleType || ContractTypes.ORACLE
     }
 }
 

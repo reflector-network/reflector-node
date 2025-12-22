@@ -88,8 +88,8 @@ class RunnerManager {
         switch (type) {
             case ContractTypes.ORACLE:
             case ContractTypes.ORACLE_BEAM:
-                runner = new OracleRunner(contractId)
-                logger.debug({msg: 'RunnerManager -> add -> oracleRunner added', contract: contractId})
+                runner = new OracleRunner(contractId, type)
+                logger.debug({msg: 'RunnerManager -> add -> oracleRunner added', contract: contractId, type})
                 break
             case ContractTypes.SUBSCRIPTIONS:
                 runner = new SubscriptionsRunner(contractId)

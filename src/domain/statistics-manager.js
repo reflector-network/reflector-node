@@ -40,8 +40,8 @@ class ContractStatistics {
 }
 
 class OracleStatistics extends ContractStatistics {
-    constructor(contractId) {
-        super(contractId, ContractTypes.ORACLE)
+    constructor(contractId, type) {
+        super(contractId, type)
         this.lastOracleTimestamp = 0
     }
 
@@ -157,7 +157,8 @@ class StatisticsManager {
         if (!contractStatistics) {
             switch (type) {
                 case ContractTypes.ORACLE:
-                    contractStatistics = new OracleStatistics(contractId)
+                case ContractTypes.ORACLE_BEAM:
+                    contractStatistics = new OracleStatistics(contractId, type)
                     break
                 case ContractTypes.SUBSCRIPTIONS:
                     contractStatistics = new SubscriptionsStatistics(contractId)
@@ -193,8 +194,8 @@ class StatisticsManager {
         this.submittedTransactions++
     }
 
-    setLastOracleData(contractId, lastOracleTimestamp, isInitialized) {
-        const oracleStatistics = this.__getContracStatistics(contractId, ContractTypes.ORACLE)
+    setLastOracleData(contractId, lastOracleTimestamp, isInitialized, type) {
+        const oracleStatistics = this.__getContracStatistics(contractId, type)
         oracleStatistics.setLastOracleData(lastOracleTimestamp, isInitialized)
     }
 

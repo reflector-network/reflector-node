@@ -298,7 +298,9 @@ class SettingsManager {
     get statistics() {
         const connectionIssues = dataSourceManager.issues || []
         if (this.config && this.config.isValid) {
-            const dataSources = [...this.config.contracts.values()].filter(c => c.type === ContractTypes.ORACLE).map(c => c.dataSource)
+            const dataSources = [...this.config.contracts.values()]
+                .filter(c => c.type === ContractTypes.ORACLE || c.type === ContractTypes.ORACLE_BEAM)
+                .map(c => c.dataSource)
             for (const dataSource of dataSources) {
                 if (!dataSourceManager.has(dataSource))
                     connectionIssues.push(`Connection data for data source ${dataSource} not found`)
