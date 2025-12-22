@@ -79,6 +79,12 @@ function generateClusterConfigData() {
                 admin: genearateKeypairData(),
                 dataSource: c.dataSource.name,
                 salt: c.dataSource.name
+            })),
+            ...contractConfigs.map(c => ({
+                type: ContractTypes.ORACLE_BEAM,
+                admin: genearateKeypairData(),
+                dataSource: c.dataSource.name,
+                salt: c.dataSource.name
             }))
         ],
         deployer: genearateKeypairData(),
@@ -175,6 +181,7 @@ async function ensureClusterDataReady(clusterConfig) {
         await createIfNotExists(accountKeypair.publicKey(), accountKeypair)
     }
 
+    await createIfNotExists(clusterConfig.deployer.pubkey)
     await createIfNotExists(clusterConfig.tokenIssuer.pubkey)
 }
 

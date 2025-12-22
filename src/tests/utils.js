@@ -11,6 +11,7 @@ const constants = require('./constants')
  */
 
 const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
+const pathToBeamOracleContractWasm = './tests/reflector_beam_contract.wasm'
 const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
 const pathToDAOContractWasm = './tests/reflector_dao_contract.wasm'
 
@@ -42,6 +43,8 @@ async function deployContract(server, deployer, contractType, salt) {
         pathToContractWasm = pathToSubscriptionsContractWasm
     else if (contractType === ContractTypes.DAO)
         pathToContractWasm = pathToDAOContractWasm
+    else if (contractType === ContractTypes.ORACLE_BEAM)
+        pathToContractWasm = pathToBeamOracleContractWasm
 
     const deployerKeypair = Keypair.fromSecret(deployer)
 
@@ -157,7 +160,7 @@ function generateAppConfig(secret, dataSources) {
         handshakeTimeout: 0,
         secret,
         dataSources,
-        orchestratorUrl: 'http://192.168.0.137:12274',
+        orchestratorUrl: 'http://192.168.0.21:12274',
         trace: true
     }
 }
@@ -168,8 +171,8 @@ function generateAppConfig(secret, dataSources) {
  */
 function generateContractConfig(configData) {
     const {admin, contractId, contractType, dataSource, token, developer, initAmount} = configData
-    if (contractType === ContractTypes.ORACLE) {
-        return generateOracleContractConfig(admin, contractId, dataSource)
+    if (contractType === ContractTypes.ORACLE || contractType === ContractTypes.ORACLE_BEAM) {
+        return generateOracleContractConfig(admin, contractId, dataSource, contractType === ContractTypes.ORACLE_BEAM)
     } else if (contractType === ContractTypes.SUBSCRIPTIONS) {
         return generateSubscriptionsContractConfig(admin, contractId, token)
     } else if (contractType === ContractTypes.DAO) {
@@ -177,7 +180,7 @@ function generateContractConfig(configData) {
     }
 }
 
-function generateOracleContractConfig(admin, contractId, dataSource) {
+function generateOracleContractConfig(admin, contractId, dataSource, isBeam = false) {
     const assets = {}
     switch (dataSource) {
         case 'exchanges':
@@ -198,7 +201,7 @@ function generateOracleContractConfig(admin, contractId, dataSource) {
     return {
         admin,
         contractId,
-        type: ContractTypes.ORACLE,
+        type: isBeam ? ContractTypes.ORACLE_BEAM : ContractTypes.ORACLE,
         baseAsset: assets.baseAsset,
         assets: assets.assets,
         timeframe: constants.timeframe,
@@ -244,7 +247,7 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         const pubkey = nodes[i]
         nodeAddresses[pubkey] = {
             pubkey,
-            url: `ws://192.168.0.137:${wsStartPort + (i * 100)}`,
+            url: `ws://192.168.0.21:${wsStartPort + (i * 100)}`,
             domain: `node${i}.com`
         }
     }

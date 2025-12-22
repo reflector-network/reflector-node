@@ -87,6 +87,7 @@ class RunnerManager {
         let runner = null
         switch (type) {
             case ContractTypes.ORACLE:
+            case ContractTypes.ORACLE_BEAM:
                 runner = new OracleRunner(contractId)
                 logger.debug({msg: 'RunnerManager -> add -> oracleRunner added', contract: contractId})
                 break
