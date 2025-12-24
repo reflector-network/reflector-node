@@ -49,7 +49,7 @@ class OracleRunner extends RunnerBase {
             contractState.isInitialized,
             this.__contractType
         )
-        settingsManager.setAssetTtls(this.contractId, contractState.assetTtls)
+        settingsManager.setAssetExpiration(this.contractId, contractState.expiration)
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {

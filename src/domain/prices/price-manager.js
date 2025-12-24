@@ -42,7 +42,7 @@ async function getPricesForContract(contractId, timestamp) {
     const contract = settingsManager.getContractConfig(contractId)
     if (!contract)
         throw new Error(`Contract ${contractId} not found`)
-    if (contract.type !== ContractTypes.ORACLE)
+    if (contract.type !== ContractTypes.ORACLE && contract.type !== ContractTypes.ORACLE_BEAM)
         throw new Error(`Contract ${contractId} is not an oracle contract`)
 
     //get assets for the contract

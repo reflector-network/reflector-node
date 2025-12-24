@@ -259,24 +259,24 @@ class SettingsManager {
     getAssets(contractId) {
         const assets = [...__getContractConfig(this.config, contractId).assets]
         //set null for expired assets
-        const assetTtls = this.__assetTtls.get(contractId) || []
+        const assetExpiration = this.__assetExpiration.get(contractId) || assets.map(() => BigInt(0))
         const now = BigInt(Date.now())
-        for (let i = 0; i < assetTtls.length; i++)
-            if (now > assetTtls[i]) //asset is expired
+        for (let i = 0; i < assetExpiration.length; i++)
+            if (now > assetExpiration[i]) //asset is expired
                 assets[i] = null
         return assets
     }
 
     /**
      * @param {string} contractId - contract id
-     * @param {BigInt[]} assetTtls - asset ttls
+     * @param {BigInt[]} expiration - asset expirations
      */
-    setAssetTtls(contractId, assetTtls) {
+    setAssetExpiration(contractId, expiration) {
         if (!contractId)
             throw new Error('Contract id is required')
-        if (!assetTtls)
+        if (!expiration || !Array.isArray(expiration))
             return
-        this.__assetTtls.set(contractId, assetTtls)
+        this.__assetExpiration.set(contractId, expiration)
     }
 
     /**
@@ -317,7 +317,7 @@ class SettingsManager {
         }
     }
 
-    __assetTtls = new Map()
+    __assetExpiration = new Map()
 }
 
 module.exports = SettingsManager
