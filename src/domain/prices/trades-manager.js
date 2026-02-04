@@ -154,7 +154,7 @@ function getSourceDefaultBaseAsset(source) {
 function getAssetsMap() {
     const {settingsManager} = container
     const oracleContracts = [...settingsManager.config.contracts.values()]
-        .filter(c => c.type === ContractTypes.ORACLE)
+        .filter(c => c.type === ContractTypes.ORACLE || c.type === ContractTypes.ORACLE_BEAM)
 
     /**@type {Map<string,AssetsMap>} */
     const assetsMap = new Map()
