@@ -160,7 +160,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
         mask: 1 << index
     }))
 
-    logger.trace({msg: 'Getting concensus data', source, base: base.toString(), assets: assets.map(a => a.toString()), timestamp, timeframe, nodes})
+    logger.trace({msg: 'Getting concensus data', source, base: base.toString(), assets: assets.map(a => (a || 'null').toString()), timestamp, timeframe, nodes})
 
     const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask
 
