@@ -61,20 +61,25 @@ class OracleStatistics extends ContractStatistics {
 class SubscriptionsStatistics extends ContractStatistics {
     constructor(contractId) {
         super(contractId, ContractTypes.SUBSCRIPTIONS)
-        this.lastSubscrioptionId = 0
+        this.lastSubscriptionId = 0
     }
 
-    setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash) {
+    setLastSubscriptionData(lastSubscriptionId, isInitialized, syncDataHash) {
         this.setLastContractData(isInitialized)
-        this.lastSubscrioptionId = lastSubscrioptionId
+        this.lastSubscriptionId = lastSubscriptionId
         this.syncDataHash = syncDataHash
+    }
+
+    setSubscriptionTriggerTimestamp(timestamp) {
+        this.triggerTimestamp = timestamp
     }
 
     getStatistics() {
         return {
             ...super.getStatistics(),
-            lastSubscrioptionId: this.lastSubscrioptionId,
-            syncDataHash: this.syncDataHash
+            lastSubscriptionId: this.lastSubscriptionId,
+            syncDataHash: this.syncDataHash,
+            triggerTimestamp: this.triggerTimestamp
         }
     }
 }
@@ -199,9 +204,14 @@ class StatisticsManager {
         oracleStatistics.setLastOracleData(lastOracleTimestamp, isInitialized)
     }
 
-    setLastSubscriptionData(contractId, lastSubscrioptionId, isInitialized, syncDataHash) {
+    setLastSubscriptionData(contractId, lastSubscriptionId, isInitialized, syncDataHash) {
         const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.SUBSCRIPTIONS)
-        contractStatistics.setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash)
+        contractStatistics.setLastSubscriptionData(lastSubscriptionId, isInitialized, syncDataHash)
+    }
+
+    setSubscriptionTriggerTimestamp(contractId, timestamp) {
+        const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.SUBSCRIPTIONS)
+        contractStatistics.setSubscriptionTriggerTimestamp(timestamp)
     }
 
     setLastDAOData(contractId, lastBallotId, lastUnlock, isInitialized) {

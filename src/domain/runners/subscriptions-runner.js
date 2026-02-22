@@ -115,6 +115,11 @@ class SubscriptionsRunner extends RunnerBase {
         if (events.length > 0) {
             this.__processTriggerData(events, eventHexHashes, rootHex, timestamp)
 
+            statisticsManager.setSubscriptionTriggerTimestamp(
+                this.contractId,
+                timestamp
+            )
+
             updateTxBuilder = async (account, fee, maxTime) => await buildSubscriptionTriggerTransaction({
                 account,
                 network,

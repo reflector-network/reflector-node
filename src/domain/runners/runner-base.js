@@ -392,20 +392,7 @@ class RunnerBase {
     }
 
     get __contractInfo() {
-        switch (this.constructor.name) {
-            case 'ClusterRunner':
-                return {runner: 'ClusterRunner'}
-            case 'OracleRunner':
-                return {runner: 'OracleRunner', contract: this.contractId}
-            case 'SubscriptionsRunner':
-                return {runner: 'SubscriptionsRunner', contract: this.contractId}
-            case 'DAORunner':
-                return {runner: 'DAORunner', contract: this.contractId}
-            case 'PriceRunner':
-                return {runner: 'PriceRunner'}
-            default:
-                return {runner: 'unknown'}
-        }
+        return {runner: this.constructor.name, contract: this.contractId, type: this.__contractType}
     }
 
     /**
