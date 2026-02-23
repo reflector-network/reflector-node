@@ -207,7 +207,11 @@ function generateOracleContractConfig(admin, contractId, dataSource, isBeam = fa
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,
-        dataSource
+        dataSource,
+        feeConfig: {
+            "fee": "100",
+            "token": "CBRJTVBVGOYGN36KFHQSDI7V42QKBBVYNLUIIJ356HIYUSYE32Q4LFPP"
+        }
     }
 }
 
@@ -297,11 +301,21 @@ async function generateAccount(address) {
 
 /**
  *@param {Server} server
- *@param {Keypair} admin
+ *@param {string} publicKey
  */
 async function getAccountInfo(server, publicKey) {
     const account = await server.getAccount(publicKey)
     return account
+}
+
+/**
+ *@param {Server} server
+ *@param {string} publicKey
+ *@param {Asset} asset
+ */
+async function getAccountBalance(server, publicKey, asset) {
+    const balance = await server.getAssetBalance(publicKey, asset)
+    return balance
 }
 
 /**
@@ -375,5 +389,6 @@ module.exports = {
     addTrust,
     sendTransaction,
     getAccountInfo,
-    generateAccount
+    generateAccount,
+    getAccountBalance
 }

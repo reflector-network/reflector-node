@@ -15,7 +15,8 @@ const {
     mint,
     getAccountInfo,
     addTrust,
-    generateAccount
+    generateAccount,
+    getAccountBalance
 } = require('./utils')
 const constants = require('./constants')
 
@@ -39,7 +40,7 @@ const initDAOAmount = '100000000000'
 
 const contractConfigs = [
     {dataSource: constants.sources.pubnet},
-    //{dataSource: constants.sources.exchanges},
+    {dataSource: constants.sources.exchanges},
     {dataSource: constants.sources.forex}
 ]
 
@@ -61,14 +62,15 @@ const nodeConfigs = [
     }
 ]
 
-function generateClusterConfigData() {
-    function genearateKeypairData() {
-        const keypair = Keypair.random()
-        return {
-            pubkey: keypair.publicKey(),
-            secret: keypair.secret()
-        }
+function genearateKeypairData() {
+    const keypair = Keypair.random()
+    return {
+        pubkey: keypair.publicKey(),
+        secret: keypair.secret()
     }
+}
+
+function generateClusterConfigData() {
 
     const clusterConfig = {
         contracts: [
@@ -84,7 +86,7 @@ function generateClusterConfigData() {
                 type: ContractTypes.ORACLE_BEAM,
                 admin: genearateKeypairData(),
                 dataSource: c.dataSource.name,
-                salt: c.dataSource.name
+                salt: c.dataSource.name + 'beam'
             }))
         ],
         deployer: genearateKeypairData(),
@@ -162,15 +164,22 @@ async function accountExists(server, publicKey) {
  */
 async function ensureClusterDataReady(clusterConfig) {
     const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
-
+    //temporary fix. need to find way to fetch balance from rpc
+    let deployerBalance = 0
     if (!await accountExists(server, clusterConfig.deployer.pubkey)) {
         await generateAccount(clusterConfig.deployer.pubkey)
+        deployerBalance = 10000
     }
 
     const createIfNotExists = async (pubKey, updateToMultisigKeypair) => {
         if (await accountExists(server, pubKey))
             return true
+        if (deployerBalance < 2000) {
+            await generateAccount(clusterConfig.deployer.pubkey)
+            deployerBalance = 10000
+        }
         await createAccount(server, clusterConfig.deployer.secret, pubKey)
+        deployerBalance -= 1000
         if (updateToMultisigKeypair)
             await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
     }
