@@ -1,3 +1,6 @@
+const {runWithContext} = require('../../async-storage')
+const logger = require('../../logger')
+const ChannelTypes = require('../channels/channel-types')
 const MessageTypes = require('./message-types')
 const HandshakeRequestHandler = require('./handshake-request-handler')
 const HandshakeResponseHandler = require('./handshake-response-handler')
@@ -48,7 +51,12 @@ class HandlersManager {
             throw new Error(`Message type ${message.type} is not allowed for anonymous channel`)
         if (!handler.allowedChannelTypes & channel)
             throw new Error(`Message type ${message.type} is not supported for channel ${channel}`)
-        return await handler.handle(channel, message)
+        return await runWithContext(async() => {
+            logger.trace({msg: 'Start handle message', msgType: MessageTypes.getName(message.type), msgChannel: ChannelTypes.getName(channel.type), msgSender: channel.pubkey || undefined})
+            const data = await handler.handle(channel, message)
+            logger.trace({msg: 'Finished handle message', msgType: MessageTypes.getName(message.type), msgChannel: ChannelTypes.getName(channel.type), msgSender: channel.pubkey || undefined})
+            return data
+        })
     }
 }
 

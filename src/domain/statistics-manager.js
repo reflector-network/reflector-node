@@ -40,8 +40,8 @@ class ContractStatistics {
 }
 
 class OracleStatistics extends ContractStatistics {
-    constructor(contractId) {
-        super(contractId, ContractTypes.ORACLE)
+    constructor(contractId, type) {
+        super(contractId, type)
         this.lastOracleTimestamp = 0
     }
 
@@ -61,20 +61,25 @@ class OracleStatistics extends ContractStatistics {
 class SubscriptionsStatistics extends ContractStatistics {
     constructor(contractId) {
         super(contractId, ContractTypes.SUBSCRIPTIONS)
-        this.lastSubscrioptionId = 0
+        this.lastSubscriptionId = 0
     }
 
-    setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash) {
+    setLastSubscriptionData(lastSubscriptionId, isInitialized, syncDataHash) {
         this.setLastContractData(isInitialized)
-        this.lastSubscrioptionId = lastSubscrioptionId
+        this.lastSubscriptionId = lastSubscriptionId
         this.syncDataHash = syncDataHash
+    }
+
+    setSubscriptionTriggerTimestamp(timestamp) {
+        this.triggerTimestamp = timestamp
     }
 
     getStatistics() {
         return {
             ...super.getStatistics(),
-            lastSubscrioptionId: this.lastSubscrioptionId,
-            syncDataHash: this.syncDataHash
+            lastSubscriptionId: this.lastSubscriptionId,
+            syncDataHash: this.syncDataHash,
+            triggerTimestamp: this.triggerTimestamp
         }
     }
 }
@@ -105,7 +110,8 @@ class StatisticsManager {
         this.totalProcessed = 0
         this.submittedTransactions = 0
         this.gatewaysMetrics = []
-        this.__lastGatewayMetricsDate = this.startTime
+        this.processedHashes = new Map()
+        this.__lastGatewayMetricsDate = new Date().toISOString()
         this.__metricsWorker()
     }
 
@@ -113,13 +119,7 @@ class StatisticsManager {
         try {
             const {urls, gatewayValidationKey} = container?.settingsManager?.gateways || {urls: [], gatewayValidationKey: ''}
 
-            const gatewaysMetrics = {
-                info: {
-                    gatewaysCount: urls.length,
-                    from: this.__lastGatewayMetricsDate
-                },
-                metrics: []
-            }
+            const metrics = []
             const requests = []
             for (let i = 0; i < urls.length; i++) {
                 const currentGateway = urls[i]
@@ -130,16 +130,21 @@ class StatisticsManager {
                                 timeout: 5000
                             })
                             .then(response => {
-                                gatewaysMetrics.metrics[i] = response.data
+                                metrics[i] = response.data
                             })
                             .catch(e => {
-                                gatewaysMetrics.metrics[i] = 'n/a'
+                                metrics[i] = 'n/a'
                                 logger.warn(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
                             })
             }
             await Promise.all(requests)
-            gatewaysMetrics.info.to = this.__lastGatewayMetricsDate = Date.now()
-            this.gatewaysMetrics = gatewaysMetrics
+            const gatewaysMetrics = {
+                gatewaysCount: urls.length,
+                from: this.__lastGatewayMetricsDate,
+                to: this.__lastGatewayMetricsDate = new Date().toISOString(),
+                metrics
+            }
+            logger.addMetrics(gatewaysMetrics)
         } catch (err) {
             logger.error(err, 'Metrics worker error')
         } finally {
@@ -157,7 +162,8 @@ class StatisticsManager {
         if (!contractStatistics) {
             switch (type) {
                 case ContractTypes.ORACLE:
-                    contractStatistics = new OracleStatistics(contractId)
+                case ContractTypes.ORACLE_BEAM:
+                    contractStatistics = new OracleStatistics(contractId, type)
                     break
                 case ContractTypes.SUBSCRIPTIONS:
                     contractStatistics = new SubscriptionsStatistics(contractId)
@@ -173,6 +179,13 @@ class StatisticsManager {
         return contractStatistics
     }
 
+    __getContractHashes(contractId) {
+        if (!this.processedHashes.has(contractId)) {
+            this.processedHashes.set(contractId, [])
+        }
+        return this.processedHashes.get(contractId)
+    }
+
     setLastProcessedTimestamp(contractId, type, timestamp) {
         const contractStatistics = this.__getContracStatistics(contractId, type)
         contractStatistics.setLastProcessedTimestamp(timestamp)
@@ -186,14 +199,19 @@ class StatisticsManager {
         this.submittedTransactions++
     }
 
-    setLastOracleData(contractId, lastOracleTimestamp, isInitialized) {
-        const oracleStatistics = this.__getContracStatistics(contractId, ContractTypes.ORACLE)
+    setLastOracleData(contractId, lastOracleTimestamp, isInitialized, type) {
+        const oracleStatistics = this.__getContracStatistics(contractId, type)
         oracleStatistics.setLastOracleData(lastOracleTimestamp, isInitialized)
     }
 
-    setLastSubscriptionData(contractId, lastSubscrioptionId, isInitialized, syncDataHash) {
+    setLastSubscriptionData(contractId, lastSubscriptionId, isInitialized, syncDataHash) {
         const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.SUBSCRIPTIONS)
-        contractStatistics.setLastSubscriptionsData(lastSubscrioptionId, isInitialized, syncDataHash)
+        contractStatistics.setLastSubscriptionData(lastSubscriptionId, isInitialized, syncDataHash)
+    }
+
+    setSubscriptionTriggerTimestamp(contractId, timestamp) {
+        const contractStatistics = this.__getContracStatistics(contractId, ContractTypes.SUBSCRIPTIONS)
+        contractStatistics.setSubscriptionTriggerTimestamp(timestamp)
     }
 
     setLastDAOData(contractId, lastBallotId, lastUnlock, isInitialized) {
@@ -201,10 +219,19 @@ class StatisticsManager {
         contractStatistics.setLastDAOData(lastBallotId, lastUnlock, isInitialized)
     }
 
+    setProcessedTx(contractId, txHash) {
+        const hashes = this.__getContractHashes(contractId)
+        hashes.push(txHash)
+        if (hashes.length > 10) {
+            hashes.shift() //keep only last 1000 hashes
+        }
+    }
+
     getStatistics() {
         const settingsStatistics = container.settingsManager.statistics
         const connectedNodes = nodesManager.getConnectedNodes()
         const contractStatistics = mapToPlainObject(this.__contractStatistics)
+        const processedHashes = mapToPlainObject(this.processedHashes)
         const currentTime = Date.now()
         return {
             startTime: this.startTime,
@@ -216,7 +243,7 @@ class StatisticsManager {
             connectedNodes,
             oracleStatistics: contractStatistics, //legacy
             contractStatistics,
-            gatewaysMetrics: this.gatewaysMetrics,
+            processedHashes,
             ...settingsStatistics
         }
     }
@@ -232,8 +259,10 @@ class StatisticsManager {
     setContractIds(contractIds) {
         const allKeys = [...this.__contractStatistics.keys()]
         for (const contractId of allKeys) {
-            if (contractIds.indexOf(contractId) === -1)
+            if (contractIds.indexOf(contractId) === -1) {
                 this.remove(contractId)
+                this.processedHashes.delete(contractId)
+            }
         }
     }
 }

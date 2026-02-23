@@ -11,6 +11,7 @@ const constants = require('./constants')
  */
 
 const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
+const pathToBeamOracleContractWasm = './tests/reflector_beam_contract.wasm'
 const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
 const pathToDAOContractWasm = './tests/reflector_dao_contract.wasm'
 
@@ -42,6 +43,8 @@ async function deployContract(server, deployer, contractType, salt) {
         pathToContractWasm = pathToSubscriptionsContractWasm
     else if (contractType === ContractTypes.DAO)
         pathToContractWasm = pathToDAOContractWasm
+    else if (contractType === ContractTypes.ORACLE_BEAM)
+        pathToContractWasm = pathToBeamOracleContractWasm
 
     const deployerKeypair = Keypair.fromSecret(deployer)
 
@@ -157,7 +160,7 @@ function generateAppConfig(secret, dataSources) {
         handshakeTimeout: 0,
         secret,
         dataSources,
-        orchestratorUrl: 'http://192.168.0.137:12274',
+        orchestratorUrl: 'http://192.168.0.21:12274',
         trace: true
     }
 }
@@ -168,8 +171,8 @@ function generateAppConfig(secret, dataSources) {
  */
 function generateContractConfig(configData) {
     const {admin, contractId, contractType, dataSource, token, developer, initAmount} = configData
-    if (contractType === ContractTypes.ORACLE) {
-        return generateOracleContractConfig(admin, contractId, dataSource)
+    if (contractType === ContractTypes.ORACLE || contractType === ContractTypes.ORACLE_BEAM) {
+        return generateOracleContractConfig(admin, contractId, dataSource, contractType === ContractTypes.ORACLE_BEAM)
     } else if (contractType === ContractTypes.SUBSCRIPTIONS) {
         return generateSubscriptionsContractConfig(admin, contractId, token)
     } else if (contractType === ContractTypes.DAO) {
@@ -177,7 +180,7 @@ function generateContractConfig(configData) {
     }
 }
 
-function generateOracleContractConfig(admin, contractId, dataSource) {
+function generateOracleContractConfig(admin, contractId, dataSource, isBeam = false) {
     const assets = {}
     switch (dataSource) {
         case 'exchanges':
@@ -198,13 +201,17 @@ function generateOracleContractConfig(admin, contractId, dataSource) {
     return {
         admin,
         contractId,
-        type: ContractTypes.ORACLE,
+        type: isBeam ? ContractTypes.ORACLE_BEAM : ContractTypes.ORACLE,
         baseAsset: assets.baseAsset,
         assets: assets.assets,
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,
-        dataSource
+        dataSource,
+        feeConfig: {
+            "fee": "100",
+            "token": "CBRJTVBVGOYGN36KFHQSDI7V42QKBBVYNLUIIJ356HIYUSYE32Q4LFPP"
+        }
     }
 }
 
@@ -244,7 +251,7 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         const pubkey = nodes[i]
         nodeAddresses[pubkey] = {
             pubkey,
-            url: `ws://192.168.0.137:${wsStartPort + (i * 100)}`,
+            url: `ws://192.168.0.21:${wsStartPort + (i * 100)}`,
             domain: `node${i}.com`
         }
     }
@@ -268,20 +275,47 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
 }
 
 /**
- *@param {string} admin
+ * @param {Server} server
+ * @param {string} sponsor
+ * @param {string} address
  */
-async function createAccount(admin) {
-    await axios.get(`https://friendbot.stellar.org?addr=${admin}`)
-    //return await server.requestAirdrop(admin, 'https://friendbot.stellar.org')
+async function createAccount(server, sponsor, address) {
+    const sponsorKeypair = Keypair.fromSecret(sponsor)
+    const account = await server.getAccount(sponsorKeypair.publicKey())
+    const txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.network})
+        .setTimeout(30000)
+        .addOperation(
+            Operation.createAccount({
+                destination: address,
+                startingBalance: '1000'
+            })
+        )
+    const tx = txBuilder.build()
+    tx.sign(sponsorKeypair)
+    await sendTransaction(server, tx)
+}
+
+async function generateAccount(address) {
+    await axios.get(`https://friendbot.stellar.org?addr=${address}`)
 }
 
 /**
  *@param {Server} server
- *@param {Keypair} admin
+ *@param {string} publicKey
  */
 async function getAccountInfo(server, publicKey) {
     const account = await server.getAccount(publicKey)
     return account
+}
+
+/**
+ *@param {Server} server
+ *@param {string} publicKey
+ *@param {Asset} asset
+ */
+async function getAccountBalance(server, publicKey, asset) {
+    const balance = await server.getAssetBalance(publicKey, asset)
+    return balance
 }
 
 /**
@@ -337,7 +371,7 @@ async function sendTransaction(server, tx) {
         result = await server.getTransaction(hash)
     }
     if (result.status !== 'SUCCESS') {
-        throw new Error(`Tx failed: ${result.status}, result: ${result.resultXdr}`)
+        throw new Error(`Tx failed: ${result.status}, hash: ${hash}, result: ${result.resultXdr}`)
     }
     return result
 }
@@ -354,5 +388,7 @@ module.exports = {
     mint,
     addTrust,
     sendTransaction,
-    getAccountInfo
+    getAccountInfo,
+    generateAccount,
+    getAccountBalance
 }

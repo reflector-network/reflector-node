@@ -1,9 +1,8 @@
 /**
  * @typedef {import('@stellar/stellar-sdk').Keypair} Keypair
+ * @typedef {import('ws').WebSocket} WebSocket
  * */
-const WebSocket = require('ws')
 const {v4: uuidv4} = require('uuid')
-const {isDebugging} = require('../../utils/utils')
 const ChannelBase = require('./channel-base')
 const ChannelTypes = require('./channel-types')
 
@@ -12,7 +11,7 @@ const ChannelTypes = require('./channel-types')
  */
 class IncomingChannel extends ChannelBase {
     /**
-     * @param {WebSocket.WebSocket} ws - ws instance
+     * @param {WebSocket} ws - ws instance
      * @param {string} pubkey - the pubkey of the node
      */
     constructor(ws, pubkey) {

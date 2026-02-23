@@ -21,6 +21,7 @@ const clusterPendingConfigPath = `${container.homeDir}/.pending.config.json`
  * @typedef {import('@reflector/reflector-shared').Node} Node
  * @typedef {import('@reflector/reflector-shared').OracleConfig} OracleConfig
  * @typedef {import('@reflector/reflector-shared').SubscriptionsConfig} SubscriptionsConfig
+ * @typedef {import('@reflector/reflector-shared').DAOConfig} DAOConfig
  * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
 
@@ -85,7 +86,7 @@ class SettingsManager {
             //shutdown the app if app config is invalid
             throw new Error(`Invalid app config. Issues: ${this.appConfig.issuesString}`)
         }
-        this.setAppConfig(this.appConfig)
+        await this.setAppConfig(this.appConfig)
 
         //set gateways
         const gatewaysExist = fs.existsSync(gatewaysPath)
@@ -139,10 +140,10 @@ class SettingsManager {
     /**
      * @param {AppConfig} config - config
      */
-    setAppConfig(config) {
+    async setAppConfig(config) {
         this.appConfig = config
-        logger.setTrace(this.appConfig.trace)
-        dataSourceManager.setDataSources([...config.dataSources.values()])
+        logger.init(this.appConfig.trace)
+        await dataSourceManager.setDataSources([...config.dataSources.values()])
     }
 
     /**
@@ -215,7 +216,7 @@ class SettingsManager {
 
     /**
      * @param {string} contractId - contract id
-     * @returns {OracleConfig|SubscriptionsConfig}
+     * @returns {OracleConfig|SubscriptionsConfig|DAOConfig}
      */
     getContractConfig(contractId) {
         return __getContractConfig(this.config, contractId)
@@ -256,7 +257,26 @@ class SettingsManager {
      * @returns {Asset[]}
      */
     getAssets(contractId) {
-        return [...__getContractConfig(this.config, contractId).assets]
+        const assets = [...__getContractConfig(this.config, contractId).assets]
+        //set null for expired assets
+        const assetExpiration = this.__assetExpiration.get(contractId) || assets.map(() => BigInt(0))
+        const now = BigInt(Date.now())
+        for (let i = 0; i < assetExpiration.length; i++)
+            if (now > assetExpiration[i]) //asset is expired
+                assets[i] = null
+        return assets
+    }
+
+    /**
+     * @param {string} contractId - contract id
+     * @param {BigInt[]} expiration - asset expirations
+     */
+    setAssetExpiration(contractId, expiration) {
+        if (!contractId)
+            throw new Error('Contract id is required')
+        if (!expiration || !Array.isArray(expiration))
+            return
+        this.__assetExpiration.set(contractId, expiration)
     }
 
     /**
@@ -278,7 +298,9 @@ class SettingsManager {
     get statistics() {
         const connectionIssues = dataSourceManager.issues || []
         if (this.config && this.config.isValid) {
-            const dataSources = [...this.config.contracts.values()].filter(c => c.type === ContractTypes.ORACLE).map(c => c.dataSource)
+            const dataSources = [...this.config.contracts.values()]
+                .filter(c => c.type === ContractTypes.ORACLE || c.type === ContractTypes.ORACLE_BEAM)
+                .map(c => c.dataSource)
             for (const dataSource of dataSources) {
                 if (!dataSourceManager.has(dataSource))
                     connectionIssues.push(`Connection data for data source ${dataSource} not found`)
@@ -294,6 +316,8 @@ class SettingsManager {
             isTraceEnabled: this.appConfig.trace
         }
     }
+
+    __assetExpiration = new Map()
 }
 
 module.exports = SettingsManager

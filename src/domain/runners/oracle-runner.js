@@ -1,4 +1,4 @@
-const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getContractState, ContractTypes} = require('@reflector/reflector-shared')
+const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
 const {getPricesForContract} = require('../prices/price-manager')
@@ -6,17 +6,18 @@ const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
 
+const DEFAULT_CACHE_SIZE = 3
+
 class OracleRunner extends RunnerBase {
-    constructor(contractId) {
+    constructor(contractId, type) {
         if (!contractId)
             throw new Error('contractId is required')
         super(contractId)
+        this.__oracleType = type
     }
 
     async __workerFn(timestamp) {
         const contractConfig = this.__getCurrentContract()
-        if (!contractConfig)
-            throw new Error(`Config not found for oracle id: ${this.contractId}`)
 
         const {settingsManager} = container
 
@@ -28,10 +29,27 @@ class OracleRunner extends RunnerBase {
         //get account info
         const sourceAccount = await getAccount(admin, sorobanRpc)
 
-        const contractState = await getContractState(this.contractId, sorobanRpc)
+        const contractState = await getOracleContractState(
+            this.contractId,
+            sorobanRpc,
+            sourceAccount,
+            {
+                networkPassphrase: network,
+                fee: baseFee,
+                timebounds: {minTime: 0, maxTime: 0}
+            }
+        )
 
-        logger.trace(`Contract state: lastTimestamp: ${Number(contractState.lastTimestamp)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
-        statisticsManager.setLastOracleData(this.contractId, Number(contractState.lastTimestamp), contractState.isInitialized)
+        const protocol = contractState.protocol || (contractState.version >= 6 ? 2 : 1)
+
+        logger.trace({msg: 'Contract state', lastTimestamp: Number(contractState.lastTimestamp), initialized: contractState.isInitialized, ...this.__contractInfo})
+        statisticsManager.setLastOracleData(
+            this.contractId,
+            Number(contractState.lastTimestamp),
+            contractState.isInitialized,
+            this.__contractType
+        )
+        settingsManager.setAssetExpiration(this.contractId, contractState.expiration)
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {
@@ -42,7 +60,9 @@ class OracleRunner extends RunnerBase {
                 config: contractConfig,
                 fee,
                 maxTime,
-                decimals: settingsManager.getDecimals(this.contractId)
+                decimals: settingsManager.getDecimals(this.contractId),
+                cacheSize: contractConfig.cacheSize ?? DEFAULT_CACHE_SIZE,
+                protocol
             })
         } else if (isTimestampValid(timestamp, timeframe)
             && contractState.lastTimestamp < timestamp
@@ -59,7 +79,8 @@ class OracleRunner extends RunnerBase {
                 timestamp,
                 contractId: this.contractId,
                 fee,
-                maxTime
+                maxTime,
+                protocol
             })
         } else {
             //nothing to do
@@ -91,7 +112,7 @@ class OracleRunner extends RunnerBase {
     }
 
     get __contractType() {
-        return ContractTypes.ORACLE
+        return this.__oracleType || ContractTypes.ORACLE
     }
 }
 

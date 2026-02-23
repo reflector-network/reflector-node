@@ -7,6 +7,7 @@ const MessageTypes = require('../../ws-server/handlers/message-types')
 const nodesManager = require('../nodes/nodes-manager')
 const {submitTransaction, txTimeoutMessage} = require('../../utils')
 const statisticsManager = require('../statistics-manager')
+const {runWithContext} = require('../../async-storage')
 
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
@@ -47,7 +48,7 @@ function getMaxTime(syncTimestamp, iteration) {
  */
 async function broadcastSignature(contractId, tx) {
     await nodesManager.broadcast(getSignatureMessage(contractId, tx))
-    logger.debug(`Signature broadcasted. Contract id: ${contractId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
+    logger.debug({msg: 'Signature broadcasted.', ...this.__contractInfo, txType: tx.type, txHash: tx.hashHex})
 }
 
 /**
@@ -57,7 +58,7 @@ async function broadcastSignature(contractId, tx) {
  */
 async function sendSignature(contractId, pubkey, tx) {
     await nodesManager.sendTo(pubkey, getSignatureMessage(contractId, tx))
-    logger.debug(`Signature sent to ${pubkey}. Contract id: ${contractId}, tx type: ${tx.type}, tx hash: ${tx.hashHex}`)
+    logger.debug({msg: 'Signature sent.', pubkey, ...this.__contractInfo, txType: tx.type, txHash: tx.hashHex})
 }
 
 /**
@@ -72,7 +73,7 @@ function createPendingTransactionObject(tx, maxTime) {
 
         const timeout = (maxTime * 1000) - Date.now()
         const timeoutId = setTimeout(() => {
-            logger.debug(`Transaction timed out. Tx type: ${tx.type}, hash: ${tx.hashHex}, maxTime: ${maxTime}, submitted: ${tx.submitted}, current time: ${Math.floor(Date.now() / 1000)}`)
+            logger.debug({msg: 'Transaction timed out.', txType: tx.type, txHash: tx.hashHex, maxTime, submitted: tx.submitted, currentTime: Math.floor(Date.now() / 1000)})
             tx.isTimedOut = true
             if (tx.submitted) //if the transaction is already submitted, we need to wait for the result
                 return
@@ -116,8 +117,8 @@ function createMajorityPromiseData() {
     return majorityPromiseData
 }
 
-const maxSubmitAttempts = 3
-const maxSubmitTimeout = 20000
+const maxSubmitAttempts = 4
+const maxSubmitTimeout = 15000
 
 class RunnerBase {
 
@@ -129,7 +130,7 @@ class RunnerBase {
         const timestamp = normalizeTimestamp(Date.now(), this.__timeframe)
         this.isRunning = true
         //awoid starting before sync time
-        setTimeout(() => this.worker(timestamp), this.__getWorkerTimeout(timestamp))
+        setTimeout(() => this.__runWorker(timestamp), this.__getWorkerTimeout(timestamp))
         this.__clearPendingSignatures()
     }
 
@@ -148,11 +149,11 @@ class RunnerBase {
                 this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
             if (!signaturesData.signatures.find(s => s.hint().equals(signature.hint())))
                 signaturesData.signatures.push(signature)
-            logger.debug(`Signature added to the pending signatures. ${this.__contractInfo}, node: ${from}, tx hash: ${txHash}`)
+            logger.debug({msg: 'Signature added to the pending signatures.', ...this.__contractInfo, node: from, txHash})
             return
         }
         this.__pendingTransaction.tx.addSignature(signature)
-        logger.debug(`Signature added to the pending transaction. ${this.__contractInfo}, node: ${from}, tx type: ${this.__pendingTransaction.tx.type}, tx hash: ${this.__pendingTransaction.tx.hashHex}`)
+        logger.debug({msg: 'Signature added to the pending transaction.', ...this.__contractInfo, node: from, txType: this.__pendingTransaction.tx.type, txHash: this.__pendingTransaction.tx.hashHex})
         this.__trySubmitTransaction()
     }
 
@@ -199,22 +200,22 @@ class RunnerBase {
         if (!this.isRunning)
             return
         try {
-            logger.info(`${this.__contractInfo} -> worker, timestamp: ${timestamp}`)
+            logger.info({msg: 'Start worker', timestamp, ...this.__contractInfo})
             this.__payloadMajorityData = createMajorityPromiseData()
             const isTxProcessed = await this.__workerFn(timestamp)
             //update last processed timestamp
             if (isTxProcessed && this.contractId)
                 statisticsManager.setLastProcessedTimestamp(this.contractId, this.__contractType, timestamp)
         } catch (err) {
-            logger.error({err}, `Error in worker, ${this.__contractInfo}, timestamp: ${timestamp}`)
+            logger.error({err, msg: 'Error in worker', ...this.__contractInfo, timestamp})
         } finally {
             //TODO: improve resolve logic for other runners
             //only subscriptions runner should resolve the promise every run
             this.__payloadMajorityData.resolve(false)
             const nextTimestamp = this.__getNextTimestamp(timestamp)
             const timeout = this.__getWorkerTimeout(nextTimestamp)
-            logger.debug(`Worker timeout: ${timeout}, ${this.__contractInfo}`)
-            this.__workerTimeout = setTimeout(() => this.worker(nextTimestamp), timeout)
+            logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
+            this.__workerTimeout = setTimeout(() => this.__runWorker(nextTimestamp), timeout)
         }
     }
 
@@ -240,7 +241,7 @@ class RunnerBase {
         if (this.__pendingTransaction) {
             const {type, timestamp} = this.__pendingTransaction.tx
             const {reject} = this.__pendingTransaction
-            logger.warn(`Pending transaction wasn't submitted. ContractId: ${this.contractId || 'cluster'}, tx type: ${type}, tx timestamp: ${timestamp}.`)
+            logger.warn({msg: 'Pending transaction wasn\'t submitted.', ...this.__contractInfo, txType: type, txTimestamp: timestamp})
             this.__clearPendingTransaction()
             reject(new Error('Pending transaction wasn\'t submitted'))
         }
@@ -258,7 +259,7 @@ class RunnerBase {
     }
 
     __clearPendingTransaction() {
-        logger.debug(`Clear pending transaction. ${this.__contractInfo}. Tx type: ${this.__pendingTransaction?.tx.type}, tx hash: ${this.__pendingTransaction?.tx.hashHex}`)
+        logger.debug({msg: 'Clear pending transaction.', ...this.__contractInfo, txType: this.__pendingTransaction?.tx.type, txHash: this.__pendingTransaction?.tx.hashHex})
         this.__pendingTransaction = null
     }
 
@@ -301,7 +302,7 @@ class RunnerBase {
                 this.__contractInfo
             )
             resolve(result)
-            logger.debug(`Transaction is processed. ${this.__contractInfo}. ${tx.getDebugInfo()}`)
+            logger.debug({msg: 'Transaction is processed.', ...this.__contractInfo, txDebugInfo: tx.getDebugInfo()})
         } catch (e) {
             const error = new Error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx fee: ${tx?.transaction.fee}, tx: ${tx.transaction.toXDR()}`)
             error.originalError = e
@@ -330,7 +331,7 @@ class RunnerBase {
             try {
                 const fee = baseFee * Math.pow(4, submitAttempt) //increase fee by 4 times on each try
                 const maxTime = getMaxTime(syncTimestamp, submitAttempt + 1)
-                logger.debug(`Build transaction. ${this.__contractInfo}, syncTimestamp: ${syncTimestamp} , submitAttempt: ${submitAttempt}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, fee: ${fee}, baseFee: ${baseFee}`)
+                logger.debug({msg: 'Build transaction.', ...this.__contractInfo, syncTimestamp, submitAttempt, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, fee, baseFee})
 
                 if (maxTime * 1000 < Date.now()) //if the max time is already passed
                     throw new Error(txTimeoutMessage)
@@ -341,7 +342,7 @@ class RunnerBase {
                     fee,
                     maxTime
                 )
-                logger.debug(`Transaction is built. ${this.__contractInfo}, syncTimestamp: ${syncTimestamp}, submitAttempt: ${submitAttempt}, tx type: ${tx?.type}, maxTime: ${maxTime}, currentTime: ${normalizeTimestamp(Date.now(), 1000) / 1000}, hash: ${tx?.hashHex}`)
+                logger.debug({msg: 'Transaction is built.', ...this.__contractInfo, syncTimestamp, submitAttempt, txType: tx?.type, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, hash: tx?.hashHex})
                 logger.trace(tx?.transaction.toXDR())
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)
@@ -356,6 +357,7 @@ class RunnerBase {
                     if (this.contractId
                         && resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
                         statisticsManager.incSubmittedTransactions(this.contractId)
+                    statisticsManager.setProcessedTx(this.contractId, resultTx.hash().toString('hex'))
                 }
                 return response
             } catch (e) {
@@ -390,20 +392,7 @@ class RunnerBase {
     }
 
     get __contractInfo() {
-        switch (this.constructor.name) {
-            case 'ClusterRunner':
-                return 'ClusterRunner'
-            case 'OracleRunner':
-                return `OracleRunner: ${this.contractId}`
-            case 'SubscriptionsRunner':
-                return `SubscriptionsRunner: ${this.contractId}`
-            case 'DAORunner':
-                return `DAORunner: ${this.contractId}`
-            case 'PriceRunner':
-                return `PriceRunner`
-            default:
-                return 'unknown'
-        }
+        return {runner: this.constructor.name, contract: this.contractId, type: this.__contractType}
     }
 
     /**
@@ -413,8 +402,12 @@ class RunnerBase {
         const {settingsManager} = container
         const contractConfig = settingsManager.getContractConfig(this.contractId)
         if (!contractConfig)
-            throw new Error(`Config not found for oracle id: ${this.contractId}`)
+            throw new Error(`Config not found.`)
         return contractConfig
+    }
+
+    __runWorker(timestamp) {
+        return runWithContext(async () => await this.worker(timestamp))
     }
 }
 

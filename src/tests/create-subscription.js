@@ -8,16 +8,16 @@ const quotes = require('../domain/subscriptions/valid-symbols.json')
 const config = require('./clusterData/.config.json')
 const constants = require('./constants')
 const tokenData = require('./token-data.json')
-const rsa = require('./rsa.json')
+const rsaJSON = require('./rsa.json')
 const {getAccountInfo, sendTransaction} = require('./utils')
 
-async function getWebhook() {
+async function getWebhook(rsa) {
     const {uuid} = (await axios.post('https://webhook.site/token'))?.data || {}
     if (!uuid) {
         throw new Error('Webhook not created')
     }
 
-    const key = await importRSAKey(Buffer.from(rsa.pubKey, 'base64'))
+    const key = await importRSAKey(Buffer.from(rsa, 'base64'))
 
     const hook = await encrypt(key, `https://webhook.site/${uuid}`)
     return {
@@ -35,25 +35,35 @@ function saveWebhook(id, hook) {
     fs.writeFileSync('./tests/webhook.json', JSON.stringify(data, null, 2))
 }
 
-async function createSubscription() {
+
+async function getCreationInfo() {
     const contract = new Config(config)
     const subscriptionContract = [...contract.contracts.values()].find(c => c.type === ContractTypes.SUBSCRIPTIONS)
-    if (!subscriptionContract) {
-        throw new Error('Subscription contract not found')
+    const subsId = subscriptionContract.contractId
+    const owner = Object.values(tokenData).find(t => t.tokenId === subscriptionContract.token)?.secret
+    const rsa = rsaJSON.pubKey
+    if (!subsId || !owner || !rsa) {
+        throw new Error('Missing subscription data')
     }
-    const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subscriptionContract.contractId)
-    const keypair = Keypair.fromSecret(tokenData.secret)
+    return {subsId, owner, rsa}
+}
+
+
+async function createSubscription() {
+    const {subsId, owner, rsa} = await getCreationInfo()
+    const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subsId)
+    const keypair = Keypair.fromSecret(owner)
     const server = new rpc.Server(constants.rpcUrl)
     const source = await getAccountInfo(server, keypair.publicKey())
 
-    const webhook = await getWebhook()
+    const webhook = await getWebhook(rsa)
 
     const tx = await client.createSubscription(
         source,
         {
             owner: keypair.publicKey(),
-            base: {asset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', source: 'pubnet'},
-            quote: {asset: 'BTC', source: 'exchanges'},
+            base: {asset: 'EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2', source: 'pubnet'},
+            quote: {asset: 'EURC', source: 'exchanges'},
             amount: '100000',
             threshold: 1,
             heartbeat: 30,
@@ -74,19 +84,15 @@ async function createSubscription() {
 }
 
 async function cancelSubscriptions() {
-    const contract = new Config(config)
-    const subscriptionContract = [...contract.contracts.values()].find(c => c.type === ContractTypes.SUBSCRIPTIONS)
-    if (!subscriptionContract) {
-        throw new Error('Subscription contract not found')
-    }
-    const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subscriptionContract.contractId)
-    const keypair = Keypair.fromSecret(tokenData.secret)
+    const {subsId, owner} = await getCreationInfo()
+    const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subsId)
+    const keypair = Keypair.fromSecret(owner)
     const server = new rpc.Server(constants.rpcUrl)
 
     const arrayRange = (start, end) =>
         [...Array(end - start + 1).keys()].map(i => i + start)
 
-    const subscriptions = arrayRange(5, 6)
+    const subscriptions = arrayRange(1, 1)
 
     for (const id of subscriptions) {
         try {

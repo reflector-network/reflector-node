@@ -86,7 +86,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
         if (error.errorName === 'TRY_AGAIN_LATER' || error.errorName === 'NOT_FOUND') {
             return
         } else if ((error.errorName === 'txBadSeq' || error.errorName === 'txTooLate') && !falseErrorHandled) { //when tx is already submitted, but was not found, txBadSeq or txTooLate can be thrown on submit
-            logger.debug(`${error.errorName} error. Retry attempt. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, falseErrorHandled: ${falseErrorHandled}`)
+            logger.debug({msg: `${error.errorName} error. Retry attempt`, ...runnerInfo, txType: pendingTx.type, hash, falseErrorHandled})
             falseErrorHandled = true
             return
         }
@@ -100,7 +100,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
 
     const ensureIsNotTimedOut = () => {
         if (isTxTooLate) {
-            logger.debug(`Transaction is too late. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, maxTime: ${maxTime}, latestLedgerCloseTime: ${latestLedgerCloseTime}`)
+            logger.debug({msg: `Transaction is too late`, ...runnerInfo, txType: pendingTx.type, hash, maxTime, latestLedgerCloseTime})
             throw new Error(txTimeoutMessage)
         }
     }
@@ -115,7 +115,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
         //check if the transaction is already submitted
         let response = await makeServerRequest(sorobanRpc, getTransactionFn)
         if (response.status === 'SUCCESS') {
-            logger.trace(`Transaction is already submitted. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}`)
+            logger.trace({msg: `Transaction is already submitted`, ...runnerInfo, txType: pendingTx.type, hash})
             response.hash = hash
             return response
         }
@@ -125,7 +125,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
             ensureIsNotTimedOut()
             const sendTransactionFn = async (server) => await server.sendTransaction(tx)
             const submitResult = await makeServerRequest(sorobanRpc, sendTransactionFn)
-            logger.debug(`Transaction is sent. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}, status: ${submitResult.status}`)
+            logger.debug({msg: `Transaction is sent`, ...runnerInfo, txType: pendingTx.type, hash, status: submitResult.status})
             if (!['PENDING', 'DUPLICATE'].includes(submitResult.status)) {
                 processResponse(submitResult)
                 await new Promise(resolve => setTimeout(resolve, 1000))
@@ -151,7 +151,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
         }
         return response
     }
-    throw new Error(`Failed to submit transaction. ${runnerInfo}. Tx type: ${pendingTx.type}, hash: ${hash}`)
+    throw new Error(`Failed to submit transaction. ${JSON.stringify(runnerInfo)}. Tx type: ${pendingTx.type}, hash: ${hash}`)
 }
 
 /**
@@ -162,21 +162,12 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
  */
 async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc) {
     const limit = 1000
-    const lastLedger = (await makeServerRequest(sorobanRpc, async (server) => await server.getLatestLedger())).sequence
-    const startLedger = lastProcessedLedger ? lastProcessedLedger : lastLedger - 180 //180 is 15 minutes in ledgers
-    const loadEvents = async (startLedger) => {
-        const d = await makeServerRequest(sorobanRpc, async (server) => {
-            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit})
-            return data
-        })
-        return d
-    }
     const events = new Map()
     let hasMore = true
     let latestLedger = null
     let cursorLedger = null
     while (hasMore) {
-        const eventsResponse = await loadEvents(cursorLedger ? cursorLedger : startLedger)
+        const eventsResponse = await loadEvents(cursorLedger ? cursorLedger : lastProcessedLedger, limit, sorobanRpc, contractId)
         if (eventsResponse.events.length < limit)
             hasMore = false
         latestLedger = eventsResponse.latestLedger
@@ -191,6 +182,29 @@ async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc
 }
 
 /**
+ * @param {string[]} sorobanRpc - soroban rpc urls
+ * @param {string} contractId - contract id
+ * @returns {Promise<{oldestLedger: number, latestLedger: number}>}
+ */
+async function getEventsLedgerInfo(sorobanRpc, contractId) {
+    const lastLedger = await makeServerRequest(sorobanRpc, async (server) => (await server.getLatestLedger())?.sequence)
+    const {oldestLedger, latestLedger} = await loadEvents(lastLedger, 1, sorobanRpc, contractId)
+    return {oldestLedger, latestLedger}
+}
+
+async function loadEvents(startLedger, limit, sorobanRpc, contractId) {
+    return await makeServerRequest(sorobanRpc, async (server) => {
+        try {
+            const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit})
+            return data
+        } catch (e) {
+            logger.error(`Error loading events for contract ${contractId} from ledger ${startLedger}: ${e.message}`)
+            throw e
+        }
+    })
+}
+
+/**
  * @param {string} account - account address
  * @param {string[]} sorobanRpc - soroban rpc urls
  * @returns {Account}
@@ -199,4 +213,4 @@ async function getAccount(account, sorobanRpc) {
     return await makeServerRequest(sorobanRpc, async (server) => await server.getAccount(account))
 }
 
-module.exports = {submitTransaction, getLastContractEvents, getAccount, txTimeoutMessage}
+module.exports = {submitTransaction, getLastContractEvents, getAccount, getEventsLedgerInfo, txTimeoutMessage}

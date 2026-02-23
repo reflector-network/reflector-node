@@ -21,8 +21,6 @@ class DAORunner extends RunnerBase {
     async __workerFn(timestamp) {
         /**@type {DAOConfig} */
         const contractConfig = this.__getCurrentContract()
-        if (!contractConfig)
-            throw new Error(`Config not found for oracle id: ${this.contractId}`)
 
         const {settingsManager} = container
 
@@ -36,7 +34,7 @@ class DAORunner extends RunnerBase {
 
         const contractState = await getContractState(this.contractId, sorobanRpc)
 
-        logger.trace(`Contract state: lastBallotId: ${Number(contractState.lastBallotId)}, lastUnlock: ${Number(contractState.lastUnlock)}, initialized: ${contractState.isInitialized}, contractId: ${this.contractId}`)
+        logger.trace({msg: 'Contract state', lastBallotId: Number(contractState.lastBallotId), lastUnlock: Number(contractState.lastUnlock), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastDAOData(
             this.contractId,
             Number(contractState.lastTimestamp),

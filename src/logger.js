@@ -4,10 +4,12 @@ const pino = require('pino')
 const rfs = require('rotating-file-stream')
 const container = require('./domain/container')
 const {isDebugging} = require('./utils/utils')
+const {storage} = require('./async-storage')
 
 const traceLevel = 'trace'
 const infoLevel = 'info'
 const logsDir = `${container.homeDir}/logs/`
+const metricsDir = `${logsDir}/metrics/`
 const MAX_LOG_FILE_SIZE = '2M'
 const LOG_RETENTION_DAYS = '7d'
 const MAX_FILES = 20
@@ -123,11 +125,14 @@ const baseLogOptions = {
         bindings() {
             return {}
         }
+    },
+    mixin() {
+        return {ctxId: storage.getStore()?.id}
     }
 }
 
-if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, {recursive: true})
+if (!fs.existsSync(metricsDir)) {
+    fs.mkdirSync(metricsDir, {recursive: true})
 }
 
 //configure rotating-file-stream
@@ -158,6 +163,10 @@ if (isDebugging()) {
 const logger = pino(baseLogOptions, pino.multistream(streams))
 logger.level = infoLevel
 
+logger.init = (trace) => {
+    logger.setTrace(trace)
+}
+
 logger.setTrace = (trace) => {
     logger.level = trace ? traceLevel : infoLevel
     streams.filter(s => s.combined)
@@ -168,6 +177,17 @@ logger.setTrace = (trace) => {
         logger.trace(`Logger level set to ${logger.level}`)
     else
         logger.info(`Logger level set to ${logger.level}`)
+}
+
+const metricsLogStream = rfs.createStream('metrics.log', {...rfsOptions, path: metricsDir})
+const metricsLogger = pino(baseLogOptions, metricsLogStream)
+metricsLogger.level = 'info'
+
+logger.addMetrics = (data) => {
+    if (data) {
+        metricsLogger.info(data)
+        logger.debug('Metrics data logged')
+    }
 }
 
 module.exports = logger

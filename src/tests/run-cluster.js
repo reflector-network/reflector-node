@@ -14,7 +14,9 @@ const {
     generateAssetContract,
     mint,
     getAccountInfo,
-    addTrust
+    addTrust,
+    generateAccount,
+    getAccountBalance
 } = require('./utils')
 const constants = require('./constants')
 
@@ -60,14 +62,15 @@ const nodeConfigs = [
     }
 ]
 
-function generateClusterConfigData() {
-    function genearateKeypairData() {
-        const keypair = Keypair.random()
-        return {
-            pubkey: keypair.publicKey(),
-            secret: keypair.secret()
-        }
+function genearateKeypairData() {
+    const keypair = Keypair.random()
+    return {
+        pubkey: keypair.publicKey(),
+        secret: keypair.secret()
     }
+}
+
+function generateClusterConfigData() {
 
     const clusterConfig = {
         contracts: [
@@ -78,6 +81,12 @@ function generateClusterConfigData() {
                 admin: genearateKeypairData(),
                 dataSource: c.dataSource.name,
                 salt: c.dataSource.name
+            })),
+            ...contractConfigs.map(c => ({
+                type: ContractTypes.ORACLE_BEAM,
+                admin: genearateKeypairData(),
+                dataSource: c.dataSource.name,
+                salt: c.dataSource.name + 'beam'
             }))
         ],
         deployer: genearateKeypairData(),
@@ -155,11 +164,22 @@ async function accountExists(server, publicKey) {
  */
 async function ensureClusterDataReady(clusterConfig) {
     const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
+    //temporary fix. need to find way to fetch balance from rpc
+    let deployerBalance = 0
+    if (!await accountExists(server, clusterConfig.deployer.pubkey)) {
+        await generateAccount(clusterConfig.deployer.pubkey)
+        deployerBalance = 10000
+    }
 
     const createIfNotExists = async (pubKey, updateToMultisigKeypair) => {
         if (await accountExists(server, pubKey))
             return true
-        await createAccount(pubKey)
+        if (deployerBalance < 2000) {
+            await generateAccount(clusterConfig.deployer.pubkey)
+            deployerBalance = 10000
+        }
+        await createAccount(server, clusterConfig.deployer.secret, pubKey)
+        deployerBalance -= 1000
         if (updateToMultisigKeypair)
             await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
     }
@@ -219,7 +239,7 @@ async function startNodes(nodesCount) {
             const port = 30347 + (i * 100)
             //closeEndRemoveIfExist(nodeName)
 
-            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`
+            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`//`reflectornet/reflector-node:v0.11.0`//
 
             console.log(startCommand)
             await runCommand(startCommand)
@@ -294,7 +314,6 @@ async function run(clusterConfig) {
 }
 
 
-const clusterConfig = {
-}
+const clusterConfig = null
 
 run(clusterConfig).catch(console.error)

@@ -1,4 +1,4 @@
-const {getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
+const {ContractTypes, getMajority} = require('@reflector/reflector-shared')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice, getAveragePrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
@@ -6,35 +6,15 @@ const container = require('../container')
 /**
  * @typedef {import('./trades-manager').AssetTradeData} AssetTradeData
  * @typedef {import('./trades-manager').TimestampTradeData} TimestampTradeData
+ * @typedef {import('@reflector/reflector-shared').Asset} Asset
  */
-
-const lastPriceConsensus = new Map()
-
-function updatePriceConsensusTimestamp(contractId, priceData, timestamp) {
-    let assets = lastPriceConsensus.get(contractId)
-    if (!assets) {
-        assets = []
-        lastPriceConsensus.set(contractId, assets)
-    }
-    for (let i = 0; i < priceData.length; i++) {
-        const assetPriceData = priceData[i]
-        //if the asset price data is not empty or the asset is not in the list, update the timestamp
-        if (assetPriceData?.length < 1 && assets[i] !== undefined) {
-            logger.trace(`Price consensus for contract ${contractId} for asset ${i}: ${timestamp} is not updated`)
-            continue
-        }
-        assets[i] = timestamp
-    }
-    return assets
-}
 
 /**
  * @param {TimestampTradeData} tradesData - trades data
  * @param {number} decimals - decimals
- * @param {BigInt[]} prevPrices - previous prices
  * @returns {BigInt[]}
  */
-function calcPrice(tradesData, decimals, prevPrices) {
+function calcPrice(tradesData, decimals) {
     const prices = Array(tradesData.length).fill(0n)
     for (let i = 0; i < tradesData.length; i++) {
         const assetTradesData = tradesData[i] || []
@@ -44,7 +24,7 @@ function calcPrice(tradesData, decimals, prevPrices) {
             else
                 return getVWAP(td.volume, td.quoteVolume, decimals)
         })
-        prices[i] = getMedianPrice(assetPrices) || prevPrices[i] || 0n
+        prices[i] = getMedianPrice(assetPrices) || 0n
     }
 
     return prices
@@ -58,94 +38,73 @@ const minute = 60 * 1000
  * @returns {Promise<BigInt[]>}
  */
 async function getPricesForContract(contractId, timestamp) {
-    const {settingsManager, tradesManager} = container
+    const {settingsManager} = container
     const contract = settingsManager.getContractConfig(contractId)
     if (!contract)
         throw new Error(`Contract ${contractId} not found`)
-    if (contract.type !== ContractTypes.ORACLE)
+    if (contract.type !== ContractTypes.ORACLE && contract.type !== ContractTypes.ORACLE_BEAM)
         throw new Error(`Contract ${contractId} is not an oracle contract`)
 
-    const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
-    //get contract state
-    const contractStatePromise = getOracleContractState(contractId, sorobanRpc)
     //get assets for the contract
     const assets = settingsManager.getAssets(contract.contractId)
 
-    //start of the current timeframe
-    let currentTradesDataTimestamp = timestamp - contract.timeframe + minute
-
     //get trades data
+    const concensusData = await getConcensusData(
+        contract.dataSource,
+        contract.baseAsset,
+        assets,
+        timestamp,
+        contract.timeframe
+    )
+    //aggregate trades data
     const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
-    while (currentTradesDataTimestamp <= timestamp) {
-        //load trades data for the current timestamp
-        const tradesData = await tradesManager.getTradesData(
-            contract.dataSource,
-            contract.baseAsset,
-            assets,
-            currentTradesDataTimestamp
-        )
-        if (!tradesData)
-            logger.debug(`Trades data not found for timestamp ${currentTradesDataTimestamp} for contract ${contractId}. Source: ${contract.dataSource}, base asset: ${contract.baseAsset.code}`)
-        else //aggregate trades data
-            for (let i = 0; i < assets.length; i++) {
-                if (tradesData.length <= i) //if the asset was added recently, we don't have trades data for it yet
-                    break
-                //get total trades data for the asset
-                const totalAssetTradesData = totalTradesData[i]
-                //get trades data for the asset
-                const assetTradeData = tradesData[i]
-                //iterate over sources
-                for (const sourceTradeData of assetTradeData) {
-                    let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
-                    if (!sourceTotalTradesData) {
-                        sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
-                        totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
-                    }
-                    if (sourceTotalTradesData.type === 'price') {
-                        sourceTotalTradesData.sum += sourceTradeData.price
-                        sourceTotalTradesData.entries++
-                    } else {
-                        sourceTotalTradesData.volume += sourceTradeData.volume
-                        sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
-                    }
+    for (const timestampData of concensusData) {
+        for (let i = 0; i < assets.length; i++) {
+            if (timestampData.length <= i) //if the asset was added recently, we don't have trades data for it yet
+                break
+            //get total trades data for the asset
+            const totalAssetTradesData = totalTradesData[i]
+            //get trades data for the asset
+            const assetTradeData = timestampData[i]
+            //iterate over sources
+            for (const sourceTradeData of assetTradeData) {
+                let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
+                if (!sourceTotalTradesData) {
+                    sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
+                    totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
+                }
+                if (sourceTotalTradesData.type === 'price') {
+                    if (sourceTradeData.price === 0n)
+                        continue //skip zero prices
+                    sourceTotalTradesData.sum += sourceTradeData.price
+                    sourceTotalTradesData.entries++
+                } else {
+                    sourceTotalTradesData.volume += sourceTradeData.volume
+                    sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
                 }
             }
-        currentTradesDataTimestamp += minute
+        }
     }
     const tradesData = totalTradesData.map(v => [...v.values()])
     if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
         throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
 
-    //update price consensus timestamps
-    const lastPriceConsensus = updatePriceConsensusTimestamp(contractId, tradesData, timestamp)
-
-    //build prev prices
-    const contractState = await contractStatePromise
-    const prevPrices = Array(assets.length).fill(0n)
-    for (let assetIndex = 0; assetIndex < prevPrices.length; assetIndex++) {
-        //if price wasn't updated by consensus for more than 15 minutes, don't use previous price
-        if (timestamp - lastPriceConsensus[assetIndex] > 15 * minute) {
-            logger.warn(`Price consensus for asset ${assets[assetIndex].toString()} is too old: ${lastPriceConsensus[assetIndex] - timestamp}ms`)
-            continue
-        }
-        prevPrices[assetIndex] = contractState.prices[assetIndex] || 0n
-    }
-
     //compute price
-    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId), prevPrices)
+    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))
+    logger.trace({msg: 'Prices for data', contract: contractId, timestamp, prices: prices.map(p => p.toString())})
     return prices
 }
 
 async function getPriceForAsset(source, baseAsset, asset, timestamp) {
-    const {tradesManager, settingsManager} = container
-    const tradesData = await tradesManager.getTradesData(source, baseAsset, [asset], timestamp)
+    const {settingsManager} = container
+    const tradesData = await getConcensusData(source, baseAsset, [asset], timestamp)
     const decimals = settingsManager.getDecimals()
     if (!tradesData || tradesData.length === 0 || tradesData[0] === null) {
-        logger.warn(`Volume for asset ${asset.toString()} not found for timestamp ${timestamp}. Source: ${source}, base asset: ${baseAsset}`)
+        logger.warn({msg: 'Volume for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
         return {price: 0n, decimals}
     }
-    function normalizeTradesData(tradesData) {
-        return tradesData.map(td => {
+    function normalizeTradesData(data) {
+        return data.map(td => {
             if (td.type === 'price')
                 return {...td, sum: td.price, entries: 1}
             return td
@@ -153,7 +112,7 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     }
     const price = calcPrice(tradesData.map(normalizeTradesData), decimals, [0n])[0]
     if (price === 0n)
-        logger.debug(`Price for asset ${asset.toString()} at ${timestamp}: ${price}`)
+        logger.debug({msg: 'Price for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
     return {price, decimals}
 }
 
@@ -178,11 +137,153 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 
     const price = calcCrossPrice(quoteAssetPrice.price, baseAssetPrice.price, decimals)
     if (price === 0n)
-        logger.debug(`Price for pair ${baseAsset.toString()}/${quoteAsset.toString()} at ${timestamp} is zero`)
+        logger.debug({msg: 'Price for pair not found', baseAsset: baseAsset.toString(), quoteAsset: quoteAsset.toString(), timestamp})
     return {price, decimals}
 }
 
+/**
+ * @param {string} source - source of the data
+ * @param {Asset} base - base asset
+ * @param {Asset[]} assets - assets to get data for
+ * @param {number} timestamp - timestamp to get data for
+ * @param {number} timeframe - timeframe to get data for
+ * @returns {Promise<TimestampTradeData[]>}
+ */
+async function getConcensusData(source, base, assets, timestamp, timeframe) {
+    const {settingsManager, tradesManager} = container
+
+    const majorityCount = getMajority(settingsManager.nodes.size)
+    const currentPubkey = settingsManager.appConfig.publicKey
+
+    const nodes = [...settingsManager.nodes.values()].map(({pubkey}, index) => ({
+        pubkey,
+        mask: 1 << index
+    }))
+
+    logger.trace({msg: 'Getting concensus data', source, base: base.toString(), assets: assets.filter(a => a).map(a => a.toString()), expired: assets.filter(a => !a).length, timestamp, timeframe, nodes})
+
+    const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask
+
+    const isSameData = (a, b) =>
+        a.type === b.type &&
+      a.price === b.price &&
+      a.quoteVolume === b.quoteVolume &&
+      a.volume === b.volume
+
+    let currentTimestamp = timestamp - timeframe
+    const masks = new Map()
+    const nodeMasks = new Map()
+    const candidate = []
+
+    //get trades data for the current timestamp
+    while (currentTimestamp < timestamp) {
+        currentTimestamp += minute
+
+        const tradesData = await tradesManager.getTradesData(
+            source,
+            base,
+            assets,
+            currentTimestamp
+        )
+
+        //skip if majority is not possible
+        if (tradesData.size < majorityCount) {
+            logger.debug({msg: 'No majority for trades data', timestamp: currentTimestamp, source, base: base.code})
+            continue
+        }
+
+        //skip if no data for the current node
+        const currentNodeData = tradesData.get(currentPubkey)
+        if (!currentNodeData) {
+            logger.debug({msg: 'Current node data missing', timestamp: currentTimestamp, source})
+            continue
+        }
+
+        const normalizePriceData = (data) => {
+            if (!data)
+                return null
+            return {
+                price: (data.price ? data.price.toString() : undefined),
+                volume: (data.volume ? data.volume.toString() : undefined),
+                quoteVolume: (data.quoteVolume ? data.quoteVolume.toString() : undefined)
+            }
+        }
+
+        //iterate over the current node data and check if it matches with the other nodes
+        for (const assetData of currentNodeData) {
+            for (let sourceIndex = assetData.length - 1; sourceIndex >= 0; sourceIndex--) {
+                const sourceData = assetData[sourceIndex]
+                sourceData.nodes = currentNodeMask
+                sourceData.rawNodes = new Set([currentPubkey])
+
+                let matchingNodesCount = 1
+                for (const {pubkey, mask} of nodes) {
+                    if (pubkey === currentPubkey)
+                        continue
+
+                    const nodeData = tradesData
+                        .get(pubkey)?.[currentNodeData.indexOf(assetData)]
+                        ?.find(d => d.source === sourceData.source)
+
+                    //skip if no data for the node or if the data doesn't match
+                    if (!nodeData || !isSameData(nodeData, sourceData)) {
+                        logger.debug({
+                            msg: 'Node data mismatch',
+                            timestamp: currentTimestamp,
+                            source,
+                            base: base.code,
+                            asset: currentNodeData.indexOf(assetData),
+                            node: pubkey,
+                            sourceData: normalizePriceData(sourceData),
+                            nodeData: normalizePriceData(nodeData)
+                        })
+                        continue
+                    }
+
+                    //add the node mask to the source data nodes
+                    sourceData.nodes |= mask
+                    sourceData.rawNodes = new Set([...(sourceData.rawNodes), pubkey])
+                    //increment the matching nodes count
+                    matchingNodesCount++
+                }
+
+                //skip if the majority is not reached and remove the asset data
+                if (matchingNodesCount < majorityCount) {
+                    assetData.splice(sourceIndex, 1)
+                    continue
+                }
+
+                //increment the mask count for the source data nodes
+                masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
+                nodeMasks.set(sourceData.nodes, sourceData.rawNodes)
+            }
+        }
+        //push the current node data to the candidate list
+        candidate.push(currentNodeData)
+    }
+
+    if (masks.size === 0) {
+        logger.debug({msg: 'No matching nodes found', source, base: base.code})
+        return []
+    }
+    const [bestMask] = [...masks.entries()].sort((a, b) => b[1] - a[1])[0]
+
+    for (const assetList of candidate) {
+        for (const assetData of assetList) {
+            for (let i = assetData.length - 1; i >= 0; i--) {
+                //remove the asset data if the nodes don't match with the best mask
+                if ((assetData[i].nodes & bestMask) !== bestMask)
+                    assetData.splice(i, 1)
+            }
+        }
+    }
+    logger.debug({msg: 'Best matching mask found', source, base: base.code, bestMask: bestMask.toString(16), occurrences: masks.get(bestMask), nodes: [...nodeMasks.get(bestMask)].join(', ')})
+    return candidate
+}
+
+
 module.exports = {
     getPricesForContract,
-    getPricesForPair
+    getPricesForPair,
+    getConcensusData
 }

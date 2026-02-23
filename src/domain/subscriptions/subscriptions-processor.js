@@ -139,9 +139,8 @@ class SubscriptionProcessor {
      * @returns {Promise<EventsContainer>}
      */
     async getSubscriptionActions(timestamp) {
-
         //process last events
-        await this.__subscriptionManager.processLastEvents()
+        await this.__subscriptionManager.__processLastEvents()
 
         //get subscriptions
         const subscriptions = this.__subscriptionManager?.subscriptions || []

@@ -14,9 +14,8 @@ try {
     if (!fs.existsSync(homeDir))
         fs.mkdirSync(homeDir)
 
-
     const container = require('./domain/container')
-    container.homeDir = homeDir
+    container.setHomeDir(homeDir)
 
     logger = require('./logger')
 
