@@ -293,6 +293,25 @@ class SettingsManager {
     }
 
     /**
+     * Returns set price heartbeat or 2 hours as default
+     * @returns {Number}
+     */
+    getPriceHeartbeat() {
+        logger.trace({priceHeartbeat: this.config.priceHeartbeat})
+        return this.config.priceHeartbeat || 2 * 60 * 60 * 1000 //default is 2 hours
+    }
+
+    /**
+     * Returns the simulation source for the pubnet, or undefined
+     * @returns {string|null}
+     */
+    getSimSource() {
+        if (this.config.network === 'pubnet') {
+            return this.config.systemAccount
+        }
+    }
+
+    /**
      * Returns node settings statistics
      */
     get statistics() {

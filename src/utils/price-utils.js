@@ -113,10 +113,33 @@ function getMedianPrice(range) {
     return res
 }
 
+/**
+ * @param {BigInt} oldPrice - old price
+ * @param {BigInt} newPrice - new price
+ * @returns {number} - unsigned diff in integer percents
+ */
+function getPriceDiff(oldPrice, newPrice) {
+    //if old price is 0 and new price is 0, or both 0 - skip the diff
+    if (
+        (oldPrice > 0n && newPrice === 0n)
+        || (oldPrice === 0n && newPrice === 0n)
+    )
+        return 0
+    //if old price is 0 and new price is not 0, return 100% diff
+    else if (oldPrice === 0n && newPrice > 0n)
+        return 1000
+
+    const absDiff = oldPrice > newPrice ? oldPrice - newPrice : newPrice - oldPrice
+    const percentageDiff = (absDiff * 1000n) / oldPrice
+
+    return Number(percentageDiff)
+}
+
 module.exports = {
     getPreciseValue,
     calcCrossPrice,
     getVWAP,
     getAveragePrice,
-    getMedianPrice
+    getMedianPrice,
+    getPriceDiff
 }

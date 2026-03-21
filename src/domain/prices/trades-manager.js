@@ -1,8 +1,4 @@
 const {normalizeTimestamp, Asset, AssetType, ContractTypes, hasMajority} = require('@reflector/reflector-shared')
-const {getTradesData} = require('@reflector/reflector-exchanges-connector')
-const {getTradesData: getFiatTradesData} = require('@reflector/reflector-fx-connector')
-const {aggregateTrades} = require('@reflector/reflector-stellar-connector')
-const DataSourceTypes = require('../../models/data-source-types')
 const dataSourcesManager = require('../data-sources-manager')
 const logger = require('../../logger')
 const container = require('../container')
@@ -43,14 +39,6 @@ const minute = 60 * 1000
  * An array of timestamped trade data for multiple assets.
  */
 
-function getSampleSize(lastTimestemp, targetTimestamp) {
-    if (lastTimestemp >= targetTimestamp) {
-        return 0
-    }
-    const computedCount = (targetTimestamp - lastTimestemp) / minute
-    return Math.min(computedCount, cacheSize)
-}
-
 /**
  * @param {any} dataSource - source
  * @param {Asset} baseAsset - base asset
@@ -78,10 +66,11 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
         count,
         options: {
             batchSize: settingsManager.gateways?.urls?.length || 1,
-            batchDelay: 1500,
+            batchDelay: 500,
             sources: datasource.providers,
             timeout: 15000
-        }
+        },
+        simSource: settingsManager.getSimSource()
     }
     //remove all undefined options
     const removeUndefinedOptions = (raw) => {
@@ -94,42 +83,6 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
         return raw
     }
     return removeUndefinedOptions(options)
-}
-
-/**
- * @param {any} dataSource - source object
- * @param {Asset} baseAsset - base asset
- * @param {Asset[]} assets - assets
- * @param {number} from - timestamp
- * @param {number} count - count of items to load
- * @returns {Promise<AggregatedTradeData>}
- */
-async function loadDbTradesData(dataSource, baseAsset, assets, from, count) {
-    const {sorobanRpc, networkPassphrase: network} = dataSource
-    let tradesData = null
-    for (const rpcUrl of sorobanRpc) {
-        try {
-            const options = {rpcUrl, baseAsset, assets, from, period: minute / 1000, limit: count, network}
-            tradesData = await aggregateTrades(options)
-            break
-        } catch (err) {
-            logger.error({err, msg: 'Error loading trades data', rpcUrl})
-        }
-    }
-
-    if (!tradesData)
-        throw new Error(`Failed to load trades data from ${dataSource.name}`)
-
-    //normalize data to the same format as API data
-    for (let tsIndex = 0; tsIndex < tradesData.length; tsIndex++) {
-        const tsTrades = tradesData[tsIndex]
-        for (let assetIndex = 0; assetIndex < tsTrades.length; assetIndex++) {
-            const tradesData = tsTrades[assetIndex]
-            tradesData.source = dataSource.name
-            tsTrades[assetIndex] = [tradesData]
-        }
-    }
-    return tradesData
 }
 
 const baseExchangesAsset = new Asset(AssetType.OTHER, 'USD')
@@ -284,7 +237,7 @@ class TimestampSyncItem {
             const currentNodePubkey = container.settingsManager.appConfig.publicKey
             return !this.isProcessed //if not processed yet
             && this.__presentedPubkeys.has(currentNodePubkey) //if the current node is in the list
-            //if we have all possible nodes data or we majority is enough
+            //if we have all possible nodes data or the majority is enough
             //subtract 1 because we already have the current node data, and it's not included in the connected nodes
             && (this.__presentedPubkeys.size - 1) >= nodesManager.getConnectedNodes().length
             && hasMajority(container.settingsManager.config.nodes.size, this.__presentedPubkeys.size) //if we have majority
@@ -329,22 +282,23 @@ class TradesManager {
     __timestamps = new Map()
 
     /**
+     * Adds trade data that were synchronized from other nodes
      * @param {string} pubkey - public key
      * @param {Object.<string, Object.<number, TimestampTradeData>>} tradesData - price data
      */
     addSyncData(pubkey, tradesData) {
         for (const [key, timestampData] of Object.entries(tradesData)) {
-            for (let [timestamp, data] of Object.entries(timestampData)) {
-                timestamp = Number(timestamp)
-                this.__trades.push(
-                    pubkey,
-                    key,
-                    new AssetsMap(data.assetsMap.source, data.assetsMap.baseAsset, data.assetsMap.assets),
-                    timestamp,
-                    data.trades
-                )
+            for (const [timestamp, data] of Object.entries(timestampData)) {
                 try {
-                    this.__getOrAddTimestampSync(key, timestamp).add(pubkey)
+                    const normalizedTimestamp = Number(timestamp)
+                    this.__trades.push(
+                        pubkey,
+                        key,
+                        new AssetsMap(data.assetsMap.source, data.assetsMap.baseAsset, data.assetsMap.assets),
+                        normalizedTimestamp,
+                        data.trades
+                    )
+                    this.__getOrAddTimestampSync(key, normalizedTimestamp).add(pubkey)
                 } catch (err) {
                     logger.debug({msg: 'Error adding sync data', key, lastTimestamp: timestamp, error: err.message})
                 }
@@ -400,16 +354,13 @@ class TradesManager {
             const key = formatSourceAssetKey(source, baseAsset)
             const lastTimestamp = this.__trades.getLastTimestamp(key)
 
-            const count = getSampleSize(lastTimestamp, currentTimestamp)
-            //if count is greater than 0, then we need to load volumes
-            if (count === 0) {
+            //if last timestamp is greath
+            if (lastTimestamp >= currentTimestamp) {
                 logger.trace({msg: 'Skipping trades loading', source, baseAsset: baseAsset.toString(), tradesTimestamp, lastTimestamp, currentTimestamp})
                 return
             }
 
-            const from = tradesTimestamp - ((count - 1) * minute)
-
-            logger.trace({msg: 'Loading trades data for source', source, baseAsset: baseAsset.toString(), currentTimestamp, tradesTimestamp, from, count})
+            logger.trace({msg: 'Loading trades data for source', source, baseAsset: baseAsset.toString(), currentTimestamp, tradesTimestamp})
 
             const dataSource = dataSourcesManager.get(source)
             if (!dataSource) {
@@ -417,31 +368,32 @@ class TradesManager {
             }
 
             //load the data
-            const priceData = await loadPriceData(dataSource, baseAsset, assetsMap.assets, from, count)
+            const priceData = await loadPriceData(dataSource, baseAsset, assetsMap.assets, tradesTimestamp, 1)
 
             //iterate over the data from the current node, starting from the latest timestamp
             let currentIterationTimestamp = currentTimestamp
             //broadcast items
             const broadcastItems = new Map([[key, new Map()]])
+            const pubkey = container.settingsManager.appConfig.publicKey
             //push volumes to the cache
             for (let j = priceData.length - 1; j >= 0; j--) {
                 const currentTimestampData = priceData[j]
                 //push the data to verified data
                 const tradeDataItem = this.__trades.push(
-                    container.settingsManager.appConfig.publicKey,
+                    pubkey,
                     key,
                     assetsMap,
                     currentIterationTimestamp,
                     currentTimestampData
                 )
-                this.__getOrAddTimestampSync(key, currentIterationTimestamp).add(container.settingsManager.appConfig.publicKey)
+                this.__getOrAddTimestampSync(key, currentIterationTimestamp).add(pubkey)
                 broadcastItems.get(key).set(currentIterationTimestamp, tradeDataItem)
                 currentIterationTimestamp = currentIterationTimestamp - minute
             }
             //broadcast the data
             nodesManager.broadcast(getPriceSyncMessage(broadcastItems))
 
-            logger.trace({msg: 'Pushed trades data for source', source, baseAsset, from, to: from + (count - 1) * minute})
+            logger.trace({msg: 'Pushed trades data for source', source, baseAsset})
         } catch (err) {
             logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset.toString()})
         }
@@ -456,20 +408,18 @@ class TradesManager {
     loadTradesData() {
         const assetsMaps = getAssetsMap()
         const promises = []
-        for (const assetsMap of assetsMaps)
+        for (const assetsMap of assetsMaps.filter(a => a.assets.length > 0))
             promises.push(this.loadTradesDataForSource(assetsMap))
         return Promise.all(promises)
     }
 
     async getTradesData(source, baseAsset, assets, timestamp) {
         const key = formatSourceAssetKey(source, baseAsset)
-        //if (this.__trades.getLastTimestamp(key) < timestamp) {
         logger.debug({msg: 'Waiting for pending trades data', key, timestamp})
         await this.__getOrAddTimestampSync(key, timestamp)
             .readyPromise
             .catch(err => logger.error({err, msg: 'Error getting pending trades data', key, timestamp}))
         logger.debug({msg: 'Pending trades data is ready', key, timestamp})
-        //}
         return this.__trades.getTradesData(key, timestamp, assets)
     }
 }

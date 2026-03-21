@@ -81,8 +81,6 @@ class TradesDataItem {
     }
 }
 
-const cacheSize = 15
-
 class NodeTradesCache {
 
     /**
@@ -108,7 +106,7 @@ class NodeTradesCache {
 
         const timestamps = this.__getSortedTimestamps(key)
         //remove old data
-        while (timestamps.length > cacheSize) {
+        while (timestamps.length > container.settingsManager.getPriceHeartbeat() / 60 / 1000) {
             keyData.delete(timestamps[0])
             timestamps.shift()
         }

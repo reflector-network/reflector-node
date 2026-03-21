@@ -3,6 +3,7 @@ const {sha256} = require('../../utils/crypto-helper')
 const logger = require('../../logger')
 const container = require('../container')
 const {getPricesForPair} = require('../prices/price-manager')
+const {getPriceDiff} = require('../../utils/price-utils')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
 /**
@@ -95,28 +96,6 @@ function assetToEventData(asset) {
     }
 }
 
-/**
- * @param {BigInt} oldPrice - old price
- * @param {BigInt} newPrice - new price
- * @returns {number} - unsigned diff in integer percents
- */
-function getDiff(oldPrice, newPrice) {
-    //if old price is 0 and new price is 0, or both 0 - skip the diff
-    if (
-        (oldPrice > 0n && newPrice === 0n)
-        || (oldPrice === 0n && newPrice === 0n)
-    )
-        return 0
-    //if old price is 0 and new price is not 0, return 100% diff
-    else if (oldPrice === 0n && newPrice > 0n)
-        return 1000
-
-    const absDiff = oldPrice > newPrice ? oldPrice - newPrice : newPrice - oldPrice
-    const percentageDiff = (absDiff * 1000n) / oldPrice
-
-    return Number(percentageDiff)
-}
-
 const day = 24 * 60 * 60 * 1000
 
 class SubscriptionProcessor {
@@ -174,7 +153,7 @@ class SubscriptionProcessor {
 
                 logger.debug({id, price, lastPrice, lastNotification}, `Processing subscription ${subscription.id}`)
 
-                const diff = getDiff(lastPrice, price)
+                const diff = getPriceDiff(lastPrice, price)
                 if (diff >= threshold || timestamp - lastNotification >= heartbeat * 60 * 1000) {
                     await eventsContainer.addEvent(
                         id,
