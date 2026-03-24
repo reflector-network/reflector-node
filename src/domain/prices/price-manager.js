@@ -30,6 +30,39 @@ function calcPrice(tradesData, decimals) {
     return prices
 }
 
+function aggregateTradesData(concensusData, assetsLength) {
+    //aggregate trades data
+    const totalTradesData = Array(assetsLength).fill(0n).map(() => new Map())
+    for (const timestampData of concensusData) {
+        for (let i = 0; i < assetsLength; i++) {
+            if (timestampData.length <= i) //if the asset was added recently, we don't have trades data for it yet
+                break
+            //get total trades data for the asset
+            const totalAssetTradesData = totalTradesData[i]
+            //get trades data for the asset
+            const assetTradeData = timestampData[i]
+            //iterate over sources
+            for (const sourceTradeData of assetTradeData) {
+                let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
+                if (!sourceTotalTradesData) {
+                    sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
+                    totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
+                }
+                if (sourceTotalTradesData.type === 'price') {
+                    if (sourceTradeData.price === 0n)
+                        continue //skip zero prices
+                    sourceTotalTradesData.sum += sourceTradeData.price
+                    sourceTotalTradesData.entries++
+                } else {
+                    sourceTotalTradesData.volume += sourceTradeData.volume
+                    sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
+                }
+            }
+        }
+    }
+    return totalTradesData.map(v => [...v.values()])
+}
+
 const minute = 60 * 1000
 
 /**
@@ -57,35 +90,7 @@ async function getPricesForContract(contractId, timestamp) {
         contract.timeframe
     )
     //aggregate trades data
-    const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
-    for (const timestampData of concensusData) {
-        for (let i = 0; i < assets.length; i++) {
-            if (timestampData.length <= i) //if the asset was added recently, we don't have trades data for it yet
-                break
-            //get total trades data for the asset
-            const totalAssetTradesData = totalTradesData[i]
-            //get trades data for the asset
-            const assetTradeData = timestampData[i]
-            //iterate over sources
-            for (const sourceTradeData of assetTradeData) {
-                let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
-                if (!sourceTotalTradesData) {
-                    sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
-                    totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
-                }
-                if (sourceTotalTradesData.type === 'price') {
-                    if (sourceTradeData.price === 0n)
-                        continue //skip zero prices
-                    sourceTotalTradesData.sum += sourceTradeData.price
-                    sourceTotalTradesData.entries++
-                } else {
-                    sourceTotalTradesData.volume += sourceTradeData.volume
-                    sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
-                }
-            }
-        }
-    }
-    const tradesData = totalTradesData.map(v => [...v.values()])
+    const tradesData = aggregateTradesData(concensusData, assets.length)
     if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
         throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
 
@@ -97,20 +102,13 @@ async function getPricesForContract(contractId, timestamp) {
 
 async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     const {settingsManager} = container
-    const tradesData = await getConcensusData(source, baseAsset, [asset], timestamp)
+    const tradesData = await getConcensusData(source, baseAsset, [asset], timestamp, minute)
     const decimals = settingsManager.getDecimals()
     if (!tradesData || tradesData.length === 0 || tradesData[0] === null) {
         logger.warn({msg: 'Volume for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
         return {price: 0n, decimals}
     }
-    function normalizeTradesData(data) {
-        return data.map(td => {
-            if (td.type === 'price')
-                return {...td, sum: td.price, entries: 1}
-            return td
-        })
-    }
-    const price = calcPrice(tradesData.map(normalizeTradesData), decimals, [0n])[0]
+    const price = calcPrice(aggregateTradesData(tradesData, 1), decimals)[0]
     if (price === 0n)
         logger.debug({msg: 'Price for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
     return {price, decimals}

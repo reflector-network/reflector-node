@@ -146,27 +146,28 @@ class SubscriptionProcessor {
                     eventsContainer.addCharge(subscription.id)
 
                 //get price for the pair from the last minute
-                const {price, decimals} = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp)
+                const priceData = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp)
                 //get last price and last notification timestamp from sync data
                 const lastPrice = BigInt(eventsContainer.syncData[id]?.lastPrice || 0)
                 const lastNotification = eventsContainer.syncData[id]?.lastNotification || 0
 
-                logger.debug({id, price, lastPrice, lastNotification}, `Processing subscription ${subscription.id}`)
+                logger.debug({id, price: priceData.price, lastPrice, lastNotification}, `Processing subscription ${subscription.id}`)
 
-                const diff = getPriceDiff(lastPrice, price)
+                const diff = getPriceDiff(lastPrice, priceData.price)
                 if (diff >= threshold || timestamp - lastNotification >= heartbeat * 60 * 1000) {
+                    const price = priceData.price || lastPrice //if triggered by heartbeat, price could be 0 at the current timestamp
                     await eventsContainer.addEvent(
                         id,
                         base,
                         quote,
-                        decimals,
+                        priceData.decimals,
                         price,
                         lastPrice,
                         timestamp,
                         webhook
                     )
                     eventsContainer.syncData[id] = {lastNotification: timestamp, lastPrice: price.toString()}
-                    logger.debug({id, price, lastPrice, diff}, `Added event for subscription ${subscription.id}`)
+                    logger.debug({id, price: priceData.price, lastPrice, diff}, `Added event for subscription ${subscription.id}`)
                 }
             } catch (err) {
                 logger.error({err}, `Error processing subscription ${subscription.id}`)
