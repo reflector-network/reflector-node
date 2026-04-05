@@ -6,7 +6,7 @@ const timeframe = 1000 * 60 //1 minute
 class PriceRunner extends RunnerBase {
     async __workerFn(timestamp) {
         const {tradesManager} = container
-        await tradesManager.loadTradesData() //load last completed timeframe
+        tradesManager.loadTradesData() //load last completed timeframe
         return false
     }
 

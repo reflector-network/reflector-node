@@ -25,9 +25,9 @@ function calcCrossPrice(quoteAssetPrice, baseAssetPrice, decimals) {
  */
 function getPreciseValue(value, decimals) {
     if (typeof value !== 'bigint')
-        throw new Error('Value should be expressed as BigInt')
+        throw new Error('value should be expressed as BigInt')
     if (typeof decimals !== 'number' || isNaN(decimals))
-        throw new Error('Decimals should be expressed as Number')
+        throw new Error('decimals should be expressed as Number')
     if (value === 0n)
         return 0n
     return value * (10n ** BigInt(decimals))
@@ -41,6 +41,12 @@ function getPreciseValue(value, decimals) {
  * @returns {BigInt}
  */
 function getVWAP(volume, quoteVolume, decimals) {
+    if (typeof volume !== 'bigint')
+        throw new Error('volume should be expressed as BigInt')
+    if (typeof quoteVolume !== 'bigint')
+        throw new Error('quoteVolume should be expressed as BigInt')
+    if (typeof decimals !== 'number' || isNaN(decimals))
+        throw new Error('decimals should be expressed as Number')
     const scaledtotalVolume = volume * BigInt(Math.pow(10, decimals)) //multiply decimals by 10^decimals to get correct price
     if (quoteVolume === 0n || scaledtotalVolume === 0n)
         return 0n

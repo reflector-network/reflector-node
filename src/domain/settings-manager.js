@@ -160,6 +160,7 @@ class SettingsManager {
         runnerManager.setContracts(contracts)
         nodesManager.setNodes(config.nodes)
         statisticsManager.setContractIds([...config.contracts.keys()])
+        container.tradesManager.setNodes([...config.nodes.keys()])
         runnerManager.start()
         if (nonce) //set nonce on config update
             nonceManager.setNonce(nonceManager.nonceTypes.CONFIG, nonce)
@@ -204,7 +205,7 @@ class SettingsManager {
     }
 
     /**
-     * @type {Node[]}
+     * @type {Map<string, Node>}
      */
     get nodes() {
         return this.config.nodes
@@ -297,7 +298,6 @@ class SettingsManager {
      * @returns {Number}
      */
     getPriceHeartbeat() {
-        logger.trace({priceHeartbeat: this.config.priceHeartbeat})
         return this.config.priceHeartbeat || 2 * 60 * 60 * 1000 //default is 2 hours
     }
 
@@ -337,6 +337,11 @@ class SettingsManager {
     }
 
     __assetExpiration = new Map()
+
+    dispose() {
+        dataSourceManager.dispose()
+    }
+
 }
 
 module.exports = SettingsManager

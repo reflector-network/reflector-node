@@ -5,6 +5,7 @@ const container = require('../container')
 const {getAllSubscriptions} = require('../subscriptions/subscriptions-data-manager')
 const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
+const {runWithContext} = require('../../async-storage')
 const TradesCache = require('./trades-cache')
 const AssetsMap = require('./assets-map')
 
@@ -39,6 +40,14 @@ const minute = 60 * 1000
  * An array of timestamped trade data for multiple assets.
  */
 
+function getSampleSize(lastTimestemp, targetTimestamp) {
+    if (lastTimestemp >= targetTimestamp) {
+        return 0
+    }
+    const computedCount = (targetTimestamp - lastTimestemp) / minute
+    return Math.min(computedCount, cacheSize)
+}
+
 /**
  * @param {any} dataSource - source
  * @param {Asset} baseAsset - base asset
@@ -66,7 +75,7 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
         count,
         options: {
             batchSize: settingsManager.gateways?.urls?.length || 1,
-            batchDelay: 500,
+            batchDelay: 1500,
             sources: datasource.providers,
             timeout: 15000
         },
@@ -111,7 +120,6 @@ function getAssetsMap() {
 
     /**@type {Map<string,AssetsMap>} */
     const assetsMap = new Map()
-
 
     //push all oracle assets to the map
     for (const contract of oracleContracts.sort((a, b) => a.contractId.localeCompare(b.contractId))) {
@@ -279,6 +287,9 @@ class TradesManager {
 
     __trades = new TradesCache()
 
+    /**
+     * @type {Map<number, Map<string, TimestampSyncItem>>}
+     */
     __timestamps = new Map()
 
     /**
@@ -344,60 +355,59 @@ class TradesManager {
      * @param {AssetsMap} assetsMap - asset map
      */
     async loadTradesDataForSource(assetsMap) {
-        /**@type {TimestampSyncItem} */
-        try {
-            const {currentTimestamp, tradesTimestamp} = getCurrentTimestampInfo()
-            logger.trace({assetsMap: assetsMap.toPlainObject(), msg: 'Loading trades data for the asset map', tradesTimestamp, currentTimestamp})
+        const {currentTimestamp, tradesTimestamp} = getCurrentTimestampInfo()
+        logger.trace({assetsMap: assetsMap.toPlainObject(), msg: 'Loading trades data for the asset map', tradesTimestamp, currentTimestamp})
 
-            const {source, baseAsset} = assetsMap
+        const {source, baseAsset} = assetsMap
 
-            const key = formatSourceAssetKey(source, baseAsset)
-            const lastTimestamp = this.__trades.getLastTimestamp(key)
+        const key = formatSourceAssetKey(source, baseAsset)
+        const lastTimestamp = this.__trades.getLastTimestamp(key)
 
-            //if last timestamp is greath
-            if (lastTimestamp >= currentTimestamp) {
-                logger.trace({msg: 'Skipping trades loading', source, baseAsset: baseAsset.toString(), tradesTimestamp, lastTimestamp, currentTimestamp})
-                return
-            }
-
-            logger.trace({msg: 'Loading trades data for source', source, baseAsset: baseAsset.toString(), currentTimestamp, tradesTimestamp})
-
-            const dataSource = dataSourcesManager.get(source)
-            if (!dataSource) {
-                throw new Error(`Data source ${source} not found`)
-            }
-
-            //load the data
-            const priceData = await loadPriceData(dataSource, baseAsset, assetsMap.assets, tradesTimestamp, 1)
-
-            //iterate over the data from the current node, starting from the latest timestamp
-            let currentIterationTimestamp = currentTimestamp
-            //broadcast items
-            const broadcastItems = new Map([[key, new Map()]])
-            const pubkey = container.settingsManager.appConfig.publicKey
-            //push volumes to the cache
-            for (let j = priceData.length - 1; j >= 0; j--) {
-                const currentTimestampData = priceData[j]
-                //push the data to verified data
-                const tradeDataItem = this.__trades.push(
-                    pubkey,
-                    key,
-                    assetsMap,
-                    currentIterationTimestamp,
-                    currentTimestampData
-                )
-                this.__getOrAddTimestampSync(key, currentIterationTimestamp).add(pubkey)
-                broadcastItems.get(key).set(currentIterationTimestamp, tradeDataItem)
-                currentIterationTimestamp = currentIterationTimestamp - minute
-            }
-            //broadcast the data
-            nodesManager.broadcast(getPriceSyncMessage(broadcastItems))
-
-            logger.trace({msg: 'Pushed trades data for source', source, baseAsset})
-        } catch (err) {
-            logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset.toString()})
+        const count = getSampleSize(lastTimestamp, currentTimestamp)
+        //if count is greater than 0, then we need to load volumes
+        if (count === 0) {
+            logger.trace({msg: 'Skipping trades loading', source, baseAsset: baseAsset.toString(), tradesTimestamp, lastTimestamp, currentTimestamp})
+            return
         }
+
+        const from = tradesTimestamp - ((count - 1) * minute)
+        logger.trace({msg: 'Loading trades data for source', source, baseAsset: baseAsset.toString(), currentTimestamp, tradesTimestamp, from, count})
+
+        const dataSource = dataSourcesManager.get(source)
+        if (!dataSource) {
+            throw new Error(`Data source ${source} not found`)
+        }
+
+        //load the data
+        const priceData = await loadPriceData(dataSource, baseAsset, assetsMap.assets, from, count)
+
+        //iterate over the data from the current node, starting from the latest timestamp
+        let currentIterationTimestamp = currentTimestamp
+        //broadcast items
+        const broadcastItems = new Map([[key, new Map()]])
+        const pubkey = container.settingsManager.appConfig.publicKey
+        //push volumes to the cache
+        for (let j = priceData.length - 1; j >= 0; j--) {
+            const currentTimestampData = priceData[j]
+            //push the data to verified data
+            const tradeDataItem = this.__trades.push(
+                pubkey,
+                key,
+                assetsMap,
+                currentIterationTimestamp,
+                currentTimestampData
+            )
+            this.__getOrAddTimestampSync(key, currentIterationTimestamp).add(pubkey)
+            broadcastItems.get(key).set(currentIterationTimestamp, tradeDataItem)
+            currentIterationTimestamp = currentIterationTimestamp - minute
+        }
+        //broadcast the data
+        nodesManager.broadcast(getPriceSyncMessage(broadcastItems))
+
+        logger.trace({msg: 'Pushed trades data for source', source, baseAsset, from, to: from + (count - 1) * minute})
     }
+
+    __pendingTradesRequest = new Map()
 
     /**
      * Load trades data
@@ -407,10 +417,38 @@ class TradesManager {
      */
     loadTradesData() {
         const assetsMaps = getAssetsMap()
-        const promises = []
         for (const assetsMap of assetsMaps.filter(a => a.assets.length > 0))
-            promises.push(this.loadTradesDataForSource(assetsMap))
-        return Promise.all(promises)
+            this.__loadDataForAssetMap(assetsMap)
+    }
+
+    __loadDataForAssetMap(assetsMap) {
+        const {source, baseAsset} = assetsMap
+        const key = formatSourceAssetKey(source, baseAsset)
+        try {
+            let pendingRequest = this.__pendingTradesRequest.get(key)
+            //set new version of asset map
+            if (pendingRequest) {
+                pendingRequest.nextMap = assetsMap
+                return
+            }
+            //register new request
+            pendingRequest = {promise: runWithContext(async () => await this.loadTradesDataForSource(assetsMap))}
+            //register catch and finally
+            pendingRequest
+                .promise
+                .catch(err => logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset.toString()}))
+                .finally(() => {
+                    const {nextMap} = this.__pendingTradesRequest.get(key)
+                    this.__pendingTradesRequest.delete(key)
+                    if (nextMap) {
+                        this.__loadDataForAssetMap(nextMap)
+                    }
+                })
+            //set pending request
+            this.__pendingTradesRequest.set(key, pendingRequest)
+        } catch (err) {
+            logger.error({err, msg: 'Error loading trades data for source', source, baseAsset})
+        }
     }
 
     async getTradesData(source, baseAsset, assets, timestamp) {
@@ -421,6 +459,14 @@ class TradesManager {
             .catch(err => logger.error({err, msg: 'Error getting pending trades data', key, timestamp}))
         logger.debug({msg: 'Pending trades data is ready', key, timestamp})
         return this.__trades.getTradesData(key, timestamp, assets)
+    }
+
+    /**
+     * Set the nodes for which to cache trades data
+     * @param {string[]} nodes - nodes pubkeys
+     */
+    setNodes(nodes) {
+        this.__trades.setNodes(nodes)
     }
 }
 

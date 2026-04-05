@@ -65,7 +65,7 @@ class TradesDataItem {
                 continue
             }
             const trade = this.trades[assetInfo.index]
-            tradesData.push(trade)
+            tradesData.push(trade.map(t => ({...t})))
         }
         return tradesData
     }
@@ -190,6 +190,7 @@ class Trades {
      */
     getTradesData(key, timestamp, assets) {
         const data = [...this.__trades.keys()]
+            .filter(pubkey => container.settingsManager.nodes.has(pubkey)) //make sure that we don't get data from removed node
             .map(pubkey => [pubkey, this.__trades.get(pubkey).getTradesData(key, timestamp, assets)])
         const allNodesData = new Map(data)
         return allNodesData
@@ -224,6 +225,19 @@ class Trades {
         if (firstTimestamp === Number.MAX_SAFE_INTEGER)
             return 0
         return firstTimestamp
+    }
+
+    /**
+     * Set the nodes for which to cache trades data
+     * @param {string[]} nodes - node pubkeys
+     */
+    setNodes(nodes) {
+        const nodeKeys = this.__trades.keys()
+        for (const pubkey of nodeKeys) {
+            if (nodes.indexOf(pubkey) === -1) {
+                this.__trades.delete(pubkey) //remove old nodes
+            }
+        }
     }
 
     get __currentNodeTrades() {

@@ -54,6 +54,7 @@ class OracleRunner extends RunnerBase {
             this.__contractType
         )
         settingsManager.setAssetExpiration(this.contractId, contractState.expiration)
+        const assets = settingsManager.getAssets(this.contractId)
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {
@@ -70,14 +71,15 @@ class OracleRunner extends RunnerBase {
             })
         } else if (isTimestampValid(timestamp, timeframe)
             && contractState.lastTimestamp < timestamp
-            && !this.__isTxExpired(timestamp, this.__delay)) {
+            && !this.__isTxExpired(timestamp, this.__delay)
+            && assets.some(a => !!a)) {
 
             const prices = await this.__getPricesToUpdate(
                 await getPricesForContract(this.contractId, timestamp),
                 timestamp,
                 settingsManager.getPriceHeartbeat(),
                 timeframe,
-                settingsManager.getAssets(this.contractId)
+                assets
             )
             if (prices.filter(price => price !== 0n).length === 0) {
                 logger.trace({msg: 'No prices to update', contractId: this.contractId, timestamp})
