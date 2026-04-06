@@ -144,6 +144,18 @@ class DataSourcesManager extends IssuesContainer {
             return false
         return connection.type === DataSourceTypes.DB
     }
+
+    dispose() {
+        for (const [name, connection] of __connections) {
+            if (connection.instance.dispose) {
+                try {
+                    connection.instance.dispose()
+                } catch (err) {
+                    logger.error(`Error occurred while disposing data source ${name}: ${err.message}`)
+                }
+            }
+        }
+    }
 }
 
 module.exports = new DataSourcesManager()

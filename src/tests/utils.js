@@ -203,7 +203,7 @@ function generateOracleContractConfig(admin, contractId, dataSource, isBeam = fa
         contractId,
         type: isBeam ? ContractTypes.ORACLE_BEAM : ContractTypes.ORACLE,
         baseAsset: assets.baseAsset,
-        assets: assets.assets,
+        assets: isBeam ? assets.assets.map(a => ({...a, threshold: a.threshold || 1})) : assets.assets,
         timeframe: constants.timeframe,
         period: constants.period,
         fee: constants.fee,

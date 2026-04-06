@@ -211,7 +211,7 @@ class SubscriptionContractManager {
         }
     }
 
-    async __processLastEvents() {
+    async processLastEvents() {
         //get rpc
         const {settingsManager} = container
         const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()

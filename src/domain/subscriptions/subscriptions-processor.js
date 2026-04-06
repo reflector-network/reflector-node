@@ -3,6 +3,7 @@ const {sha256} = require('../../utils/crypto-helper')
 const logger = require('../../logger')
 const container = require('../container')
 const {getPricesForPair} = require('../prices/price-manager')
+const {getPriceDiff} = require('../../utils/price-utils')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
 /**
@@ -95,28 +96,6 @@ function assetToEventData(asset) {
     }
 }
 
-/**
- * @param {BigInt} oldPrice - old price
- * @param {BigInt} newPrice - new price
- * @returns {number} - unsigned diff in integer percents
- */
-function getDiff(oldPrice, newPrice) {
-    //if old price is 0 and new price is 0, or both 0 - skip the diff
-    if (
-        (oldPrice > 0n && newPrice === 0n)
-        || (oldPrice === 0n && newPrice === 0n)
-    )
-        return 0
-    //if old price is 0 and new price is not 0, return 100% diff
-    else if (oldPrice === 0n && newPrice > 0n)
-        return 1000
-
-    const absDiff = oldPrice > newPrice ? oldPrice - newPrice : newPrice - oldPrice
-    const percentageDiff = (absDiff * 1000n) / oldPrice
-
-    return Number(percentageDiff)
-}
-
 const day = 24 * 60 * 60 * 1000
 
 class SubscriptionProcessor {
@@ -140,7 +119,7 @@ class SubscriptionProcessor {
      */
     async getSubscriptionActions(timestamp) {
         //process last events
-        await this.__subscriptionManager.__processLastEvents()
+        await this.__subscriptionManager.processLastEvents()
 
         //get subscriptions
         const subscriptions = this.__subscriptionManager?.subscriptions || []
@@ -167,27 +146,28 @@ class SubscriptionProcessor {
                     eventsContainer.addCharge(subscription.id)
 
                 //get price for the pair from the last minute
-                const {price, decimals} = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp)
+                const priceData = await getPricesForPair(base.source, base.asset, quote.source, quote.asset, timestamp)
                 //get last price and last notification timestamp from sync data
                 const lastPrice = BigInt(eventsContainer.syncData[id]?.lastPrice || 0)
                 const lastNotification = eventsContainer.syncData[id]?.lastNotification || 0
 
-                logger.debug({id, price, lastPrice, lastNotification}, `Processing subscription ${subscription.id}`)
+                logger.debug({id, price: priceData.price, lastPrice, lastNotification}, `Processing subscription ${subscription.id}`)
 
-                const diff = getDiff(lastPrice, price)
+                const diff = getPriceDiff(lastPrice, priceData.price)
                 if (diff >= threshold || timestamp - lastNotification >= heartbeat * 60 * 1000) {
+                    const price = priceData.price || lastPrice //if triggered by heartbeat, price could be 0 at the current timestamp
                     await eventsContainer.addEvent(
                         id,
                         base,
                         quote,
-                        decimals,
+                        priceData.decimals,
                         price,
                         lastPrice,
                         timestamp,
                         webhook
                     )
                     eventsContainer.syncData[id] = {lastNotification: timestamp, lastPrice: price.toString()}
-                    logger.debug({id, price, lastPrice, diff}, `Added event for subscription ${subscription.id}`)
+                    logger.debug({id, price: priceData.price, lastPrice, diff}, `Added event for subscription ${subscription.id}`)
                 }
             } catch (err) {
                 logger.error({err}, `Error processing subscription ${subscription.id}`)

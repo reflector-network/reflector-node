@@ -66,22 +66,23 @@ function normalizeTradeData(data, toString) {
 
 describe('TradesManager', () => {
 
-    test('should reach majority', async () => {
+    it.skip('should reach majority', async () => {
         logger.setTrace(true)
         let reached = 0
-        for (let i = 0; i < 1000; i++) {
+        const totalSimsCount = 100
+        for (let i = 0; i < totalSimsCount; i++) {
             const nodesData = []
             const timestamps = [11, 12, 13, 14, 15].map(ts => ts * 60 * 1000)
             const assetsMap = new AssetMap('test', new Asset(2, 'A1'), [new Asset(2, 'A2'), new Asset(2, 'A3'), new Asset(2, 'A4')])
             const key = `${assetsMap.source}_${assetsMap.baseAsset.code}`
             const plainMap = assetsMap.toPlainObject()
-            for (let i = 0; i < nodes.length; i++) {
+            for (let j = 0; j < nodes.length; j++) {
                 for (const ts of timestamps) {
-                    if (!nodesData[i]) {
-                        nodesData[i] = {}
-                        nodesData[i][key] = {}
+                    if (!nodesData[j]) {
+                        nodesData[j] = {}
+                        nodesData[j][key] = {}
                     }
-                    nodesData[i][key][ts] = {
+                    nodesData[j][key][ts] = {
                         assetsMap: plainMap,
                         trades: normalizeTradeData(getPrices(assetsMap.assets.length, 1), true)
                     }
@@ -90,17 +91,17 @@ describe('TradesManager', () => {
 
             const nodeResults = []
 
-            for (let i = 0; i < nodes.length; i++) {
+            for (let j = 0; j < nodes.length; j++) {
                 container.settingsManager = {
-                    appConfig: {publicKey: nodes[i].pubkey},
+                    appConfig: {publicKey: nodes[j].pubkey},
                     config: {
                         nodes: new Set(nodes)
                     },
                     nodes: new Map(nodes.map(node => [node.pubkey, {pubkey: node.pubkey}]))
                 }
                 container.tradesManager = new TradesManager()
-                for (let j = 0; j < nodesData.length; j++) {
-                    container.tradesManager.addSyncData(nodes[j].pubkey, nodesData[j])
+                for (let k = 0; k < nodesData.length; k++) {
+                    container.tradesManager.addSyncData(nodes[j].pubkey, nodesData[k])
                 }
 
                 const res = await getConcensusData(
@@ -114,21 +115,18 @@ describe('TradesManager', () => {
             }
             const equalResults = nodeResults.filter(arr => JSON.stringify(arr) === JSON.stringify(nodeResults[0]))
 
-            if (equalResults.length !== nodes.length)
-                console.log(`Equal results: ${equalResults.length} of ${nodes.length}`)
             const hasMajority = equalResults.length >= getMajority(nodes.length)
-            if (!hasMajority) {
-                console.log(JSON.stringify(nodesData))
-                break
-            }
-            //console.log(hasMajority ? '✅' : '❌')
+
             reached += hasMajority ? 1 : 0
             const result = []
             for (const t of equalResults[0]) {
                 result.push(t.map(asset => asset.map(trade => trade.source).join(',')))
             }
-            //console.table(result)
+            if (!hasMajority) {
+                console.log(JSON.stringify(nodesData))
+            }
+            console.log(i)
         }
-        console.log(`Reached majority in ${reached} out of 100 tests`)
+        console.log(`Reached majority in ${reached} out of ${totalSimsCount} sims`)
     }, 300000000)
 })

@@ -57,9 +57,26 @@ async function getPricesForContract(contractId, timestamp) {
         contract.timeframe
     )
     //aggregate trades data
-    const totalTradesData = Array(assets.length).fill(0n).map(() => new Map())
+    const tradesData = aggrTradesData(assets.length, concensusData)
+    if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
+        throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
+
+    //compute price
+    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))
+    logger.trace({msg: 'Prices for data', contract: contractId, timestamp, prices: prices.map(p => p.toString())})
+    return prices
+}
+
+/**
+ *
+ * @param {number} assetsLength - total number of assets
+ * @param {TimestampTradeData[]} concensusData - consensus data
+ * @returns {TimestampTradeData}
+ */
+function aggrTradesData(assetsLength, concensusData) {
+    const totalTradesData = Array(assetsLength).fill(0n).map(() => new Map())
     for (const timestampData of concensusData) {
-        for (let i = 0; i < assets.length; i++) {
+        for (let i = 0; i < assetsLength; i++) {
             if (timestampData.length <= i) //if the asset was added recently, we don't have trades data for it yet
                 break
             //get total trades data for the asset
@@ -86,31 +103,18 @@ async function getPricesForContract(contractId, timestamp) {
         }
     }
     const tradesData = totalTradesData.map(v => [...v.values()])
-    if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
-        throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
-
-    //compute price
-    const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))
-    logger.trace({msg: 'Prices for data', contract: contractId, timestamp, prices: prices.map(p => p.toString())})
-    return prices
+    return tradesData
 }
 
 async function getPriceForAsset(source, baseAsset, asset, timestamp) {
     const {settingsManager} = container
-    const tradesData = await getConcensusData(source, baseAsset, [asset], timestamp)
+    const tradesData = aggrTradesData(1, await getConcensusData(source, baseAsset, [asset], timestamp, minute))
     const decimals = settingsManager.getDecimals()
     if (!tradesData || tradesData.length === 0 || tradesData[0] === null) {
         logger.warn({msg: 'Volume for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
         return {price: 0n, decimals}
     }
-    function normalizeTradesData(data) {
-        return data.map(td => {
-            if (td.type === 'price')
-                return {...td, sum: td.price, entries: 1}
-            return td
-        })
-    }
-    const price = calcPrice(tradesData.map(normalizeTradesData), decimals, [0n])[0]
+    const price = calcPrice(tradesData, decimals, [0n])[0]
     if (price === 0n)
         logger.debug({msg: 'Price for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
     return {price, decimals}
@@ -253,9 +257,12 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
                     continue
                 }
 
-                //increment the mask count for the source data nodes
-                masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
-                nodeMasks.set(sourceData.nodes, sourceData.rawNodes)
+                //increment the mask count for the source data nodes (skip zero prices — they trivially agree across all nodes)
+                const hasValue = sourceData.type === 'price' ? sourceData.price > 0n : (sourceData.volume > 0n || sourceData.quoteVolume > 0n)
+                if (hasValue) {
+                    masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
+                    nodeMasks.set(sourceData.nodes, sourceData.rawNodes)
+                }
             }
         }
         //push the current node data to the candidate list
@@ -271,9 +278,14 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
     for (const assetList of candidate) {
         for (const assetData of assetList) {
             for (let i = assetData.length - 1; i >= 0; i--) {
+                const currentAssetData = assetData[i]
                 //remove the asset data if the nodes don't match with the best mask
-                if ((assetData[i].nodes & bestMask) !== bestMask)
+                if ((currentAssetData.nodes & bestMask) !== bestMask)
                     assetData.splice(i, 1)
+                else {
+                    delete currentAssetData.nodes
+                    delete currentAssetData.rawNodes
+                }
             }
         }
     }

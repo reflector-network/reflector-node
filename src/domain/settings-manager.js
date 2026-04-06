@@ -160,6 +160,7 @@ class SettingsManager {
         runnerManager.setContracts(contracts)
         nodesManager.setNodes(config.nodes)
         statisticsManager.setContractIds([...config.contracts.keys()])
+        container.tradesManager.setNodes([...config.nodes.keys()])
         runnerManager.start()
         if (nonce) //set nonce on config update
             nonceManager.setNonce(nonceManager.nonceTypes.CONFIG, nonce)
@@ -204,7 +205,7 @@ class SettingsManager {
     }
 
     /**
-     * @type {Node[]}
+     * @type {Map<string, Node>}
      */
     get nodes() {
         return this.config.nodes
@@ -293,6 +294,24 @@ class SettingsManager {
     }
 
     /**
+     * Returns set price heartbeat or 2 hours as default
+     * @returns {Number}
+     */
+    getPriceHeartbeat() {
+        return this.config.priceHeartbeat || 2 * 60 * 60 * 1000 //default is 2 hours
+    }
+
+    /**
+     * Returns the simulation source for the pubnet, or undefined
+     * @returns {string|null}
+     */
+    getSimSource() {
+        if (this.config.network === 'pubnet') {
+            return this.config.systemAccount
+        }
+    }
+
+    /**
      * Returns node settings statistics
      */
     get statistics() {
@@ -318,6 +337,11 @@ class SettingsManager {
     }
 
     __assetExpiration = new Map()
+
+    dispose() {
+        dataSourceManager.dispose()
+    }
+
 }
 
 module.exports = SettingsManager

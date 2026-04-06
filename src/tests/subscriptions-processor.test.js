@@ -1,3 +1,4 @@
+/*eslint-disable no-undef */
 const SubscriptionProcessor = require('../domain/subscriptions/subscriptions-processor')
 const {getPricesForPair} = require('../domain/prices/price-manager')
 
@@ -29,7 +30,7 @@ describe('SubscriptionProcessor', () => {
 
     beforeEach(() => {
         subscriptionManagerMock = {
-            __processLastEvents: jest.fn().mockResolvedValue(),
+            processLastEvents: jest.fn().mockResolvedValue(),
             subscriptions: [],
             lastSyncData: {
                 getSyncDataCopy: jest.fn().mockReturnValue({})

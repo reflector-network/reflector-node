@@ -18,7 +18,7 @@ similar fashion, but nodes have to agree on information pulled from external sou
 stock exchanges, derivative platforms, etc.)
 
 Other contracts interact with the oracle contract, retrieving data stored by Reflector nodes.
-Consumers can fetch historical ranges, use cross-price calculation, utilize TWAP averaging, or simply pull the most recent token
+Consumers can fetch historical ranges, or simply pull the most recent token
 price depending on the use-case.
 Check [examples](https://github.com/reflector-network/reflector-contract#usage-example) for practical guidance.
 

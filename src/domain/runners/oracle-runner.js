@@ -1,12 +1,14 @@
-const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getOracleContractState, ContractTypes} = require('@reflector/reflector-shared')
+const {buildOracleInitTransaction, isTimestampValid, buildOraclePriceUpdateTransaction, getOracleContractState, ContractTypes, normalizeTimestamp, getContractEntries, Asset} = require('@reflector/reflector-shared')
 const statisticsManager = require('../statistics-manager')
 const container = require('../container')
 const {getPricesForContract} = require('../prices/price-manager')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
+const {getPriceDiff} = require('../../utils/price-utils')
 const RunnerBase = require('./runner-base')
 
 const DEFAULT_CACHE_SIZE = 3
+const MAX_PRICES_CACHE_SIZE = 180
 
 class OracleRunner extends RunnerBase {
     constructor(contractId, type) {
@@ -15,6 +17,8 @@ class OracleRunner extends RunnerBase {
         super(contractId)
         this.__oracleType = type
     }
+
+    __pricesCache = new Map()
 
     async __workerFn(timestamp) {
         const contractConfig = this.__getCurrentContract()
@@ -50,6 +54,7 @@ class OracleRunner extends RunnerBase {
             this.__contractType
         )
         settingsManager.setAssetExpiration(this.contractId, contractState.expiration)
+        const assets = settingsManager.getAssets(this.contractId)
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {
@@ -66,9 +71,20 @@ class OracleRunner extends RunnerBase {
             })
         } else if (isTimestampValid(timestamp, timeframe)
             && contractState.lastTimestamp < timestamp
-            && !this.__isTxExpired(timestamp, this.__delay)) {
+            && !this.__isTxExpired(timestamp, this.__delay)
+            && assets.some(a => !!a)) {
 
-            const prices = await getPricesForContract(this.contractId, timestamp)
+            const prices = await this.__getPricesToUpdate(
+                await getPricesForContract(this.contractId, timestamp),
+                timestamp,
+                settingsManager.getPriceHeartbeat(),
+                timeframe,
+                assets
+            )
+            if (prices.filter(price => price !== 0n).length === 0) {
+                logger.trace({msg: 'No prices to update', contractId: this.contractId, timestamp})
+                return false //no prices to update
+            }
 
             updateTxBuilder = async (account, fee, maxTime) => await buildOraclePriceUpdateTransaction({
                 account,
@@ -96,6 +112,114 @@ class OracleRunner extends RunnerBase {
         )
 
         return true
+    }
+
+    /**
+     *
+     * @param {bigint[]} prices - Array of fetched prices
+     * @param {bigint} timestamp - Current timestamp
+     * @param {number} heartbeat - Heartbeat interval
+     * @param {number} timeframe - Timeframe for price updates
+     * @param {Asset[]} assets - Array of assets
+     * @returns {Promise<bigint[]>} - Updated prices
+     */
+    async __getPricesToUpdate(prices, timestamp, heartbeat, timeframe, assets) {
+        if (this.__oracleType === ContractTypes.ORACLE)
+            return prices
+
+        await this.__loadPriceUpdateHistory(timestamp, timeframe)
+        const isHeartbeatUpdate = normalizeTimestamp(timestamp, heartbeat) === timestamp
+        logger.trace({msg: 'Checking price updates', contractId: this.contractId, timestamp, isHeartbeatUpdate, heartbeat})
+
+        const descOrderedTimestamps = [...this.__pricesCache.keys()].sort((a, b) => a > b ? -1 : a < b ? 1 : 0)
+        const getLastPrice = (assetIndex) => {
+            for (const ts of descOrderedTimestamps) {
+                const price = this.__pricesCache.get(ts)?.[assetIndex]
+                if (price)
+                    return price
+            }
+        }
+        for (let assetIndex = 0; assetIndex < assets.length; assetIndex++) {
+            if (!assets[assetIndex]) //asset is not active
+                continue
+            if (isHeartbeatUpdate) { //current price or prev price
+                prices[assetIndex] = prices[assetIndex] || getLastPrice(assetIndex)
+                continue
+            }
+            if (!prices[assetIndex])
+                continue //we can't calc diff if no price present
+            const lastPrice = getLastPrice(assetIndex)
+            if (!lastPrice)
+                continue //we can't calc diff if no last price present
+
+            const priceDiff = getPriceDiff(lastPrice, prices[assetIndex])
+            const threshold = assets[assetIndex]?.threshold || 0
+            //skip price update if price change is less than threshold
+            if (priceDiff < threshold)
+                prices[assetIndex] = 0n
+        }
+        return prices
+    }
+
+    async __loadPriceUpdateHistory(timestamp, timeframe) {
+        let currentChunk = []
+        const timestampsToLoad = [currentChunk]
+        const lowerTimestamp = timestamp - 1000 * 60 * 60 * 2 //2 hours
+        for (let i = 1; i < MAX_PRICES_CACHE_SIZE; i++) {
+            const ts = timestamp - i * timeframe
+            currentChunk.push({key: ts, type: 'u64', persistent: false})
+            if (this.__pricesCache.has(ts) || ts < lowerTimestamp)
+                break
+            if (currentChunk.length === 200) { //split to batches of 200, because of rpc limits on number of entries to load in one request
+                currentChunk = []
+                timestampsToLoad.push(currentChunk)
+            }
+        }
+
+        const {settingsManager} = container
+        const rpc = settingsManager.getBlockchainConnectorSettings()?.sorobanRpc
+        if (!rpc)
+            throw new Error('Soroban RPC not configured')
+        let entries = {}
+        for (const chunk of timestampsToLoad) {
+            const chunkEntries = await getContractEntries(this.contractId, rpc, chunk)
+            entries = {...entries, ...chunkEntries}
+        }
+
+        function restorePricesFromUpdate(update) {
+            const prices = []
+            let priceIndex = 0
+
+            for (let byte = 0; byte < 32; byte++) {
+                const maskByte = update.mask[byte]
+                if (maskByte === 0)
+                    continue
+
+                for (let bit = 0; bit < 8; bit++) {
+                    if (maskByte & (1 << bit)) {
+                        const assetIndex = byte * 8 + bit
+                        //Fill gaps with zeros
+                        while (prices.length < assetIndex)
+                            prices.push(0n)
+                        prices.push(update.prices[priceIndex++])
+                    }
+                }
+            }
+
+            return prices
+        }
+        //update prices cache
+        for (const [key, value] of Object.entries(entries)) {
+            const prices = restorePricesFromUpdate(value)
+            this.__pricesCache.set(key, prices)
+        }
+
+        //remove old entries from cache
+        const orderedTimestamps = [...this.__pricesCache.keys()].sort((a, b) => a > b ? 1 : a < b ? -1 : 0)
+        while (orderedTimestamps.length > MAX_PRICES_CACHE_SIZE) {
+            const ts = orderedTimestamps.shift()
+            this.__pricesCache.delete(ts)
+        }
     }
 
     get __timeframe() {
