@@ -79,7 +79,8 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
             sources: datasource.providers,
             timeout: 15000
         },
-        simSource: settingsManager.getSimSource()
+        simSource: settingsManager.getSimSource(),
+        crossAssets: ['XLM']
     }
     //remove all undefined options
     const removeUndefinedOptions = (raw) => {

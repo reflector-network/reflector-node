@@ -1,8 +1,11 @@
 const fs = require('fs')
 const path = require('path')
-const {rpc, Keypair, Asset} = require('@stellar/stellar-sdk')
-const {ContractTypes, getMajority} = require('@reflector/reflector-shared')
+const {rpc, Keypair, Asset, Networks} = require('@stellar/stellar-sdk')
+const {ContractTypes, getMajority, encodeAssetContractId} = require('@reflector/reflector-shared')
+const {OracleClient} = require('@reflector/oracle-client')
+const {Server} = require('@stellar/stellar-sdk/rpc')
 const {generateRSAKeyPair} = require('../utils/crypto-helper')
+const {submitTransaction} = require('../utils')
 const {
     deployContract,
     createAccount,
@@ -16,7 +19,8 @@ const {
     getAccountInfo,
     addTrust,
     generateAccount,
-    getAccountBalance
+    getAccountBalance,
+    sendTransaction
 } = require('./utils')
 const constants = require('./constants')
 
@@ -315,5 +319,44 @@ async function run(clusterConfig) {
 
 
 const clusterConfig = null
+async function extendAssets() {
+    const config = require('./clusterData/.config.json')
+    const beams = Object.values(config.contracts).filter(c => c.type === 'oracle_beam')//&& c.dataSource === 'pubnet')
+    for (const beam of beams) {
+        //const oracleClient = new OracleClient(Networks.TESTNET, ["https://soroban-testnet.stellar.org"], beam.contractId)
+        //const server = new Server("https://soroban-testnet.stellar.org")
+        //const account = await getAccountInfo(server, config.systemAccount)
+        //const update = await oracleClient.setFeeConfig(account,
+        //{admin: beam.admin, feeConfig: {fee: 100n, token: "CBULLEXCJPG2734I5V62IMZSCM3GOH3L55BHKNBIDRK2QIR5YH4SN6IJ"}},
+        //{
+        //fee: 10000,
+        //timebounds: {
+        //minTime: 0,
+        //maxTime: 0
+        //}
+        //})
+        //update.sign(Keypair.fromSecret("SDIQWQIPDF4GRQVQTPIMXLCPXG6XRWL5IZMZRHYRHYMG4JBDA3E6E6WE"))
+
+        //await sendTransaction(server, update)
+
+        let count = 0
+        for (const asset of beam.assets) {
+            let type = 'Other'
+            let code = asset.code
+            if (asset.type === 1) {
+                type = 'Stellar'
+                code = encodeAssetContractId(new Asset(...asset.code.split(':')), Networks.TESTNET)
+            }
+            try {
+                await runCommand(`stellar contract invoke --network testnet --source SB4YZ4C5ZRNARCVGGPSI7CWDTS55DCMJEHCE6WG3ORM2TDLYP35D46BK --id ${beam.contractId} --send=yes -- extend_asset_ttl --sponsor GCQ4MXBUEX77VWCH3TONZ3YRMAZOFPAAUY6V5BPD3GUK4JE6HFGRS5CV --asset "{\\"${type}\\": \\"${code}\\"}" --amount 1000`, [])
+                count++
+                console.log(`Asset ${asset.code} extended successfully (${count}/${beam.assets.length})`)
+            } catch (e) {
+                console.error(`Error extending asset ${asset.code}: ${e.message}`)
+            }
+        }
+    }
+}
 
 run(clusterConfig).catch(console.error)
+//extendAssets().catch(console.error)
