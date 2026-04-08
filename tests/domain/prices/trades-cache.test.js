@@ -1,8 +1,8 @@
 /*eslint-disable no-undef */
 const {Asset} = require('@reflector/reflector-shared')
-const AssetsMap = require('../domain/prices/assets-map')
-const container = require('../domain/container')
-const Trades = require('../domain/prices/trades-cache')
+const AssetsMap = require('../../../src/domain/prices/assets-map')
+const container = require('../../../src/domain/container')
+const Trades = require('../../../src/domain/prices/trades-cache')
 
 function setupContainer(pubkey, nodes) {
     const nodesMap = new Map(nodes.map(n => [n, {pubkey: n}]))

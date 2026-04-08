@@ -1,11 +1,11 @@
 /*eslint-disable no-undef */
 const {Asset, getMajority} = require('@reflector/reflector-shared')
-const container = require('../domain/container')
-const AssetsMap = require('../domain/prices/assets-map')
-const {getConcensusData} = require('../domain/prices/price-manager')
-const {calcPrice} = require('../utils/price-utils') //for full price computation
-const TradesManager = require('../domain/prices/trades-manager')
-const logger = require('../logger')
+const container = require('../../../src/domain/container')
+const AssetsMap = require('../../../src/domain/prices/assets-map')
+const {getConcensusData} = require('../../../src/domain/prices/price-manager')
+const {calcPrice} = require('../../../src/utils/price-utils') //for full price computation
+const TradesManager = require('../../../src/domain/prices/trades-manager')
+const logger = require('../../../src/logger')
 
 const nodes = [
     {pubkey: 'node1'},

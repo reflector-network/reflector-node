@@ -1,19 +1,15 @@
 /*eslint-disable no-undef */
-const SubscriptionProcessor = require('../domain/subscriptions/subscriptions-processor')
-const {getPricesForPair} = require('../domain/prices/price-manager')
+const SubscriptionProcessor = require('../../../src/domain/subscriptions/subscriptions-processor')
+const {getPricesForPair} = require('../../../src/domain/prices/price-manager')
 
-jest.mock('../logger', () => ({
-    debug: jest.fn(),
-    error: jest.fn()
-}))
-jest.mock('../domain/prices/price-manager', () => ({
+jest.mock('../../../src/domain/prices/price-manager', () => ({
     getPricesForPair: jest.fn()
 }))
-jest.mock('../domain/subscriptions/subscriptions-sync-data', () => jest.fn().mockImplementation(({syncData, timestamp}) => ({
+jest.mock('../../../src/domain/subscriptions/subscriptions-sync-data', () => jest.fn().mockImplementation(({syncData, timestamp}) => ({
     calculateHash: jest.fn().mockResolvedValue(),
     sign: jest.fn()
 })))
-jest.mock('../domain/container', () => ({
+jest.mock('../../../src/domain/container', () => ({
     settingsManager: {
         appConfig: {
             keypair: 'dummy-keypair'

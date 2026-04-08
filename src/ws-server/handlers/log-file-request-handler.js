@@ -5,7 +5,7 @@ const BaseHandler = require('./base-handler')
 
 class LogFileRequestHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.ORCHESTRATOR
+    allowedChannelTypes = [ChannelTypes.ORCHESTRATOR]
 
     allowAnonymous = true
 

@@ -1,17 +1,20 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.12.1",
+  "version": "0.12.2-rc1",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
   "scripts": {
     "start": "cd ./src && node ./index.js",
     "run-dev": "cd ./src && cross-env DEBUG=true nodemon --trace-warnings ./index.js homeDir=./tests/clusterData/node0/reflector-home",
-    "run-docker-cluster": "cd ./src && node ./tests/run-cluster.js",
-    "create-subscription": "cd ./src && node ./tests/create-subscription.js",
+    "run-docker-cluster": "node ./tests/cluster/run-cluster.js",
+    "create-subscription": "node ./tests/cluster/create-subscription.js",
     "build": "node ./build.js",
     "build-docker-image": "docker build -f ./docker/Dockerfile -t reflector-node-dev .",
     "test": "jest"
+  },
+  "jest": {
+    "setupFiles": ["./tests/setup.js"]
   },
   "author": "team@stellar.expert",
   "license": "MIT",

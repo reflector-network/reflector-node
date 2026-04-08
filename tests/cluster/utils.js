@@ -1,6 +1,7 @@
 const {exec} = require('child_process')
 const crypto = require('crypto')
 const fs = require('fs')
+const path = require('path')
 const {TransactionBuilder, Operation, Address, Keypair} = require('@stellar/stellar-sdk')
 const {getMajority, ContractTypes} = require('@reflector/reflector-shared')
 const axios = require('axios')
@@ -10,10 +11,10 @@ const constants = require('./constants')
  * @typedef {import('@stellar/stellar-sdk').rpc.Server} Server
  */
 
-const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
-const pathToBeamOracleContractWasm = './tests/reflector_beam_contract.wasm'
-const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
-const pathToDAOContractWasm = './tests/reflector_dao_contract.wasm'
+const pathToOracleContractWasm = path.join(__dirname, 'reflector_oracle.wasm')
+const pathToBeamOracleContractWasm = path.join(__dirname, 'reflector_beam_contract.wasm')
+const pathToSubscriptionsContractWasm = path.join(__dirname, 'reflector_subscriptions.wasm')
+const pathToDAOContractWasm = path.join(__dirname, 'reflector_dao_contract.wasm')
 
 
 const contractExistsRegex = /"contract already exists",\s*Bytes\(([0-9a-fA-F]+)\)/

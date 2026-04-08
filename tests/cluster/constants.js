@@ -40,11 +40,11 @@ const sources = {
         name: 'forex',
         providers: {
             'nbp': {},
-            'ecb': {},
+            'ecb': {}
         }
     },
     pubnet: {
-        sorobanRpc: ['https://soroban-testnet.stellar.org'],
+        sorobanRpc: ['http://192.168.0.21:8003'],
         type: 'db',
         name: 'pubnet'
     },

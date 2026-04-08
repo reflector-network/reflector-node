@@ -8,10 +8,10 @@
 
 class BaseHandler {
     /**
-     * @type {number}
+     * @type {number[]}
      * @readonly
      */
-    allowedChannelTypes = 0
+    allowedChannelTypes = []
 
     /**
      * @type {boolean}

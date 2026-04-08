@@ -4,8 +4,8 @@ const {rpc, Keypair, Asset, Networks} = require('@stellar/stellar-sdk')
 const {ContractTypes, getMajority, encodeAssetContractId} = require('@reflector/reflector-shared')
 const {OracleClient} = require('@reflector/oracle-client')
 const {Server} = require('@stellar/stellar-sdk/rpc')
-const {generateRSAKeyPair} = require('../utils/crypto-helper')
-const {submitTransaction} = require('../utils')
+const {generateRSAKeyPair} = require('../../src/utils/crypto-helper')
+const {submitTransaction} = require('../../src/utils')
 const {
     deployContract,
     createAccount,
@@ -24,7 +24,7 @@ const {
 } = require('./utils')
 const constants = require('./constants')
 
-const configsPath = './tests/clusterData'
+const configsPath = path.join(__dirname, 'clusterData')
 const tokenData = null
 let rsa = null
 
@@ -243,7 +243,7 @@ async function startNodes(nodesCount) {
             const port = 30347 + (i * 100)
             //closeEndRemoveIfExist(nodeName)
 
-            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`//`reflectornet/reflector-node:v0.11.0`//
+            const startCommand = `docker run -d -p ${port}:30347 -v "${nodeHomeDir}:/reflector-node/app/home" --restart=unless-stopped --name=${nodeName} reflector-node-dev`//`reflectornet/reflector-node:v0.12.1`//
 
             console.log(startCommand)
             await runCommand(startCommand)
@@ -254,7 +254,7 @@ async function startNodes(nodesCount) {
 }
 
 async function ensureTokenData(server, issuer, tokenSymbol) {
-    const tokenDataFile = path.join('./tests', 'token-data.json')
+    const tokenDataFile = path.join(__dirname, 'token-data.json')
     if (!fs.existsSync(tokenDataFile))
         fs.writeFileSync(tokenDataFile, JSON.stringify({}, null, 2), {encoding: 'utf-8'})
 
@@ -273,13 +273,13 @@ async function ensureTokenData(server, issuer, tokenSymbol) {
 }
 
 async function ensureRSAKeys() {
-    const rsaDataFile = path.join('./tests', 'rsa.json')
+    const rsaDataFile = path.join(__dirname, 'rsa.json')
     if (!fs.existsSync(rsaDataFile)) {
         const rsaKeys = await generateRSAKeyPair()
         const privateKey = Buffer.from(rsaKeys.privateKey).toString('base64')
         const pubKey = Buffer.from(rsaKeys.publicKey).toString('base64')
         rsa = {privateKey, pubKey}
-        fs.writeFileSync('./tests/rsa.json', JSON.stringify(rsa, null, 2), {encoding: 'utf-8'})
+        fs.writeFileSync(rsaDataFile, JSON.stringify(rsa, null, 2), {encoding: 'utf-8'})
     } else
         rsa = JSON.parse(fs.readFileSync(rsaDataFile, {encoding: 'utf-8'}))
 }
@@ -322,6 +322,10 @@ const clusterConfig = null
 async function extendAssets() {
     const config = require('./clusterData/.config.json')
     const beams = Object.values(config.contracts).filter(c => c.type === 'oracle_beam')//&& c.dataSource === 'pubnet')
+    const getMultipleRandom = (arr, n) => {
+        const shuffled = [...arr].sort(() => 0.5 - Math.random())
+        return shuffled.slice(0, n)
+    }
     for (const beam of beams) {
         //const oracleClient = new OracleClient(Networks.TESTNET, ["https://soroban-testnet.stellar.org"], beam.contractId)
         //const server = new Server("https://soroban-testnet.stellar.org")
@@ -339,8 +343,9 @@ async function extendAssets() {
 
         //await sendTransaction(server, update)
 
+        const assets = getMultipleRandom(beam.assets, Math.min(15, beam.assets.length))
         let count = 0
-        for (const asset of beam.assets) {
+        for (const asset of assets) {
             let type = 'Other'
             let code = asset.code
             if (asset.type === 1) {

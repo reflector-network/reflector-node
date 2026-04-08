@@ -9,7 +9,7 @@ const BaseHandler = require('./base-handler')
 
 class HandshakeResponseHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.OUTGOING | ChannelTypes.INCOMING
+    allowedChannelTypes = [ChannelTypes.OUTGOING, ChannelTypes.INCOMING]
 
     allowAnonymous = true
 
