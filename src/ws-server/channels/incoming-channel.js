@@ -3,6 +3,7 @@
  * @typedef {import('ws').WebSocket} WebSocket
  * */
 const {v4: uuidv4} = require('uuid')
+const constants = require('../../../tests/cluster/constants')
 const ChannelBase = require('./channel-base')
 const ChannelTypes = require('./channel-types')
 
@@ -21,7 +22,7 @@ class IncomingChannel extends ChannelBase {
         ws.id = uuidv4()
         this.__ws = ws
         this.pubkey = pubkey
-        this.authPayload = uuidv4()
+        this.authPayload = constants.payloadPrefix + uuidv4()
         this.__assignListeners()
         this.__startPingPong()
     }

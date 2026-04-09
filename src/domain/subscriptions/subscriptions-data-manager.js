@@ -2,6 +2,7 @@ const {getSubscriptions, Asset, AssetType, getSubscriptionsContractState} = requ
 const {scValToNative} = require('@stellar/stellar-sdk')
 const {getLastContractEvents, getEventsLedgerInfo} = require('../../utils/rpc-helper')
 const {decrypt} = require('../../utils/crypto-helper')
+const {validateWebhookUrl} = require('../../utils/ssrf-validator')
 const logger = require('../../logger')
 const container = require('../container')
 const dataSourceManager = require('../data-sources-manager')
@@ -74,8 +75,14 @@ async function getWebhook(id, webhookBuffer) {
         if (webhook && !Array.isArray(webhook))
             throw new Error('Invalid webhook data')
         for (const webhookItem of webhook) {
-            if (webhookItem.url)
-                verifiedWebhook.push(webhookItem)
+            if (webhookItem.url) {
+                try {
+                    validateWebhookUrl(webhookItem.url)
+                    verifiedWebhook.push(webhookItem)
+                } catch (e) {
+                    logger.error(`Invalid webhook URL for subscription ${id}: ${e.message}`)
+                }
+            }
         }
     } catch (e) {
         logger.error(`Error decrypting webhook: ${e.message}. Subscription ${id?.toString()}`)

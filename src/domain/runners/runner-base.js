@@ -170,6 +170,8 @@ class RunnerBase {
         this.isRunning = false
         if (this.__workerTimeout)
             clearTimeout(this.__workerTimeout)
+        if (this.__pendingSignaturesTimeout)
+            clearTimeout(this.__pendingSignaturesTimeout)
     }
 
     /**
@@ -274,7 +276,7 @@ class RunnerBase {
         } catch (err) {
             logger.error({err}, 'Error in __clearPendingSignatures')
         } finally {
-            setTimeout(() => this.__clearPendingSignatures(), 60000) //1 minute
+            this.__pendingSignaturesTimeout = setTimeout(() => this.__clearPendingSignatures(), 60000) //1 minute
         }
     }
 

@@ -15,7 +15,8 @@ const logger = require('../logger')
 
 const networks = {
     testnet: 'Test SDF Network ; September 2015',
-    pubnet: 'Public Global Stellar Network ; September 2015'
+    pubnet: 'Public Global Stellar Network ; September 2015',
+    futurenet: 'Test SDF Future Network ; October 2022'
 }
 
 function getProviderByName(name) {
@@ -26,6 +27,7 @@ function getProviderByName(name) {
             return new ForexPriceProvider()
         case 'pubnet':
         case 'testnet':
+        case 'futurenet':
             return new StellarProvider()
         default:
             throw new ValidationError(`unknown provider name: ${name}`)

@@ -47,7 +47,7 @@ function getVWAP(volume, quoteVolume, decimals) {
         throw new Error('quoteVolume should be expressed as BigInt')
     if (typeof decimals !== 'number' || isNaN(decimals))
         throw new Error('decimals should be expressed as Number')
-    const scaledtotalVolume = volume * BigInt(Math.pow(10, decimals)) //multiply decimals by 10^decimals to get correct price
+    const scaledtotalVolume = volume * (10n ** BigInt(decimals)) //multiply decimals by 10^decimals to get correct price
     if (quoteVolume === 0n || scaledtotalVolume === 0n)
         return 0n
     return scaledtotalVolume / quoteVolume

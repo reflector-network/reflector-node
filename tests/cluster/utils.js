@@ -297,7 +297,7 @@ async function createAccount(server, sponsor, address) {
 }
 
 async function generateAccount(address) {
-    await axios.get(`https://friendbot.stellar.org?addr=${address}`)
+    await axios.get(`${constants.friendBot}?addr=${address}`)
 }
 
 /**

@@ -1,5 +1,6 @@
-const rpcUrl = 'https://soroban-testnet.stellar.org'
-const network = 'Test SDF Network ; September 2015'
+const rpcUrl = 'https://rpc-futurenet.stellar.org'//'https://soroban-testnet.stellar.org'
+const network = 'Test SDF Future Network ; October 2022'//'Test SDF Network ; September 2015'
+const friendBot = 'https://friendbot-futurenet.stellar.org'//https://friendbot.stellar.org
 
 
 const baseStellarPubnetAsset = {type: 1, code: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'}
@@ -52,6 +53,11 @@ const sources = {
         sorobanRpc: ['https://soroban-testnet.stellar.org'],
         type: 'db',
         name: 'testnet'
+    },
+    futurenet: {
+        sorobanRpc: ['https://rpc-futurenet.stellar.org'],
+        type: 'db',
+        name: 'futurenet'
     }
 }
 
@@ -74,5 +80,6 @@ module.exports = {
     wasmHash: 'df88820e231ad8f3027871e5dd3cf45491d7b7735e785731466bfc2946008608',
     minDate: 0,
     sources,
+    friendBot,
     getDataSources
 }

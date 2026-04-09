@@ -6,6 +6,7 @@ const {Keypair} = require('@stellar/stellar-sdk')
 const {ContractTypes} = require('@reflector/reflector-shared')
 const ChannelTypes = require('../../../src/ws-server/channels/channel-types')
 const MessageTypes = require('../../../src/ws-server/handlers/message-types')
+const constants = require('../../../src/ws-server/contstants')
 
 const createTempHome = () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reflector-handlers-test-'))
@@ -32,7 +33,7 @@ describe('HandshakeRequestHandler', () => {
     })
 
     test('returns handshake response with signature', () => {
-        const authPayload = 'payload-to-sign'
+        const authPayload = constants.payloadPrefix + 'payload-to-sign'
         const result = handler.handle({}, {data: {payload: authPayload}})
 
         expect(result).toBeDefined()

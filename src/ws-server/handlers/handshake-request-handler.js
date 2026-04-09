@@ -1,5 +1,6 @@
 const ChannelTypes = require('../channels/channel-types')
 const container = require('../../domain/container')
+const constants = require('../contstants')
 const MessageTypes = require('./message-types')
 const BaseHandler = require('./base-handler')
 
@@ -22,6 +23,8 @@ class HandshakeRequestHandler extends BaseHandler {
         const authPayload = message.data?.payload
         if (!authPayload)
             throw new Error('Payload is required')
+        if (!authPayload.startsWith(constants.payloadPrefix))
+            throw new Error('Invalid payload')
         const {keypair} = container.settingsManager.appConfig
         const signature = keypair.sign(Buffer.from(authPayload)).toString('hex')
         return {type: MessageTypes.HANDSHAKE_RESPONSE, data: {signature}}
