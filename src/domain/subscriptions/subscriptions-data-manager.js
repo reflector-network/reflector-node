@@ -41,6 +41,16 @@ function getValidSymbols() {
  * @property {{url: string}[]} webhook - webhook
  */
 
+/**
+ * @typedef {Object} SubscriptionAsset
+ * @property {string} source - source
+ * @property {Asset} asset - asset
+ */
+
+/**
+ * @param {any} raw
+ * @returns {SubscriptionAsset}
+ */
 function getNormalizedAsset(raw) {
     if (raw.asset.constructor.name !== 'String')
         throw new Error('Invalid asset data')
@@ -56,6 +66,21 @@ function getNormalizedAsset(raw) {
         asset
     }
     return tickerAsset
+}
+
+/**
+ * @param {SubscriptionAsset} assetInfo
+ * @returns {boolean}
+ */
+function isValidSymbol(assetInfo) {
+    const validSymbols = getValidSymbols()
+    const sourceValidSymbols = validSymbols[assetInfo.source]
+    if (sourceValidSymbols === '*')
+        return true
+    else if (!(sourceValidSymbols instanceof Array)) {
+        return false
+    }
+    return sourceValidSymbols.includes(assetInfo.asset.code)
 }
 
 async function getWebhook(id, webhookBuffer) {
@@ -177,20 +202,8 @@ class SubscriptionContractManager {
                 return
             }
 
-            const isValidSymbol = (assetInfo) => {
-                const validSymbols = getValidSymbols()
-                const sourceValidSymbols = validSymbols[assetInfo.source]
-                if (sourceValidSymbols === '*')
-                    return true
-                else if (!(sourceValidSymbols instanceof Array)) {
-                    logger.warn(`Invalid symbols config for source ${assetInfo.source}. Subscription ${raw.id}. Contract ${this.contractId}`)
-                    return false
-                }
-                return sourceValidSymbols.includes(assetInfo.code)
-            }
-
             if (!(isValidSymbol(base) && isValidSymbol(quote))) {
-                logger.warn(`Invalid symbol in subscription ${raw.id}. Contract ${this.contractId}`)
+                logger.warn(`Invalid symbol in subscription ${raw.id}. Contract ${this.contractId}, Base: ${base.source}-${base.asset.code}, Quote: ${quote.source}-${quote.asset.code}`)
                 return
             }
 

@@ -64,7 +64,7 @@ class RunnerManager {
      */
     get(contractId) {
         if (!this.runners.has(contractId))
-            throw new Error({msg: 'Oracle runner not found for contract.', contract: contractId})
+            throw new Error(`Oracle runner not found for contract ${contractId}.`)
         return this.runners.get(contractId)
     }
 

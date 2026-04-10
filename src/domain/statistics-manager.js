@@ -88,17 +88,20 @@ class DAOStatistics extends ContractStatistics {
     constructor(contractId) {
         super(contractId, ContractTypes.DAO)
         this.lastBallotId = 0
+        this.lastUnlock = 0
     }
 
-    setLastDAOData(lastBallotId, isInitialized) {
+    setLastDAOData(lastBallotId, lastUnlock, isInitialized) {
         this.setLastContractData(isInitialized)
         this.lastBallotId = lastBallotId
+        this.lastUnlock = lastUnlock
     }
 
     getStatistics() {
         return {
             ...super.getStatistics(),
-            lastBallotId: this.lastBallotId
+            lastBallotId: this.lastBallotId,
+            lastUnlock: this.lastUnlock
         }
     }
 }
@@ -223,7 +226,7 @@ class StatisticsManager {
         const hashes = this.__getContractHashes(contractId)
         hashes.push(txHash)
         if (hashes.length > 10) {
-            hashes.shift() //keep only last 1000 hashes
+            hashes.shift() //keep only last 10 hashes
         }
     }
 

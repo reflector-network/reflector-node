@@ -37,7 +37,7 @@ class DAORunner extends RunnerBase {
         logger.trace({msg: 'Contract state', lastBallotId: Number(contractState.lastBallotId), lastUnlock: Number(contractState.lastUnlock), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastDAOData(
             this.contractId,
-            Number(contractState.lastTimestamp),
+            Number(contractState.lastBallotId),
             Number(contractState.lastUnlock),
             contractState.isInitialized
         )
