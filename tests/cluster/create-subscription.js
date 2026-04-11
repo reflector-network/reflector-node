@@ -46,15 +46,16 @@ async function getCreationInfo() {
     if (!subsId || !owner || !rsa) {
         throw new Error('Missing subscription data')
     }
-    return {subsId, owner, rsa}
+    return {subsId, owner, rsa, network: contract.network}
 }
 
 
 async function createSubscription() {
-    const {subsId, owner, rsa} = await getCreationInfo()
-    const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subsId)
+    const {subsId, owner, rsa, network} = await getCreationInfo()
+    const {rpcUrl, network: networkPassphrase} = constants.networks[network]
+    const client = new SubscriptionsClient(networkPassphrase, [rpcUrl], subsId)
     const keypair = Keypair.fromSecret(owner)
-    const server = new rpc.Server(constants.rpcUrl)
+    const server = new rpc.Server(rpcUrl)
     const source = await getAccountInfo(server, keypair.publicKey())
 
     const webhook = await getWebhook(rsa)

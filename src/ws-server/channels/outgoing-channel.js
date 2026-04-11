@@ -1,6 +1,7 @@
 const {v4: uuidv4} = require('uuid')
 const MessageTypes = require('../handlers/message-types')
 const logger = require('../../logger')
+const constants = require('../contstants')
 const OutgoingChannelBase = require('./outgoing-channel-base')
 const ChannelTypes = require('./channel-types')
 
@@ -12,7 +13,7 @@ class OutgoingChannel extends OutgoingChannelBase {
     type = ChannelTypes.OUTGOING
 
     __connect() {
-        this.authPayload = uuidv4()
+        this.authPayload = constants.payloadPrefix + uuidv4()
         super.__connect()
     }
 

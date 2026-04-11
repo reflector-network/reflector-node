@@ -3,7 +3,7 @@
  * @typedef {import('ws').WebSocket} WebSocket
  * */
 const {v4: uuidv4} = require('uuid')
-const constants = require('../../../tests/cluster/constants')
+const constants = require('../contstants')
 const ChannelBase = require('./channel-base')
 const ChannelTypes = require('./channel-types')
 

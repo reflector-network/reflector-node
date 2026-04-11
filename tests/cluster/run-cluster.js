@@ -120,9 +120,10 @@ async function closeEndRemoveIfExist(name) {
  * @param {KeypairData[]} nodes
  * @param {{salt: string, type: string, admin: KeypairData, dataSource: string}} contractConfig
  * @param {{secret: string, pubkey: string, symbol: string, tokenId: string}} token
+ * @param {string} network
  */
-async function generateNewContract(server, deployer, nodes, contractConfig, token) {
-    const contractId = await deployContract(server, deployer.secret, contractConfig.type, contractConfig.salt)
+async function generateNewContract(server, deployer, nodes, contractConfig, token, network) {
+    const contractId = await deployContract(server, deployer.secret, contractConfig.type, contractConfig.salt, network)
     if (!contractId) {
         throw new Error('Contract was not deployed')
     }
@@ -133,10 +134,10 @@ async function generateNewContract(server, deployer, nodes, contractConfig, toke
         const asset = new Asset(token.symbol, token.pubkey)
 
         let account = await getAccountInfo(server, contractConfig.admin.pubkey)
-        await addTrust(server, asset, account, nodes.slice(0, getMajority(nodes.length)).map(n => Keypair.fromSecret(n.secret)))
+        await addTrust(server, asset, account, nodes.slice(0, getMajority(nodes.length)).map(n => Keypair.fromSecret(n.secret)), network)
 
         account = await getAccountInfo(server, token.pubkey)
-        await mint(server, asset, contractConfig.admin.pubkey, initDAOAmount, account, tokenKeypair)
+        await mint(server, asset, contractConfig.admin.pubkey, initDAOAmount, account, tokenKeypair, network)
     }
 
     const contractConfigData = {
@@ -165,13 +166,14 @@ async function accountExists(server, publicKey) {
 
 /**
  * @param {ClusterConfig} clusterConfig
+ * @param {string} network
  */
-async function ensureClusterDataReady(clusterConfig) {
-    const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
+async function ensureClusterDataReady(clusterConfig, network) {
+    const server = new rpc.Server(constants.networks[network].rpcUrl, {allowHttp: true})
     //temporary fix. need to find way to fetch balance from rpc
     let deployerBalance = 0
     if (!await accountExists(server, clusterConfig.deployer.pubkey)) {
-        await generateAccount(clusterConfig.deployer.pubkey)
+        await generateAccount(clusterConfig.deployer.pubkey, network)
         deployerBalance = 10000
     }
 
@@ -179,13 +181,13 @@ async function ensureClusterDataReady(clusterConfig) {
         if (await accountExists(server, pubKey))
             return true
         if (deployerBalance < 2000) {
-            await generateAccount(clusterConfig.deployer.pubkey)
+            await generateAccount(clusterConfig.deployer.pubkey, network)
             deployerBalance = 10000
         }
-        await createAccount(server, clusterConfig.deployer.secret, pubKey)
+        await createAccount(server, clusterConfig.deployer.secret, pubKey, network)
         deployerBalance -= 1000
         if (updateToMultisigKeypair)
-            await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey))
+            await updateAdminToMultiSigAccount(server, updateToMultisigKeypair, clusterConfig.nodes.map(n => n.pubkey), network)
     }
 
     const multisigAccounts = [clusterConfig.sysAccount, ...clusterConfig.contracts.map(c => c.admin)]
@@ -200,11 +202,12 @@ async function ensureClusterDataReady(clusterConfig) {
 
 /**
  * @param {ClusterConfig} clusterConfig
+ * @param {string} network
  */
-async function generateNewCluster(clusterConfig) {
-    const server = new rpc.Server(constants.rpcUrl, {allowHttp: true})
+async function generateNewCluster(clusterConfig, network) {
+    const server = new rpc.Server(constants.networks[network].rpcUrl, {allowHttp: true})
 
-    const tokenData = await ensureTokenData(server, clusterConfig.tokenIssuer, clusterConfig.token)
+    const tokenData = await ensureTokenData(server, clusterConfig.tokenIssuer, clusterConfig.token, network)
     await ensureRSAKeys()
 
     const contracts = {}
@@ -214,12 +217,13 @@ async function generateNewCluster(clusterConfig) {
             clusterConfig.deployer,
             clusterConfig.nodes,
             c,
-            tokenData
+            tokenData,
+            network
         )
         contracts[config.contractId] = config
     }
 
-    const config = generateConfig(clusterConfig.sysAccount.pubkey, contracts, clusterConfig.nodes.map(n => n.pubkey), constants.wasmHash, constants.minDate, 'testnet', 30347, rsa.privateKey)
+    const config = generateConfig(clusterConfig.sysAccount.pubkey, contracts, clusterConfig.nodes.map(n => n.pubkey), constants.wasmHash, constants.minDate, network, 30347, rsa.privateKey)
     fs.mkdirSync(configsPath, {recursive: true})
     const configPath = path.join(configsPath, '.config.json')
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), {encoding: 'utf-8'})
@@ -253,7 +257,7 @@ async function startNodes(nodesCount) {
     }
 }
 
-async function ensureTokenData(server, issuer, tokenSymbol) {
+async function ensureTokenData(server, issuer, tokenSymbol, network) {
     const tokenDataFile = path.join(__dirname, 'token-data.json')
     if (!fs.existsSync(tokenDataFile))
         fs.writeFileSync(tokenDataFile, JSON.stringify({}, null, 2), {encoding: 'utf-8'})
@@ -265,7 +269,7 @@ async function ensureTokenData(server, issuer, tokenSymbol) {
     if (tokenData[token])
         return tokenData[token]
 
-    const tokenContract = await generateAssetContract(server, token, tokenAdmin.secret())
+    const tokenContract = await generateAssetContract(server, token, tokenAdmin.secret(), network)
     tokenData[token] = {secret: tokenAdmin.secret(), pubkey: tokenAdmin.publicKey(), tokenId: tokenContract, symbol: tokenSymbol}
     fs.writeFileSync(tokenDataFile, JSON.stringify(tokenData, null, 2), {encoding: 'utf-8'})
 
@@ -303,7 +307,7 @@ async function ensureRSAKeys() {
 /**
  * @param {ClusterConfig} clusterConfig
  */
-async function run(clusterConfig) {
+async function run(clusterConfig, network = 'testnet') {
     if (!fs.existsSync(configsPath)) {
         if (!clusterConfig) {
             clusterConfig = generateClusterConfigData()
@@ -311,8 +315,8 @@ async function run(clusterConfig) {
             console.log(JSON.stringify(clusterConfig, null, 2))
             console.log('<--Cluster config generated-->'.repeat(5))
         }
-        await ensureClusterDataReady(clusterConfig)
-        await generateNewCluster(clusterConfig)
+        await ensureClusterDataReady(clusterConfig, network)
+        await generateNewCluster(clusterConfig, network)
     }
     await startNodes(getNodesCount())
 }
@@ -321,7 +325,7 @@ async function run(clusterConfig) {
 const clusterConfig = null
 async function extendAssets() {
     const config = require('./clusterData/.config.json')
-    const beams = Object.values(config.contracts).filter(c => c.type === 'oracle_beam')//&& c.dataSource === 'pubnet')
+    const beams = Object.values(config.contracts).filter(c => c.type === 'oracle_beam' || c.type === 'oracle')//&& c.dataSource === 'pubnet')
     const getMultipleRandom = (arr, n) => {
         const shuffled = [...arr].sort(() => 0.5 - Math.random())
         return shuffled.slice(0, n)
@@ -353,7 +357,7 @@ async function extendAssets() {
                 code = encodeAssetContractId(new Asset(...asset.code.split(':')), Networks.TESTNET)
             }
             try {
-                await runCommand(`stellar contract invoke --network testnet --source SB4YZ4C5ZRNARCVGGPSI7CWDTS55DCMJEHCE6WG3ORM2TDLYP35D46BK --id ${beam.contractId} --send=yes -- extend_asset_ttl --sponsor GCQ4MXBUEX77VWCH3TONZ3YRMAZOFPAAUY6V5BPD3GUK4JE6HFGRS5CV --asset "{\\"${type}\\": \\"${code}\\"}" --amount 1000`, [])
+                await runCommand(`stellar contract invoke --network ${config.network} --source SB4YZ4C5ZRNARCVGGPSI7CWDTS55DCMJEHCE6WG3ORM2TDLYP35D46BK --id ${beam.contractId} --send=yes -- extend_asset_ttl --sponsor GCQ4MXBUEX77VWCH3TONZ3YRMAZOFPAAUY6V5BPD3GUK4JE6HFGRS5CV --asset "{\\"${type}\\": \\"${code}\\"}" --amount 1000`, [])
                 count++
                 console.log(`Asset ${asset.code} extended successfully (${count}/${beam.assets.length})`)
             } catch (e) {
@@ -363,5 +367,5 @@ async function extendAssets() {
     }
 }
 
-run(clusterConfig).catch(console.error)
-//extendAssets().catch(console.error)
+//run(clusterConfig, 'testnet').catch(console.error)
+extendAssets().catch(console.error)

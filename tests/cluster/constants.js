@@ -1,7 +1,15 @@
-const rpcUrl = 'https://rpc-futurenet.stellar.org'//'https://soroban-testnet.stellar.org'
-const network = 'Test SDF Future Network ; October 2022'//'Test SDF Network ; September 2015'
-const friendBot = 'https://friendbot-futurenet.stellar.org'//https://friendbot.stellar.org
-
+const networks = {
+    futurenet: {
+        rpcUrl: 'https://rpc-futurenet.stellar.org',
+        network: 'Test SDF Future Network ; October 2022',
+        friendBot: 'https://friendbot-futurenet.stellar.org'
+    },
+    testnet: {
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        network: 'Test SDF Network ; September 2015',
+        friendBot: 'https://friendbot.stellar.org'
+    }
+}
 
 const baseStellarPubnetAsset = {type: 1, code: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'}
 
@@ -66,8 +74,7 @@ function getDataSources() {
 }
 
 module.exports = {
-    rpcUrl,
-    network,
+    networks,
     baseStellarPubnetAsset,
     stellarPubnetAssets,
     baseGenericAsset,
@@ -80,6 +87,5 @@ module.exports = {
     wasmHash: 'df88820e231ad8f3027871e5dd3cf45491d7b7735e785731466bfc2946008608',
     minDate: 0,
     sources,
-    friendBot,
     getDataSources
 }
