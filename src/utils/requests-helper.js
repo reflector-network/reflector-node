@@ -1,6 +1,7 @@
 const https = require('https')
 const http = require('http')
 const {default: axios} = require('axios')
+const {resolveAndValidate} = require('./ssrf-validator')
 
 const defaultAgentOptions = {keepAlive: true, maxSockets: 50, noDelay: true}
 
@@ -17,12 +18,20 @@ axios.defaults.httpsAgent = httpsAgent
  * @protected
  */
 async function makeRequest(url, options = {}) {
-    const requestOptions = {
-        ...options,
-        url
+    const {validateSsrf, ...axiosOptions} = options
+
+    if (validateSsrf) {
+        const {resolvedIp} = await resolveAndValidate(url)
+        const safeUrl = new URL(url)
+        const originalHost = safeUrl.host
+        safeUrl.hostname = safeUrl.hostname === resolvedIp ? resolvedIp : `${resolvedIp}`
+        axiosOptions.headers = {...axiosOptions.headers, Host: originalHost}
+        axiosOptions.url = safeUrl.toString()
+    } else {
+        axiosOptions.url = url
     }
 
-    const response = await axios.request(requestOptions)
+    const response = await axios.request(axiosOptions)
     return response
 }
 

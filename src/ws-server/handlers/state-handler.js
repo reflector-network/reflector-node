@@ -8,7 +8,7 @@ const BaseHandler = require('./base-handler')
 
 class StateHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.OUTGOING
+    allowedChannelTypes = [ChannelTypes.OUTGOING]
 
     handle(ws, message) {
         switch (message.data.state) {

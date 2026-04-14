@@ -10,7 +10,7 @@ class SignaturesHandler extends BaseHandler {
         super()
     }
 
-    allowedChannelTypes = ChannelTypes.OUTGOING
+    allowedChannelTypes = [ChannelTypes.OUTGOING, ChannelTypes.INCOMING]
 
     async handle(ws, message) {
         const {signature, hash, contractId} = message.data

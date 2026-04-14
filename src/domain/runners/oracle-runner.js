@@ -211,7 +211,7 @@ class OracleRunner extends RunnerBase {
         //update prices cache
         for (const [key, value] of Object.entries(entries)) {
             const prices = restorePricesFromUpdate(value)
-            this.__pricesCache.set(key, prices)
+            this.__pricesCache.set(Number(key), prices)
         }
 
         //remove old entries from cache

@@ -9,8 +9,8 @@ node_modules/
 /nonce
 /dist
 /src/home
-/src/tests/configs
-/src/tests/clusterData
+/tests/cluster/configs
+/tests/cluster/clusterData
 
 pnpm-lock.yaml
 app.config.json

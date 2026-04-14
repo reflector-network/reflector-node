@@ -298,7 +298,8 @@ class SubscriptionsRunner extends RunnerBase {
                         {
                             method: 'POST',
                             data,
-                            timeout: 5000
+                            timeout: 5000,
+                            validateSsrf: true
                         })
                 } catch (e) {
                     logger.debug(`Failed to send webhook data to ${urls[j]}: ${e.message}`)

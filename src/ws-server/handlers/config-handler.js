@@ -44,7 +44,7 @@ function verifyConfig(configEnvelope, nonceType) {
 
 class ConfigHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.ORCHESTRATOR
+    allowedChannelTypes = [ChannelTypes.ORCHESTRATOR]
 
     allowAnonymous = true
 

@@ -3,8 +3,8 @@ const {Config, ContractTypes} = require('@reflector/reflector-shared')
 const {SubscriptionsClient} = require('@reflector/oracle-client')
 const {Keypair, rpc, scValToNative} = require('@stellar/stellar-sdk')
 const axios = require('axios')
-const {encrypt, importRSAKey} = require('../utils/crypto-helper')
-const quotes = require('../domain/subscriptions/valid-symbols.json')
+const {encrypt, importRSAKey} = require('../../src/utils/crypto-helper')
+const quotes = require('../../src/domain/subscriptions/valid-symbols.json')
 const config = require('./clusterData/.config.json')
 const constants = require('./constants')
 const tokenData = require('./token-data.json')
@@ -28,11 +28,12 @@ async function getWebhook(rsa) {
 
 function saveWebhook(id, hook) {
     let data = {}
-    if (fs.existsSync('./tests/webhook.json')) {
-        data = JSON.parse(fs.readFileSync('./tests/webhook.json'))
+    const webhookPath = require('path').join(__dirname, 'webhook.json')
+    if (fs.existsSync(webhookPath)) {
+        data = JSON.parse(fs.readFileSync(webhookPath))
     }
     data[id] = hook
-    fs.writeFileSync('./tests/webhook.json', JSON.stringify(data, null, 2))
+    fs.writeFileSync(webhookPath, JSON.stringify(data, null, 2))
 }
 
 
@@ -45,15 +46,16 @@ async function getCreationInfo() {
     if (!subsId || !owner || !rsa) {
         throw new Error('Missing subscription data')
     }
-    return {subsId, owner, rsa}
+    return {subsId, owner, rsa, network: contract.network}
 }
 
 
 async function createSubscription() {
-    const {subsId, owner, rsa} = await getCreationInfo()
-    const client = new SubscriptionsClient(constants.network, [constants.rpcUrl], subsId)
+    const {subsId, owner, rsa, network} = await getCreationInfo()
+    const {rpcUrl, network: networkPassphrase} = constants.networks[network]
+    const client = new SubscriptionsClient(networkPassphrase, [rpcUrl], subsId)
     const keypair = Keypair.fromSecret(owner)
-    const server = new rpc.Server(constants.rpcUrl)
+    const server = new rpc.Server(rpcUrl)
     const source = await getAccountInfo(server, keypair.publicKey())
 
     const webhook = await getWebhook(rsa)
@@ -62,8 +64,8 @@ async function createSubscription() {
         source,
         {
             owner: keypair.publicKey(),
-            base: {asset: 'EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2', source: 'pubnet'},
-            quote: {asset: 'EURC', source: 'exchanges'},
+            base: {asset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', source: 'pubnet'},
+            quote: {asset: 'AQUA:GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA', source: 'pubnet'},
             amount: '100000',
             threshold: 1,
             heartbeat: 30,

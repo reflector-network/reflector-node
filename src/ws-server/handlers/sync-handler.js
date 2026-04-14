@@ -7,7 +7,7 @@ const BaseHandler = require('./base-handler')
 
 class SyncHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.OUTGOING
+    allowedChannelTypes = [ChannelTypes.OUTGOING, ChannelTypes.INCOMING]
 
     handle(ws, message) {
         const syncData = message.data

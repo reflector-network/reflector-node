@@ -1,6 +1,7 @@
 const {exec} = require('child_process')
 const crypto = require('crypto')
 const fs = require('fs')
+const path = require('path')
 const {TransactionBuilder, Operation, Address, Keypair} = require('@stellar/stellar-sdk')
 const {getMajority, ContractTypes} = require('@reflector/reflector-shared')
 const axios = require('axios')
@@ -10,10 +11,10 @@ const constants = require('./constants')
  * @typedef {import('@stellar/stellar-sdk').rpc.Server} Server
  */
 
-const pathToOracleContractWasm = './tests/reflector_oracle.wasm'
-const pathToBeamOracleContractWasm = './tests/reflector_beam_contract.wasm'
-const pathToSubscriptionsContractWasm = './tests/reflector_subscriptions.wasm'
-const pathToDAOContractWasm = './tests/reflector_dao_contract.wasm'
+const pathToOracleContractWasm = path.join(__dirname, 'reflector_oracle.wasm')
+const pathToBeamOracleContractWasm = path.join(__dirname, 'reflector_beam_contract.wasm')
+const pathToSubscriptionsContractWasm = path.join(__dirname, 'reflector_subscriptions.wasm')
+const pathToDAOContractWasm = path.join(__dirname, 'reflector_dao_contract.wasm')
 
 
 const contractExistsRegex = /"contract already exists",\s*Bytes\(([0-9a-fA-F]+)\)/
@@ -36,7 +37,7 @@ async function runCommand(command, args) {
     })
 }
 
-async function deployContract(server, deployer, contractType, salt) {
+async function deployContract(server, deployer, contractType, salt, network) {
 
     let pathToContractWasm = pathToOracleContractWasm
     if (contractType === ContractTypes.SUBSCRIPTIONS)
@@ -51,7 +52,7 @@ async function deployContract(server, deployer, contractType, salt) {
     const account = await server.getAccount(deployerKeypair.publicKey())
 
     const wasm = fs.readFileSync(pathToContractWasm)
-    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.networks[network].network})
         .setTimeout(30000)
         .addOperation(Operation.uploadContractWasm({wasm}))
 
@@ -62,7 +63,7 @@ async function deployContract(server, deployer, contractType, salt) {
     let response = await sendTransaction(server, tx)
     const hash = response.returnValue.toXDR('hex').slice(16)
 
-    txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+    txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.networks[network].network})
         .setTimeout(30000)
         .addOperation(Operation.createCustomContract({
             address: new Address(deployerKeypair.publicKey()),
@@ -91,10 +92,10 @@ async function deployContract(server, deployer, contractType, salt) {
     return contractId
 }
 
-async function generateAssetContract(server, asset, admin) {
+async function generateAssetContract(server, asset, admin, network) {
     const adminKeypair = Keypair.fromSecret(admin)
     const account = await server.getAccount(adminKeypair.publicKey())
-    const txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+    const txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.networks[network].network})
         .setTimeout(30000)
         .addOperation(Operation.createStellarAssetContract({asset}))
 
@@ -119,8 +120,8 @@ async function generateAssetContract(server, asset, admin) {
     return assetContractId
 }
 
-async function mint(server, asset, destination, amount, account, signer) {
-    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+async function mint(server, asset, destination, amount, account, signer, network) {
+    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.networks[network].network})
     txBuilder = txBuilder
         .setTimeout(30000)
         .addOperation(
@@ -138,8 +139,8 @@ async function mint(server, asset, destination, amount, account, signer) {
     await sendTransaction(server, tx)
 }
 
-async function addTrust(server, asset, account, signers) {
-    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.network})
+async function addTrust(server, asset, account, signers, network) {
+    let txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.networks[network].network})
     txBuilder = txBuilder
         .setTimeout(30000)
         .addOperation(
@@ -278,11 +279,12 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
  * @param {Server} server
  * @param {string} sponsor
  * @param {string} address
+ * @param {string} network
  */
-async function createAccount(server, sponsor, address) {
+async function createAccount(server, sponsor, address, network) {
     const sponsorKeypair = Keypair.fromSecret(sponsor)
     const account = await server.getAccount(sponsorKeypair.publicKey())
-    const txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.network})
+    const txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.networks[network].network})
         .setTimeout(30000)
         .addOperation(
             Operation.createAccount({
@@ -295,8 +297,8 @@ async function createAccount(server, sponsor, address) {
     await sendTransaction(server, tx)
 }
 
-async function generateAccount(address) {
-    await axios.get(`https://friendbot.stellar.org?addr=${address}`)
+async function generateAccount(address, network) {
+    await axios.get(`${constants.networks[network].friendBot}?addr=${address}`)
 }
 
 /**
@@ -322,13 +324,14 @@ async function getAccountBalance(server, publicKey, asset) {
  *@param {Server} server
  *@param {Keypair} admin
  *@param {string[]} nodesPublicKeys
+ *@param {string} network
  *@returns {Promise<void>}
  */
-async function updateAdminToMultiSigAccount(server, admin, nodesPublicKeys) {
+async function updateAdminToMultiSigAccount(server, admin, nodesPublicKeys, network) {
     const account = await getAccountInfo(server, admin.publicKey())
 
     const majorityCount = getMajority(nodesPublicKeys.length)
-    let txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.network})
+    let txBuilder = new TransactionBuilder(account, {fee: 10000000, networkPassphrase: constants.networks[network].network})
     txBuilder = txBuilder
         .setTimeout(30000)
         .addOperation(

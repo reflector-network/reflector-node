@@ -1,7 +1,7 @@
 /*eslint-disable no-undef */
 const {Asset} = require('@reflector/reflector-shared')
-const AssetsMap = require('../domain/prices/assets-map')
-const TradesManager = require('../domain/prices/trades-manager')
+const AssetsMap = require('../../../src/domain/prices/assets-map')
+const TradesManager = require('../../../src/domain/prices/trades-manager')
 
 function makeAssetsMap(source, baseCode, assetCodes) {
     return new AssetsMap(source, new Asset(2, baseCode), assetCodes.map(c => new Asset(2, c)))

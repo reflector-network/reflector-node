@@ -1,6 +1,15 @@
-const rpcUrl = 'https://soroban-testnet.stellar.org'
-const network = 'Test SDF Network ; September 2015'
-
+const networks = {
+    futurenet: {
+        rpcUrl: 'https://rpc-futurenet.stellar.org',
+        network: 'Test SDF Future Network ; October 2022',
+        friendBot: 'https://friendbot-futurenet.stellar.org'
+    },
+    testnet: {
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        network: 'Test SDF Network ; September 2015',
+        friendBot: 'https://friendbot.stellar.org'
+    }
+}
 
 const baseStellarPubnetAsset = {type: 1, code: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'}
 
@@ -40,11 +49,11 @@ const sources = {
         name: 'forex',
         providers: {
             'nbp': {},
-            'ecb': {},
+            'ecb': {}
         }
     },
     pubnet: {
-        sorobanRpc: ['https://soroban-testnet.stellar.org'],
+        sorobanRpc: ['http://192.168.0.21:8003'],
         type: 'db',
         name: 'pubnet'
     },
@@ -52,6 +61,11 @@ const sources = {
         sorobanRpc: ['https://soroban-testnet.stellar.org'],
         type: 'db',
         name: 'testnet'
+    },
+    futurenet: {
+        sorobanRpc: ['https://rpc-futurenet.stellar.org'],
+        type: 'db',
+        name: 'futurenet'
     }
 }
 
@@ -60,8 +74,7 @@ function getDataSources() {
 }
 
 module.exports = {
-    rpcUrl,
-    network,
+    networks,
     baseStellarPubnetAsset,
     stellarPubnetAssets,
     baseGenericAsset,

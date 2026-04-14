@@ -17,17 +17,17 @@ function validateMessage(message, getDataFn) {
         signature,
         getDataHash(data, publicKey)
     )
-    if (nonceManager.getNonce(nonceManager.nonceTypes.GATEWAYS) >= data.nonce //if nonce is outdated
+    if (nonceManager.getNonce(nonceManager.nonceTypes.GATEWAYS) >= nonce //if nonce is outdated
         || !verified) //if signature is invalid
         throw new Error('Signature or nonce is not valid')
 
-    nonceManager.setNonce(nonceManager.nonceTypes.GATEWAYS, data.nonce)
+    nonceManager.setNonce(nonceManager.nonceTypes.GATEWAYS, nonce)
 }
 
 
 class GatewaysGetHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.ORCHESTRATOR
+    allowedChannelTypes = [ChannelTypes.ORCHESTRATOR]
 
     allowAnonymous = true
 
@@ -48,7 +48,7 @@ class GatewaysGetHandler extends BaseHandler {
 
 class GatewaysPostHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.ORCHESTRATOR
+    allowedChannelTypes = [ChannelTypes.ORCHESTRATOR]
 
     allowAnonymous = true
 

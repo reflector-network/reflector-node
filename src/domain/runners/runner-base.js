@@ -48,7 +48,7 @@ function getMaxTime(syncTimestamp, iteration) {
  */
 async function broadcastSignature(contractId, tx) {
     await nodesManager.broadcast(getSignatureMessage(contractId, tx))
-    logger.debug({msg: 'Signature broadcasted.', ...this.__contractInfo, txType: tx.type, txHash: tx.hashHex})
+    logger.debug({msg: 'Signature broadcasted.', txType: tx.type, txHash: tx.hashHex})
 }
 
 /**
@@ -58,7 +58,7 @@ async function broadcastSignature(contractId, tx) {
  */
 async function sendSignature(contractId, pubkey, tx) {
     await nodesManager.sendTo(pubkey, getSignatureMessage(contractId, tx))
-    logger.debug({msg: 'Signature sent.', pubkey, ...this.__contractInfo, txType: tx.type, txHash: tx.hashHex})
+    logger.debug({msg: 'Signature sent.', pubkey, txType: tx.type, txHash: tx.hashHex})
 }
 
 /**
@@ -170,6 +170,8 @@ class RunnerBase {
         this.isRunning = false
         if (this.__workerTimeout)
             clearTimeout(this.__workerTimeout)
+        if (this.__pendingSignaturesTimeout)
+            clearTimeout(this.__pendingSignaturesTimeout)
     }
 
     /**
@@ -215,7 +217,7 @@ class RunnerBase {
             const nextTimestamp = this.__getNextTimestamp(timestamp)
             const timeout = this.__getWorkerTimeout(nextTimestamp)
             logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
-            this.__workerTimeout = setTimeout(() => this.__runWorker(nextTimestamp), timeout)
+            this.__workerTimeout = setTimeout(() => this.__runWorker(nextTimestamp), Math.max(1, timeout))
         }
     }
 
@@ -274,7 +276,7 @@ class RunnerBase {
         } catch (err) {
             logger.error({err}, 'Error in __clearPendingSignatures')
         } finally {
-            setTimeout(() => this.__clearPendingSignatures(), 60000) //1 minute
+            this.__pendingSignaturesTimeout = setTimeout(() => this.__clearPendingSignatures(), 60000) //1 minute
         }
     }
 
@@ -293,7 +295,7 @@ class RunnerBase {
             this.__clearPendingTransaction() //clear pending transaction to avoid duplicate submission
             tx.submitted = true
             //sleep for random time from 0 to 1 seconds to avoid simultaneous submissions
-            await setTimeout(() => { }, Math.floor(Math.random() * 1000))
+            await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 1000)))
             const result = await submitTransaction(
                 networkPassphrase,
                 sorobanRpc,
@@ -356,7 +358,7 @@ class RunnerBase {
                     const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
                     if (this.contractId
                         && resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
-                        statisticsManager.incSubmittedTransactions(this.contractId)
+                        statisticsManager.incSubmittedTransactions(this.contractId, this.__contractType)
                     statisticsManager.setProcessedTx(this.contractId, resultTx.hash().toString('hex'))
                 }
                 return response

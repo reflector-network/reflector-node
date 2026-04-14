@@ -1,9 +1,9 @@
 /*eslint-disable no-undef */
 const {Asset, ContractTypes} = require('@reflector/reflector-shared')
-const container = require('../domain/container')
-const AssetsMap = require('../domain/prices/assets-map')
-const TradesManager = require('../domain/prices/trades-manager')
-const {getPricesForContract, getPricesForPair, getConcensusData} = require('../domain/prices/price-manager')
+const container = require('../../../src/domain/container')
+const AssetsMap = require('../../../src/domain/prices/assets-map')
+const TradesManager = require('../../../src/domain/prices/trades-manager')
+const {getPricesForContract, getPricesForPair, getConcensusData} = require('../../../src/domain/prices/price-manager')
 
 const decimals = 14
 const minute = 60 * 1000

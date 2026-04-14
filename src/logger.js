@@ -74,24 +74,23 @@ console.debug = (...args) => {
 }
 
 //replace absolute paths in stack trace with relative paths
-const cleanup = data => {
+const cleanup = (data, seen) => {
+    if (Array.isArray(data)) {
+        return data.map(item => cleanup(item, seen))
+    }
     if (data && typeof data === 'object') {
-        data[circularRefTag] = true
-        const keys = Object.getOwnPropertyNames(data)
-        for (const key of keys) {
-            const value = data[key]
-            if (key === circularRefTag || (value && typeof value === 'object' && value[circularRefTag]))
-                continue
-            data[key] = cleanup(data[key])
+        if (!seen)
+            seen = new Set()
+        if (seen.has(data))
+            return '[Circular]'
+        seen.add(data)
+        const result = {}
+        for (const key of Object.getOwnPropertyNames(data)) {
+            result[key] = cleanup(data[key], seen)
         }
-        delete data[circularRefTag]
-        return data
-    } else if (Array.isArray(data)) {
-        for (let i = 0; i < data.length; i++) {
-            data[i] = cleanup(data[i])
-        }
-        return data
-    } else if (typeof data !== 'string') {
+        return result
+    }
+    if (typeof data !== 'string') {
         return data
     }
     return data
@@ -189,5 +188,7 @@ logger.addMetrics = (data) => {
         logger.debug('Metrics data logged')
     }
 }
+
+logger.__cleanup = cleanup
 
 module.exports = logger

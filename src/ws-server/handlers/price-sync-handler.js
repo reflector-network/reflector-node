@@ -5,7 +5,7 @@ const BaseHandler = require('./base-handler')
 
 class PriceSyncHandler extends BaseHandler {
 
-    allowedChannelTypes = ChannelTypes.OUTGOING
+    allowedChannelTypes = [ChannelTypes.INCOMING]
 
     handle(ws, message) {
         container.tradesManager.addSyncData(ws.pubkey, message.data)

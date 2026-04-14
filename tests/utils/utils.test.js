@@ -1,5 +1,5 @@
 /*eslint-disable no-undef */
-const {getPreciseValue, getVWAP, getMedianPrice} = require('../utils/price-utils')
+const {getPreciseValue, getVWAP, getMedianPrice} = require('../../src/utils/price-utils')
 
 describe('utils', () => {
 
