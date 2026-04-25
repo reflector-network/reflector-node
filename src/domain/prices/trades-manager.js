@@ -220,9 +220,23 @@ class TimestampSyncItem {
         this.isProcessed = false
 
         this.maxTime = maxTime
+        this.__createdAt = Date.now()
 
         const timeout = this.maxTime - Date.now()
         const timeoutId = setTimeout(() => {
+            //auto-resolve on timeout: log which peers never presented so
+            //operators can trace a stall to the specific unresponsive node.
+            const expectedPubkeys = container.settingsManager.config?.nodes
+                ? [...container.settingsManager.config.nodes.keys()]
+                : []
+            const missing = expectedPubkeys.filter(p => !this.__presentedPubkeys.has(p))
+            logger.warn({
+                msg: 'TimestampSyncItem auto-resolved by timeout',
+                key: this.key,
+                timestamp: this.timestamp,
+                missing,
+                waitedMs: Date.now() - this.__createdAt
+            })
             this.resolve(true)
         }, timeout)
 
@@ -332,9 +346,14 @@ class TradesManager {
      * @returns {TimestampSyncItem}
      */
     __getOrAddTimestampSync(key, timestamp) {
+        //sync auto-resolves at T + dbSyncDelay + 25s so it finishes well before
+        //the oracle attempt-0 envelope (T + oracleSyncDelay 20s + firstAttemptTimeout 30s
+        //= T + 50s), leaving at least 25s for the worker to build and submit.
+        //Pre-fix 35s collided with the pre-fix 15s attempt-0 window and left the
+        //worker no room after a sync timeout.
         const maxTime = timestamp
             + container.settingsManager.appConfig.dbSyncDelay //add db sync delay
-            + 35 * 1000 //30 seconds for trades data fetching, and 5 seconds for the nodes sync
+            + 25 * 1000
 
         let timestampSyncData = this.__timestamps.get(timestamp)
         if (!timestampSyncData) {
@@ -472,3 +491,4 @@ class TradesManager {
 }
 
 module.exports = TradesManager
+module.exports.TimestampSyncItem = TimestampSyncItem

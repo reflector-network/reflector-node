@@ -81,7 +81,7 @@ module.exports = {
     fiatAssets,
     genericAssets,
     decimals: 14,
-    timeframe: 300000,
+    timeframes: {"oracle": 300000, "oracle_beam": 60000},
     period: 86400000,
     fee: 10000000,
     wasmHash: 'df88820e231ad8f3027871e5dd3cf45491d7b7735e785731466bfc2946008608',

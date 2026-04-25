@@ -8,7 +8,9 @@ const {getPriceDiff} = require('../../utils/price-utils')
 const RunnerBase = require('./runner-base')
 
 const DEFAULT_CACHE_SIZE = 3
-const MAX_PRICES_CACHE_SIZE = 180
+//Cache keeps up to 255 most-recent on-chain price entries; entries older than
+//MAX_PRICES_CACHE_SIZE * timeframe are pruned by __loadPriceUpdateHistory.
+const MAX_PRICES_CACHE_SIZE = 255
 
 class OracleRunner extends RunnerBase {
     constructor(contractId, type) {
@@ -128,10 +130,14 @@ class OracleRunner extends RunnerBase {
             return prices
 
         await this.__loadPriceUpdateHistory(timestamp, timeframe)
-        const isHeartbeatUpdate = normalizeTimestamp(timestamp, heartbeat) === timestamp
-        logger.trace({msg: 'Checking price updates', contractId: this.contractId, timestamp, isHeartbeatUpdate, heartbeat})
-
         const descOrderedTimestamps = [...this.__pricesCache.keys()].sort((a, b) => a > b ? -1 : a < b ? 1 : 0)
+        //Heartbeat retry: publish a heartbeat-style update as soon as we notice a
+        //gap past the most recent heartbeat boundary, not only at the boundary tick.
+        //An empty cache (fresh restart + dormant contract) also counts as a gap.
+        const mostRecentCached = descOrderedTimestamps[0]
+        const isHeartbeatUpdate = mostRecentCached === undefined || mostRecentCached < normalizeTimestamp(timestamp, heartbeat)
+        logger.trace({msg: 'Checking price updates', contractId: this.contractId, timestamp, isHeartbeatUpdate, heartbeat, mostRecentCached})
+
         const getLastPrice = (assetIndex) => {
             for (const ts of descOrderedTimestamps) {
                 const price = this.__pricesCache.get(ts)?.[assetIndex]
@@ -142,8 +148,8 @@ class OracleRunner extends RunnerBase {
         for (let assetIndex = 0; assetIndex < assets.length; assetIndex++) {
             if (!assets[assetIndex]) //asset is not active
                 continue
-            if (isHeartbeatUpdate) { //current price or prev price
-                prices[assetIndex] = prices[assetIndex] || getLastPrice(assetIndex)
+            if (isHeartbeatUpdate) { //current price or prev price (fall back to 0n so the filter below stays honest)
+                prices[assetIndex] = prices[assetIndex] || getLastPrice(assetIndex) || 0n
                 continue
             }
             if (!prices[assetIndex])
@@ -214,11 +220,14 @@ class OracleRunner extends RunnerBase {
             this.__pricesCache.set(Number(key), prices)
         }
 
-        //remove old entries from cache
-        const orderedTimestamps = [...this.__pricesCache.keys()].sort((a, b) => a > b ? 1 : a < b ? -1 : 0)
-        while (orderedTimestamps.length > MAX_PRICES_CACHE_SIZE) {
-            const ts = orderedTimestamps.shift()
-            this.__pricesCache.delete(ts)
+        //remove stale entries — anything older than MAX_PRICES_CACHE_SIZE timeframes.
+        //Age-based eviction (not size-based) so stale cache from before a long
+        //dormancy can't linger in memory and diverge between restarted/non-restarted
+        //nodes.
+        const minAllowedTimestamp = timestamp - MAX_PRICES_CACHE_SIZE * timeframe
+        for (const ts of this.__pricesCache.keys()) {
+            if (ts < minAllowedTimestamp)
+                this.__pricesCache.delete(ts)
         }
     }
 
@@ -228,7 +237,7 @@ class OracleRunner extends RunnerBase {
     }
 
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + Math.min(1000 * 60, this.__timeframe / 2) //1 minute or half of timeframe (whichever is smaller)
+        return currentTimestamp + Math.min(1000 * 60, this.__timeframe) //1 minute or the timeframe (whichever is smaller)
     }
 
     get __delay() {

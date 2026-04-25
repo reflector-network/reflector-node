@@ -50,10 +50,10 @@ class SubscriptionsSyncData {
         for (const signatureData of signaturesData) {
             const {signature, pubkey} = signatureData
             if (this.__signatures.findIndex(s => s.pubkey === pubkey) >= 0) //prevent duplicate signatures
-                return
+                continue
             if (!verified && !Keypair.fromPublicKey(pubkey).verify(this.hash, Buffer.from(signature, 'base64'))) {
                 logger.debug(`Invalid signature for timestamp ${this.__timestamp} from ${pubkey}`)
-                return
+                continue
             }
             //add valid signature
             this.__signatures.push(signatureData)

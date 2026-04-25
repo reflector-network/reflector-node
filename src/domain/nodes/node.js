@@ -78,6 +78,16 @@ class Node {
     }
 
     /**
+     * @param {ChannelTypes} channelType - which channel to check
+     * @param {number} staleThresholdMs - max age in ms for the channel to count as fresh
+     * @returns {boolean}
+     */
+    isFresh(channelType, staleThresholdMs) {
+        const channel = this.__getChannel(channelType)
+        return channel ? channel.isFresh(staleThresholdMs) : false
+    }
+
+    /**
      * @param {OutgoingChannel} connection - reflector node connection
      */
     assignOutgoingWebSocket(connection) {
