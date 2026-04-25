@@ -14,10 +14,12 @@ class PendingSyncDataCache {
      * @returns {SubscriptionsSyncData} - current item
      */
     push(newItem) {
-        let currentItem = this.__notificationsData[newItem.__hashBase64]
+        if (!newItem.hashBase64)
+            throw new Error('SubscriptionsSyncData.hashBase64 must be set before push (call calculateHash first)')
+        let currentItem = this.__notificationsData[newItem.hashBase64]
         //if data not found, register new one
         if (!currentItem)
-            currentItem = this.__notificationsData[newItem.__hashBase64] = newItem
+            currentItem = this.__notificationsData[newItem.hashBase64] = newItem
         else //update signatures
             currentItem.merge(newItem)
         this.__cleanup()

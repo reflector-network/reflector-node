@@ -34,12 +34,16 @@ function getSignatureMessage(contractId, tx) {
 
 /**
  * @param {number} syncTimestamp - sync timestamp in milliseconds
- * @param {number} iteration - iteration
+ * @param {number} iteration - 1-based iteration (attempt 0 = iteration 1)
  * @returns {number} - max time in seconds
  */
 function getMaxTime(syncTimestamp, iteration) {
-    const maxTime = syncTimestamp + (maxSubmitTimeout * iteration)
-    return maxTime / 1000 //convert to seconds
+    //attempt 0 gets firstAttemptTimeout; each retry adds retryAttemptTimeout.
+    //decoupling these budgets lets us keep the happy-path window generous
+    //(cluster signature collection is the bottleneck) while retries rely on
+    //fee escalation rather than long envelopes.
+    const budgetMs = firstAttemptTimeout + retryAttemptTimeout * (iteration - 1)
+    return (syncTimestamp + budgetMs) / 1000
 }
 
 /**
@@ -117,8 +121,9 @@ function createMajorityPromiseData() {
     return majorityPromiseData
 }
 
-const maxSubmitAttempts = 4
-const maxSubmitTimeout = 15000
+const maxSubmitAttempts = 3
+const firstAttemptTimeout = 30_000 //attempt 0 budget (ms) — covers worker + build + signature collection + RPC + Stellar lookahead
+const retryAttemptTimeout = 15_000 //per-retry budget (ms) — relies on fee escalation to land
 
 class RunnerBase {
 
@@ -331,7 +336,7 @@ class RunnerBase {
 
         for (let submitAttempt = 0; submitAttempt < maxSubmitAttempts; submitAttempt++) {
             try {
-                const fee = baseFee * Math.pow(4, submitAttempt) //increase fee by 4 times on each try
+                const fee = baseFee * Math.pow(8, submitAttempt) //fee escalates 8x per retry so retries can outbid the prior attempt decisively
                 const maxTime = getMaxTime(syncTimestamp, submitAttempt + 1)
                 logger.debug({msg: 'Build transaction.', ...this.__contractInfo, syncTimestamp, submitAttempt, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, fee, baseFee})
 

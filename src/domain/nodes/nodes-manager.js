@@ -9,6 +9,13 @@ const Node = require('./node')
  * @typedef {import('@reflector/reflector-shared').Node} ConfigNode
  */
 
+/**
+ * Peers are considered silent if no message (pong or application frame) has
+ * arrived within this window. Silent peers are excluded from the connected
+ * set so they do not gate consensus-sensitive waits like TimestampSyncItem.
+ */
+const SILENT_PEER_THRESHOLD_MS = 30_000
+
 class NodesManager {
     /**
      * @type {Map<String, Node>}
@@ -17,7 +24,9 @@ class NodesManager {
     __nodes = new Map()
 
     getConnectedNodes() {
-        return [...this.__nodes.values()].filter(n => n.isReady(ChannelTypes.OUTGOING)).map(n => n.pubkey)
+        return [...this.__nodes.values()]
+            .filter(n => n.isReady(ChannelTypes.OUTGOING) && n.isFresh(ChannelTypes.OUTGOING, SILENT_PEER_THRESHOLD_MS))
+            .map(n => n.pubkey)
     }
 
     async broadcast(message) {

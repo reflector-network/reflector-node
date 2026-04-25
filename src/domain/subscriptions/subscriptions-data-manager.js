@@ -39,6 +39,7 @@ function getValidSymbols() {
  * @property {number} status - status
  * @property {BigInt} owner - owner
  * @property {{url: string}[]} webhook - webhook
+ * @property {any} rawWebhook - raw webhook
  */
 
 /**
@@ -85,8 +86,10 @@ function isValidSymbol(assetInfo) {
 
 async function getWebhook(id, webhookBuffer) {
     const {clusterSecretObject} = container.settingsManager
+    if (!clusterSecretObject)
+        return null
     const verifiedWebhook = []
-    if (!(webhookBuffer && webhookBuffer.length && clusterSecretObject))
+    if (!(webhookBuffer && webhookBuffer.length))
         return verifiedWebhook
     try {
         //decrypt webhook
@@ -197,10 +200,6 @@ class SubscriptionContractManager {
             }
             const base = getNormalizedAsset(raw.base)
             const quote = getNormalizedAsset(raw.quote)
-            if (base.asset.isContractId || quote.asset.isContractId) {
-                logger.warn(`Contract id is not supported as subscription ticker asset. Subscription ${raw.id}. Contract ${this.contractId}`)
-                return
-            }
 
             if (!(isValidSymbol(base) && isValidSymbol(quote))) {
                 logger.warn(`Invalid symbol in subscription ${raw.id}. Contract ${this.contractId}, Base: ${base.source}-${base.asset.code}, Quote: ${quote.source}-${quote.asset.code}`)
@@ -222,12 +221,23 @@ class SubscriptionContractManager {
                 lastCharge: Number(raw.updated),
                 owner: raw.owner,
                 threshold: raw.threshold,
+                rawWebhook: raw.webhook,
                 webhook,
                 heartbeat: raw.heartbeat
             }
             this.__subscriptions.set(subscription.id, subscription)
         } catch (err) {
             logger.error({err, rawSubscription: raw, msg: `Error on adding subscription ${raw?.id.toString()}, contract ${this.contractId}`})
+        }
+    }
+
+    async __ensureWebhooksDecrypted() {
+        for (const [id, subscription] of this.__subscriptions) {
+            if (subscription.webhook !== null) //already decrypted
+                continue
+            //try to decrypt
+            const updatedWebhook = await getWebhook(id, subscription.rawWebhook)
+            subscription.webhook = updatedWebhook
         }
     }
 
@@ -303,14 +313,21 @@ class SubscriptionContractManager {
                 logger.error(`Error processing event ${event.topic}: ${e.message}`)
             }
         }
+
+        //make sure that all webhooks are set
+        await this.__ensureWebhooksDecrypted()
     }
 
     async trySetRawSyncData(rawSyncData) {
-        const {data, signatures} = rawSyncData
-        const newSyncData = new SubscriptionsSyncData(data)
-        await newSyncData.calculateHash()
-        newSyncData.tryAddSignature(signatures)
-        this.trySetSyncData(newSyncData)
+        try {
+            const {data, signatures} = rawSyncData
+            const newSyncData = new SubscriptionsSyncData(data)
+            await newSyncData.calculateHash()
+            newSyncData.tryAddSignature(signatures)
+            this.trySetSyncData(newSyncData)
+        } catch (e) {
+            logger.error(`Error processing raw sync data: ${e.message}`)
+        }
     }
 
     /**

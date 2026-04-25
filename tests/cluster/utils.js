@@ -205,7 +205,7 @@ function generateOracleContractConfig(admin, contractId, dataSource, isBeam = fa
         type: isBeam ? ContractTypes.ORACLE_BEAM : ContractTypes.ORACLE,
         baseAsset: assets.baseAsset,
         assets: isBeam ? assets.assets.map(a => ({...a, threshold: a.threshold || 1})) : assets.assets,
-        timeframe: constants.timeframe,
+        timeframe: constants.timeframes[isBeam ? 'oracle_beam' : 'oracle'],
         period: constants.period,
         fee: constants.fee,
         dataSource,
@@ -271,7 +271,8 @@ function generateConfig(systemAccount, contractConfigs, nodes, wasmHash, minDate
         network,
         minDate,
         nodes: nodeAddresses,
-        clusterSecret: rsaPrivateKey
+        clusterSecret: rsaPrivateKey,
+        priceHeartbeat: 10 * 60 * 1000
     }
 }
 

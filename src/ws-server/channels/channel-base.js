@@ -143,9 +143,49 @@ class ChannelBase {
 
     __pongTimeout
 
-    __onPong() {
-        this.__pongTimeout && clearTimeout(this.__pongTimeout)
+    /**
+     * Number of consecutive pong timeouts since last proof-of-life.
+     * Reset whenever a pong or any application message arrives.
+     * @type {number}
+     */
+    __missedPongs = 0
 
+    /**
+     * Timestamp (ms) of the most recent inbound pong or application message.
+     * Read by the domain layer via Node.isFresh() so silent channels can be
+     * excluded from the connected-nodes set without coupling ws-server to
+     * the domain layer.
+     * @type {number}
+     */
+    __lastMessageAt = 0
+
+    /**
+     * @param {number} staleThresholdMs - max age in ms for this channel to count as fresh
+     * @returns {boolean}
+     */
+    isFresh(staleThresholdMs) {
+        return Date.now() - this.__lastMessageAt <= staleThresholdMs
+    }
+
+    __onPong() {
+        this.__onProofOfLife()
+    }
+
+    /**
+     * Treat an inbound pong or application message as proof of peer liveness:
+     * clear the in-flight pong timer, reset the missed-pong counter, ensure
+     * the next ping is scheduled, and stamp the channel's last-message time.
+     * Called from both __onPong and __onMessage so a steady stream of gossip
+     * does not silently halt the keepalive cycle when a single pong is lost.
+     * @protected
+     */
+    __onProofOfLife() {
+        this.__missedPongs = 0
+        this.__lastMessageAt = Date.now()
+        if (this.__pongTimeout) {
+            clearTimeout(this.__pongTimeout)
+            this.__pongTimeout = null
+        }
         this.__pingTimeout = this.__pingTimeout || setTimeout(() => {
             this.__pingTimeout = null
             this.__startPingPong()
@@ -158,9 +198,17 @@ class ChannelBase {
             return
         }
 
-        const timeout = isDebugging() ? 60 * 1000 * 60 : 1000
+        //10s/attempt tolerates event-loop blocks, TCP retransmits and head-of-line
+        //blocking behind larger gossip frames. Three consecutive misses (~30s total
+        //silence) indicates a genuinely unresponsive peer.
+        const timeout = isDebugging() ? 60 * 1000 * 60 : 4000
         this.__pongTimeout = setTimeout(() => {
-            this.close(1001, `Connection closed due to inactivity after ${timeout} ${this.__getConnectionInfo()}`, this.isIncoming)
+            this.__missedPongs += 1
+            if (this.__missedPongs >= 3) {
+                this.close(1001, `Connection closed after ${this.__missedPongs} missed pongs ${this.__getConnectionInfo()}`, this.isIncoming)
+                return
+            }
+            this.__startPingPong()
         }, timeout)
 
         this.__ws.ping()
@@ -171,7 +219,7 @@ class ChannelBase {
      * @protected
      */
     async __onMessage(rawMessage) {
-        this.__pongTimeout && clearTimeout(this.__pongTimeout)
+        this.__onProofOfLife()
         try {
             const message = JSON.parse(rawMessage)
             let result = undefined
