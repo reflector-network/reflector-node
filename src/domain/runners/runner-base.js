@@ -350,7 +350,7 @@ class RunnerBase {
                     maxTime
                 )
                 logger.debug({msg: 'Transaction is built.', ...this.__contractInfo, syncTimestamp, submitAttempt, txType: tx?.type, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, hash: tx?.hashHex})
-                logger.trace(tx?.transaction.toXDR())
+                logger.trace({msg: 'Transaction XDR', tx: tx?.transaction.toXDR()})
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)
                     this.__trySubmitTransaction()

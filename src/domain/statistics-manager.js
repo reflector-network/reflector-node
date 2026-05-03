@@ -137,7 +137,7 @@ class StatisticsManager {
                             })
                             .catch(e => {
                                 metrics[i] = 'n/a'
-                                logger.warn(`Failed to send metrics data to ${currentGateway}: ${e.message}`)
+                                logger.warn({msg: 'Failed to send metrics data', gateway: currentGateway, err: e.message})
                             })
             }
             await Promise.all(requests)
@@ -149,7 +149,7 @@ class StatisticsManager {
             }
             logger.addMetrics(gatewaysMetrics)
         } catch (err) {
-            logger.error(err, 'Metrics worker error')
+            logger.error({err, msg: 'Metrics worker error'})
         } finally {
             setTimeout(() => this.__metricsWorker(), 60000)
         }

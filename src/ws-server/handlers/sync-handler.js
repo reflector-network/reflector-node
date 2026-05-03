@@ -17,7 +17,7 @@ class SyncHandler extends BaseHandler {
                 break
             }
             default:
-                logger.debug(`Sync type ${syncData.type} is not supported`)
+                logger.debug({msg: 'Sync type is not supported.', syncType: syncData.type})
         }
     }
 }

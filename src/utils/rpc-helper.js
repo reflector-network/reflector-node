@@ -39,24 +39,33 @@ function getSubmissionError(submitResult, txXdr) {
  */
 
 /**
- * @param {string[]} urls - urls
+ * @param {string[]} sorobanRpc - urls
  * @param {RequestFunction} requestFn - request function
  * @returns {Promise<any>}
  */
-async function makeServerRequest(urls, requestFn) {
-    const errors = []
-    for (const url of urls) {
+async function makeServerRequest(sorobanRpc, requestFn) {
+    if (!sorobanRpc || sorobanRpc.length < 1)
+        throw new Error('No soroban rpc urls provided')
+    for (let i = 0; i < 3; i++) { //max 3 attempts
+        const errAggr = []
         try {
-            const server = new rpc.Server(url, {allowHttp: true})
-            return await requestFn(server)
-        } catch (err) {
-            logger.debug(`Request to ${url} failed. Error: ${err.message}`)
-            errors.push(err)
+            for (const serverRpc of sorobanRpc) {
+                try {
+                    const server = new rpc.Server(serverRpc, {allowHttp: true})
+                    return await requestFn(server)
+                } catch (e) {
+                    errAggr.push({url: serverRpc, err: e})
+                }
+            }
+            throw new Error('Failed to invoke RPC method on all provided URLs', {cause: {errAggr}})
+        } catch (e) {
+            if (i === 2) {
+                throw e
+            }
+            console.warn({msg: 'RPC call failed, retrying', attempt: i + 1, err: e?.cause?.errAggr || e.message})
         }
+        await new Promise(resolve => setTimeout(resolve, 300))
     }
-    for (const err of errors)
-        logger.error(err)
-    throw new Error('Failed to make request. See logs for details.')
 }
 
 /**
@@ -75,7 +84,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
     const maxTime = Number(pendingTx.transaction.timeBounds.maxTime)
     const currentTimeInSeconds = normalizeTimestamp(Date.now(), 1000) / 1000
 
-    logger.debug(`Account: ${pendingTx.transaction.source}, sequence: ${pendingTx.transaction.sequence}, fee: ${pendingTx.transaction.fee}, maxTime: ${maxTime}, currentTime: ${currentTimeInSeconds}, transaction: ${hash}`)
+    logger.debug({msg: 'Submitting transaction', ...runnerInfo, account: pendingTx.transaction.source, sequence: pendingTx.transaction.sequence, fee: pendingTx.transaction.fee, maxTime, currentTime: currentTimeInSeconds, hash})
 
     const txXdr = pendingTx.transaction.toXDR() //Get the raw XDR for the transaction to avoid modifying the transaction object
     const tx = new Transaction(txXdr, network) //Create a new transaction object from the XDR
@@ -175,7 +184,7 @@ async function getLastContractEvents(contractId, lastProcessedLedger, sorobanRpc
             break
         eventsResponse.events.forEach(e => events.set(e.id, e))
         cursorLedger = eventsResponse.events[eventsResponse.events.length - 1].ledger - 1
-        logger.debug(`Loaded ${events.size} events for contract ${contractId}. Has more: ${hasMore}. Last event ledger: ${cursorLedger}.`)
+        logger.debug({msg: 'Loaded events', contract: contractId, eventCount: events.size, hasMore, lastEventLedger: cursorLedger})
     }
 
     return {events: [...events.values()], lastLedger: latestLedger}
@@ -198,7 +207,7 @@ async function loadEvents(startLedger, limit, sorobanRpc, contractId) {
             const data = await server.getEvents({filters: [{type: 'contract', contractIds: [contractId]}], startLedger, limit})
             return data
         } catch (e) {
-            logger.error(`Error loading events for contract ${contractId} from ledger ${startLedger}: ${e.message}`)
+            logger.error({msg: 'Error loading events', contract: contractId, startLedger, err: e.message})
             throw e
         }
     })

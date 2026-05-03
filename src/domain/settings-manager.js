@@ -102,7 +102,7 @@ class SettingsManager {
         if (rawConfig) {
             const clusterConfig = new Config(rawConfig)
             if (!clusterConfig.isValid) {
-                logger.error(`Invalid config. Config will not be assigned. Issues: ${clusterConfig.issuesString}`)
+                logger.error({msg: 'Invalid config. Config will not be assigned. Issues:', issues: clusterConfig.issuesString})
             } else
                 await this.setConfig(clusterConfig, null, false)
         }
@@ -113,7 +113,7 @@ class SettingsManager {
         if (rawPendingConfig) {
             const clusterPendingConfig = new ConfigEnvelope(rawPendingConfig)
             if (!clusterPendingConfig.config.isValid) {
-                logger.error(`Invalid pending config. Config will not by assigned. Issues: ${clusterPendingConfig.issuesString}`)
+                logger.error({msg: 'Invalid pending config. Config will not be assigned. Issues:', issues: clusterPendingConfig.issuesString})
             } else
                 this.setPendingConfig(clusterPendingConfig, null, false)
         }

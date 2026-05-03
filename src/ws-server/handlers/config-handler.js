@@ -17,7 +17,7 @@ const BaseHandler = require('./base-handler')
  */
 function verifyConfig(configEnvelope, nonceType) {
     if (!configEnvelope.config.isValid) {
-        logger.error(`Current config is not valid. Issues:\n ${configEnvelope.config.issuesString}`)
+        logger.error({msg: 'Current config is not valid. Issues:', issues: configEnvelope.config.issuesString})
         return false
     }
     const currentNonce = nonceManager.getNonce(nonceType)

@@ -52,7 +52,7 @@ class SubscriptionsSyncData {
             if (this.__signatures.findIndex(s => s.pubkey === pubkey) >= 0) //prevent duplicate signatures
                 continue
             if (!verified && !Keypair.fromPublicKey(pubkey).verify(this.hash, Buffer.from(signature, 'base64'))) {
-                logger.debug(`Invalid signature for timestamp ${this.__timestamp} from ${pubkey}`)
+                logger.debug({msg: 'Invalid signature for timestamp', timestamp: this.__timestamp, pubkey})
                 continue
             }
             //add valid signature

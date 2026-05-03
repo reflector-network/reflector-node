@@ -62,7 +62,7 @@ class Node {
                     data: {state: NodeStates.READY}
                 })
             } catch (err) {
-                logger.error(err)
+                logger.error({msg: 'Error sending state message', nodePubkey: this.pubkey, err: err.message})
             }
         }, 1000)
 
@@ -105,7 +105,7 @@ class Node {
             this.__incommingChannel?.close(1001, 'Node closed', true)
             this.__outgoingChannel?.close(1000, 'Node closed', true)
         } catch (err) {
-            logger.error({err}, `${this.pubkey} websocket error on close`)
+            logger.error({err, nodePubkey: this.pubkey, msg: 'Error closing node'})
         }
     }
 

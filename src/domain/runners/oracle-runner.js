@@ -84,7 +84,7 @@ class OracleRunner extends RunnerBase {
                 assets
             )
             if (prices.filter(price => price !== 0n).length === 0) {
-                logger.trace({msg: 'No prices to update', contractId: this.contractId, timestamp})
+                logger.trace({msg: 'No prices to update', contract: this.contractId, timestamp})
                 return false //no prices to update
             }
 
@@ -136,7 +136,7 @@ class OracleRunner extends RunnerBase {
         //An empty cache (fresh restart + dormant contract) also counts as a gap.
         const mostRecentCached = descOrderedTimestamps[0]
         const isHeartbeatUpdate = mostRecentCached === undefined || mostRecentCached < normalizeTimestamp(timestamp, heartbeat)
-        logger.trace({msg: 'Checking price updates', contractId: this.contractId, timestamp, isHeartbeatUpdate, heartbeat, mostRecentCached})
+        logger.trace({msg: 'Checking price updates', contract: this.contractId, timestamp, isHeartbeatUpdate, heartbeat, mostRecentCached})
 
         const getLastPrice = (assetIndex) => {
             for (const ts of descOrderedTimestamps) {

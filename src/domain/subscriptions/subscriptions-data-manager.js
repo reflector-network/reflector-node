@@ -84,7 +84,7 @@ function isValidSymbol(assetInfo) {
     return sourceValidSymbols.includes(assetInfo.asset.code)
 }
 
-async function getWebhook(id, webhookBuffer) {
+async function getWebhook(id, webhookBuffer, contractId) {
     const {clusterSecretObject} = container.settingsManager
     if (!clusterSecretObject)
         return null
@@ -108,12 +108,12 @@ async function getWebhook(id, webhookBuffer) {
                     validateWebhookUrl(webhookItem.url)
                     verifiedWebhook.push(webhookItem)
                 } catch (e) {
-                    logger.error(`Invalid webhook URL for subscription ${id}: ${e.message}`)
+                    logger.error({msg: 'Invalid webhook URL for subscription', subscriptionId: id, contract: contractId, err: e.message})
                 }
             }
         }
     } catch (e) {
-        logger.error(`Error decrypting webhook: ${e.message}. Subscription ${id?.toString()}`)
+        logger.error({msg: 'Error decrypting webhook', subscriptionId: id?.toString(), contract: contractId, err: e.message})
     }
     return verifiedWebhook
 }
@@ -186,7 +186,7 @@ class SubscriptionContractManager {
         const rawData = await getSubscriptions(this.contractId, sorobanRpc, lastSubscriptionId)
         for (const raw of rawData)
             await this.__setSubscription(raw)
-        logger.trace(`Loaded ${this.__subscriptions.size} subscriptions for contract ${this.contractId}`)
+        logger.trace({msg: `Loaded subscriptions`, contract: this.contractId, count: this.__subscriptions.size})
         this.__isInitialized = true
     }
 
@@ -202,16 +202,16 @@ class SubscriptionContractManager {
             const quote = getNormalizedAsset(raw.quote)
 
             if (!(isValidSymbol(base) && isValidSymbol(quote))) {
-                logger.warn(`Invalid symbol in subscription ${raw.id}. Contract ${this.contractId}, Base: ${base.source}-${base.asset.code}, Quote: ${quote.source}-${quote.asset.code}`)
+                logger.warn({msg: 'Invalid symbol in subscription', subscriptionId: raw.id, contract: this.contractId, base: `${base.source}-${base.asset.code}`, quote: `${quote.source}-${quote.asset.code}`})
                 return
             }
 
             if (!(dataSourceManager.has(base.source) && dataSourceManager.has(quote.source))) {//the source is not supported
-                logger.debug(`Subscription ${raw.id} source(s) not supported. Contract ${this.contractId}`)
+                logger.debug({msg: 'Subscription source(s) not supported', subscriptionId: raw.id, contract: this.contractId})
                 return
             }
 
-            const webhook = await getWebhook(raw.id, raw.webhook)
+            const webhook = await getWebhook(raw.id, raw.webhook, this.contractId)
             const subscription = {
                 base,
                 quote,
@@ -236,7 +236,7 @@ class SubscriptionContractManager {
             if (subscription.webhook !== null) //already decrypted
                 continue
             //try to decrypt
-            const updatedWebhook = await getWebhook(id, subscription.rawWebhook)
+            const updatedWebhook = await getWebhook(id, subscription.rawWebhook, this.contractId)
             subscription.webhook = updatedWebhook
         }
     }
@@ -252,19 +252,19 @@ class SubscriptionContractManager {
         const isOutOfRange = oldestLedger > this.__lastLedger
         //determine start ledger
         const startLedger = isOutOfRange ? latestLedger - 360 : this.__lastLedger //if out of range, load last 360 ledgers
-        logger.debug(`Oldest ledger with events: ${oldestLedger}, last processed ledger: ${this.__lastLedger}, latest ledger: ${latestLedger}, isOutOfRange: ${isOutOfRange}`)
+        logger.debug({msg: 'Processing events for contract', contract: this.contractId, oldestLedger, lastProcessedLedger: this.__lastLedger, latestLedger, isOutOfRange})
 
         //get start ledger for events
         if (isOutOfRange) {
-            logger.debug(`Initializing subscriptions data for contract ${this.contractId}. Last processed ledger: ${this.__lastLedger}, start ledger: ${startLedger}, isInitialized: ${this.__isInitialized}`)
+            logger.debug({msg: 'Initializing subscriptions data', contract: this.contractId, lastProcessedLedger: this.__lastLedger, startLedger, isInitialized: this.__isInitialized})
             this.__subscriptions.clear()
             await this.__loadSubscriptionsData(sorobanRpc)
-            logger.debug(`Subscriptions data initialized for contract ${this.contractId}. Loaded ${this.__subscriptions.size} active subscriptions.`)
+            logger.debug({msg: 'Subscriptions data initialized', contract: this.contractId, count: this.__subscriptions.size})
         }
 
-        logger.debug(`Processing events for contract ${this.contractId} from ${startLedger}`)
+        logger.debug({msg: 'Processing events', contract: this.contractId, startLedger})
         const {events, lastLedger} = await loadLastEvents(this.contractId, startLedger, sorobanRpc)
-        logger.debug(`Loaded ${events.length} events for contract ${this.contractId}, new last ledger: ${lastLedger}`)
+        logger.debug({msg: 'Loaded events', contract: this.contractId, count: events.length, newLastLedger: lastLedger})
         this.__lastLedger = lastLedger
 
         const triggerEvents = events
@@ -278,7 +278,7 @@ class SubscriptionContractManager {
                     case 'deposited':
                         {
                             const [id, rawSubscription] = event.value
-                            logger.debug(`Subscription ${id} ${eventTopic}. Contract ${this.contractId}`)
+                            logger.debug({msg: 'Processing subscription event', subscriptionId: id, eventTopic, contract: this.contractId})
                             rawSubscription.id = id
                             await this.__setSubscription(rawSubscription)
                         }
@@ -287,7 +287,7 @@ class SubscriptionContractManager {
                     case 'cancelled':
                         {
                             const id = event.value[0] || event.value
-                            logger.debug(`Subscription ${id} ${eventTopic}. Contract ${this.contractId}`)
+                            logger.debug({msg: 'Subscription event', subscriptionId: id, eventTopic, contract: this.contractId})
                             if (this.__subscriptions.has(id))
                                 this.__subscriptions.delete(id)
                         }
@@ -296,7 +296,7 @@ class SubscriptionContractManager {
                         {
                             const id = event.value[0]
                             const timestamp = event.value[2]
-                            logger.debug(`Subscription ${id} charged. Contract ${this.contractId}`)
+                            logger.debug({msg: 'Subscription charged', subscriptionId: id, contract: this.contractId})
                             if (this.__subscriptions.has(id)) {
                                 const subscription = this.__subscriptions.get(id)
                                 subscription.lastCharge = Number(timestamp)
@@ -307,10 +307,10 @@ class SubscriptionContractManager {
                     case 'updated':
                         break
                     default:
-                        logger.error(`Unknown event type: ${eventTopic}`)
+                        logger.error({msg: 'Unknown event type', eventTopic, contract: this.contractId})
                 }
             } catch (e) {
-                logger.error(`Error processing event ${event.topic}: ${e.message}`)
+                logger.error({msg: 'Error processing event', topic: event.topic, contract: this.contractId, err: e.message})
             }
         }
 
@@ -326,7 +326,7 @@ class SubscriptionContractManager {
             newSyncData.tryAddSignature(signatures)
             this.trySetSyncData(newSyncData)
         } catch (e) {
-            logger.error(`Error processing raw sync data: ${e.message}`)
+            logger.error({msg: 'Error processing raw sync data', contract: this.contractId, err: e.message})
         }
     }
 
@@ -338,7 +338,7 @@ class SubscriptionContractManager {
         const lastTimestamp = this.__lastSyncData?.timestamp || 0
         if (syncItem.isVerified && syncItem.timestamp >= lastTimestamp) {
             this.__lastSyncData = syncItem
-            logger.debug(`New sync data set for contract ${this.contractId}, timestamp: ${syncItem.timestamp}, hash: ${syncItem.hashBase64}, signatures: ${syncItem.__signatures.map(s => s.pubkey).join(',')}`)
+            logger.debug({msg: 'New sync data set for contract', contract: this.contractId, timestamp: syncItem.timestamp, hash: syncItem.hashBase64, signatures: syncItem.__signatures.map(s => s.pubkey).join(',')})
         }
     }
 

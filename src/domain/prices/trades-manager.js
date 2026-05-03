@@ -326,7 +326,7 @@ class TradesManager {
                     )
                     this.__getOrAddTimestampSync(key, normalizedTimestamp).add(pubkey)
                 } catch (err) {
-                    logger.debug({msg: 'Error adding sync data', key, lastTimestamp: timestamp, error: err.message})
+                    logger.debug({msg: 'Error adding sync data', key, lastTimestamp: timestamp, err: err.message})
                 }
             }
         }

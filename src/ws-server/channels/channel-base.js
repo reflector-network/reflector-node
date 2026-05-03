@@ -74,7 +74,7 @@ class ChannelBase {
                 const timeout = isDebugging() ? 60 * 1000 * 60 : 5000
                 const responseTimeout = setTimeout(() => {
                     delete this.__requests[message.requestId]
-                    const error = new Error(`Request timed out after ${timeout}. Message: ${message.type}. ${this.__getConnectionInfo()}`)
+                    const error = new Error(`Request timed out after ${timeout}. Message: ${message.type}. ${this.__getConnectionInfo(true)}`)
                     error.timeout = true
                     reject(error)
                 }, timeout)
@@ -86,7 +86,7 @@ class ChannelBase {
             }
             try {
                 if (!this.__ws || this.__ws.readyState !== WebSocket.OPEN) {
-                    reject(new Error(`Connection is not open. ${this.__getConnectionInfo()}`))
+                    reject(new Error(`Connection is not open. ${this.__getConnectionInfo(true)}`))
                     return
                 }
                 this.__ws.send(JSON.stringify(message), (err) => {
@@ -105,7 +105,7 @@ class ChannelBase {
 
     close(code, reason, terminate = true) {
         if (Buffer.byteLength(reason) > 123) {
-            logger.warn(`Reason is too long. Original reason: ${reason}. Truncating to 123 bytes`)
+            logger.warn({msg: 'Reason is too long. Truncating to 123 bytes', reason})
             reason = Buffer.from(reason).subarray(0, 123).toString()
         }
         this.__termination = terminate
@@ -205,7 +205,7 @@ class ChannelBase {
         this.__pongTimeout = setTimeout(() => {
             this.__missedPongs += 1
             if (this.__missedPongs >= 3) {
-                this.close(1001, `Connection closed after ${this.__missedPongs} missed pongs ${this.__getConnectionInfo()}`, this.isIncoming)
+                this.close(1001, `Connection closed after ${this.__missedPongs} missed pongs ${this.__getConnectionInfo(true)}`, this.isIncoming)
                 return
             }
             this.__startPingPong()
@@ -228,11 +228,11 @@ class ChannelBase {
             ) //message requires handling
                 try {
                     result = await container.handlersManager.handle(this, message) || {type: MessageTypes.OK, responseId: message.requestId}
-                } catch (e) {
-                    logger.debug(e)
+                } catch (err) {
+                    logger.debug({msg: 'Error occurred while handling message', err})
                     result = {
                         type: MessageTypes.ERROR,
-                        error: e.message,
+                        error: err.message,
                         responseId: message.requestId
                     }
                 }
@@ -276,33 +276,37 @@ class ChannelBase {
             return
         ws.closeTimeout && clearTimeout(ws.closeTimeout)
         if (ws.readyState !== WebSocket.CLOSED) {
-            logger.warn(`${this.__getConnectionInfo()} was not closed properly (${ws.readyState}). Terminating...`)
+            logger.warn({msg: `Connection was not closed properly. Terminating...`, ...this.__getConnectionInfo(), state: ws.readyState})
             try {
                 ws.terminate()
-            } catch (e) {
-                logger.error(e)
+            } catch (err) {
+                logger.error({msg: 'Error occurred while terminating websocket', err})
             }
         }
         if (this.__ws === ws) {
             this.__ws = null
             this.__isValidated = false
         }
-        logger.debug(`${this.__getConnectionInfo()} closed with code ${code} and reason ${reason || 'abnormal'}`)
+        logger.debug({msg: 'Connection closed.', ...this.__getConnectionInfo(), code, reason: reason || 'abnormal'})
     }
 
     __onError(error) {
-        logger.trace(`${this.__getConnectionInfo()} websocket error. ${error.code || error.message}`)
+        logger.trace({msg: 'Websocket error.', ...this.__getConnectionInfo(), code: error.code || error.message})
         if (error.code === 'ECONNREFUSED' || error.code === 'EAI_AGAIN' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
             if (error.connectionAttempts !== undefined && error.connectionAttempts % 100 === 0)
-                logger.debug(`${this.__getConnectionInfo()} websocket error ${error.code}. Connection attempts: ${error.connectionAttempts}`)
+                logger.debug({msg: 'Websocket error.', ...this.__getConnectionInfo(), code: error.code, connectionAttempts: error.connectionAttempts})
         } else {
-            logger.debug(`${this.__getConnectionInfo()} websocket error`)
-            logger.debug(error)
+            logger.debug({msg: 'Websocket error.', ...this.__getConnectionInfo(), err: error})
         }
     }
 
-    __getConnectionInfo() {
-        return `${this.type === ChannelTypes.ORCHESTRATOR ? 'Orchestrator' : this.pubkey} ${this.type} ${this.__ws?.id || 'N/A'}`
+    __getConnectionInfo(toString = false) {
+        const info = {
+            pubkey: this.type === ChannelTypes.ORCHESTRATOR ? 'Orchestrator' : this.pubkey,
+            type: this.type,
+            id: this.__ws?.id || 'N/A'
+        }
+        return toString ? `${info.pubkey} ${info.type} ${info.id}` : info
     }
 
     get isIncoming() {

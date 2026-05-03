@@ -26,7 +26,7 @@ const RunnerBase = require('./runner-base')
  * @param {string} contractId - contract id
  * @param {SubscriptionsSyncData} data - sync data
  */
-async function broadcastSyncData(contractId, data) {
+async function __broadcastSyncData(contractId, data) {
     const plainObject = data.toPlainObject()
     const message = {
         type: MessageTypes.SYNC,
@@ -37,7 +37,7 @@ async function broadcastSyncData(contractId, data) {
         }
     }
     await nodesManager.broadcast(message)
-    logger.debug(`Signature broadcasted. Contract id: ${contractId}, hash: ${data.hashBase64}`)
+    logger.debug({msg: 'Sync data broadcasted', contract: contractId, hash: data.hashBase64})
 }
 
 function shuffleArray(array) {
@@ -148,8 +148,8 @@ class SubscriptionsRunner extends RunnerBase {
             //set notification timestamp for processed events
             subscriptionsContractManager.trySetSyncData(syncData)
 
-            //broadcast sync data
-            broadcastSyncData(this.contractId, syncData)
+            //broadcast sync data without waiting
+            __broadcastSyncData(this.contractId, syncData)
         }
 
         if (charges.length > 0) {
@@ -174,7 +174,7 @@ class SubscriptionsRunner extends RunnerBase {
         const subscriptionsContractManager = getManager(this.contractId)
         //broadcast last processed data if available
         if (subscriptionsContractManager.lastSyncData)
-            await broadcastSyncData(this.contractId, subscriptionsContractManager.lastSyncData)
+            await __broadcastSyncData(this.contractId, subscriptionsContractManager.lastSyncData)
     }
 
 
@@ -302,7 +302,7 @@ class SubscriptionsRunner extends RunnerBase {
                             validateSsrf: true
                         })
                 } catch (e) {
-                    logger.debug(`Failed to send webhook data to ${urls[j]}: ${e.message}`)
+                    logger.debug({msg: 'Failed to send webhook data', url: urls[j], err: e.message})
                 }
             }
         }

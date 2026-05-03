@@ -58,7 +58,7 @@ class DataSource {
 
     __setProviders(providers) {
         if (!Array.isArray(providers) || providers.length === 0)
-            logger.warn(`No providers are defined for data source ${this.name}`)
+            logger.warn({msg: 'No providers are defined for data source', source: this.name})
         this.providers = providers
     }
 }

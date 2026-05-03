@@ -153,7 +153,7 @@ class DataSourcesManager extends IssuesContainer {
                 try {
                     connection.instance.dispose()
                 } catch (err) {
-                    logger.error(`Error occurred while disposing data source ${name}: ${err.message}`)
+                    logger.error({msg: 'Error occurred while disposing data source', name, err: err.message})
                 }
             }
         }

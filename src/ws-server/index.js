@@ -34,7 +34,7 @@ class WsServer {
             await incomingConnection.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {payload: incomingConnection.authPayload}})
             nodesManager.addConnection(incomingConnection)
         } catch (err) {
-            logger.debug(err)
+            logger.debug({msg: 'Error occurred while connecting', err: err.message})
             ws.closeTimeout = setTimeout(() => {
                 if (ws.readyState !== WebSocket.CLOSED) {
                     logger.debug('Connection not closed in time, forcefully closing')
@@ -50,7 +50,7 @@ class WsServer {
     }
 
     __onServerError(err) {
-        logger.error({err}, 'Ws server error')
+        logger.error({msg: 'Ws server error', err: err.message})
     }
 
     __onServerClose() {

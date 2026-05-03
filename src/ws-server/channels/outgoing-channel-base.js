@@ -33,7 +33,7 @@ class OutgoingChannelBase extends ChannelBase {
             })
         //start ping pong, if it's not connected in time, the connection will be closed
         this.__connectionTimeout = setTimeout(() => {
-            logger.trace(`Connection timeout ${this.__getConnectionInfo()}. ws.readyState: ${this.__ws?.readyState}`)
+            logger.trace({msg: 'Connection timeout.', ...this.__getConnectionInfo(), wsReadyState: this.__ws?.readyState})
             this.__startPingPong()
         }, container.settingsManager.appConfig.handshakeTimeout)
         this.__ws.id = uuidv4()
@@ -42,7 +42,7 @@ class OutgoingChannelBase extends ChannelBase {
 
     close(code, reason, terminate = true) {
         //eslint-disable-next-line no-unused-expressions
-        logger.trace(`Close ${this.__getConnectionInfo()} ${code} ${reason}, terminate: ${terminate}`)
+        logger.trace({msg: 'Closing connection.', ...this.__getConnectionInfo(), code, reason, terminate})
         this.__clearTimeouts()
         super.close(code, reason, terminate)
     }
@@ -59,7 +59,7 @@ class OutgoingChannelBase extends ChannelBase {
     }
 
     __onOpen() {
-        logger.trace(`Connection open ${this.__getConnectionInfo()}`)
+        logger.trace({msg: 'Connection open.', ...this.__getConnectionInfo()})
         this.__clearReconnectionTimeout()
         this.__resetConnectionAttempts()
     }
@@ -69,15 +69,15 @@ class OutgoingChannelBase extends ChannelBase {
         super.__onClose(code, reason)
         this.__incConnectionAttempts()
         if (this.__termination) {
-            logger.trace(`Termination ${this.__getConnectionInfo()}`)
+            logger.trace({msg: 'Termination.', ...this.__getConnectionInfo()})
             return
         }
         const timeout = this.__getTimeout()
         this.__reconnectionTimeoutId = this.__reconnectionTimeoutId || setTimeout(() => {
-            logger.trace(`Reconnection ${this.__getConnectionInfo()}`)
+            logger.trace({msg: 'Reconnection.', ...this.__getConnectionInfo()})
             this.__connect()
         }, timeout)
-        logger.trace(`Reconnection timeout set ${timeout}. ${this.__getConnectionInfo()}`)
+        logger.trace({msg: 'Reconnection timeout set.', ...this.__getConnectionInfo(), timeout})
     }
 
     __onError(error) {
