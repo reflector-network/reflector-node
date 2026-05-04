@@ -1,3 +1,4 @@
+const fs = require('fs')
 const ExchangesPriceProvider = require('@reflector/reflector-exchanges-connector')
 const ForexPriceProvider = require('@reflector/reflector-fx-connector')
 const StellarProvider = require('@reflector/reflector-stellar-connector')
@@ -49,19 +50,22 @@ const __connections = new Map([
 
 /**
  * @param {any} dataSourceConfig
+ * @param {string} cacheDir
  * @returns {any}
  */
-function getNormalizedInitOptions(dataSourceConfig) {
+function getNormalizedInitOptions(dataSourceConfig, cacheDir) {
     return {
         rpcUrls: dataSourceConfig.sorobanRpc,
-        network: dataSourceConfig.networkPassphrase
+        network: dataSourceConfig.networkPassphrase,
+        cacheDir
     }
 }
 
 /**
  * @param {DataSource} dataSource - data source
+ * @param {string} cacheDir - directory for connector caches
  */
-async function __registerConnection(dataSource) {
+async function __registerConnection(dataSource, cacheDir) {
     if (!dataSource)
         throw new ValidationError('dataSource is required')
     const dataSourceConfig =
@@ -71,7 +75,7 @@ async function __registerConnection(dataSource) {
         }
     __connections.set(dataSource.name, dataSourceConfig)
     if (dataSourceConfig.instance.init)
-        await dataSourceConfig.instance.init(getNormalizedInitOptions(dataSourceConfig))
+        await dataSourceConfig.instance.init(getNormalizedInitOptions(dataSourceConfig, cacheDir))
 }
 
 function __deleteConnection(name) {
@@ -86,11 +90,14 @@ function __deleteConnection(name) {
 class DataSourcesManager extends IssuesContainer {
     /**
      * @param {DataSource[]} dataSources - data sources
+     * @param {string} homeDir - node home directory; a `cache` subfolder is used for connector on-disk caches
      */
-    async setDataSources(dataSources) {
+    async setDataSources(dataSources, homeDir) {
+        const cacheDir = `${homeDir}/cache`
+        fs.mkdirSync(cacheDir, {recursive: true})
         for (const source of dataSources) {
             try {
-                await __registerConnection(source)
+                await __registerConnection(source, cacheDir)
             } catch (err) {
                 let errorMessage = err.message
                 if (!(err instanceof ValidationError))

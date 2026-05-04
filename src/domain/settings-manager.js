@@ -143,7 +143,7 @@ class SettingsManager {
     async setAppConfig(config) {
         this.appConfig = config
         logger.init(this.appConfig.trace)
-        await dataSourceManager.setDataSources([...config.dataSources.values()])
+        await dataSourceManager.setDataSources([...config.dataSources.values()], container.homeDir)
     }
 
     /**
