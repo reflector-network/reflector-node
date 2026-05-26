@@ -20,7 +20,7 @@ function makeAssetsMap(source, baseCode, assetCodes) {
 function makeTrades(assetCount) {
     const trades = []
     for (let i = 0; i < assetCount; i++) {
-        trades.push([{price: BigInt(1000000 + i), source: 'src1', type: 'price'}])
+        trades.push([{volume: BigInt(1000000 + i), quoteVolume: 10n ** 14n, source: 'src1'}])
     }
     return trades
 }
@@ -124,13 +124,13 @@ describe('Trades', () => {
             const tradeData1 = result1.get('node1')
 
             //mutate the returned data
-            tradeData1[0][0].price = 999n
+            tradeData1[0][0].volume = 999n
 
             //fetch again — should be unaffected
             const result2 = trades.getTradesData(key, timestamp, [new Asset(2, 'BTC')])
             const tradeData2 = result2.get('node1')
 
-            expect(tradeData2[0][0].price).toBe(1000000n)
+            expect(tradeData2[0][0].volume).toBe(1000000n)
         })
     })
 })

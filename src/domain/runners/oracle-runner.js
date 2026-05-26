@@ -187,9 +187,16 @@ class OracleRunner extends RunnerBase {
         if (!rpc)
             throw new Error('Soroban RPC not configured')
         let entries = {}
-        for (const chunk of timestampsToLoad) {
-            const chunkEntries = await getContractEntries(this.contractId, rpc, chunk)
-            entries = {...entries, ...chunkEntries}
+        try {
+            for (const chunk of timestampsToLoad) {
+                const chunkEntries = await getContractEntries(this.contractId, rpc, chunk)
+                entries = {...entries, ...chunkEntries}
+            }
+        } catch (err) {
+            //swallow so the eviction below still runs — stale cache from before a long
+            //RPC outage would otherwise linger and diverge between healthy and failed nodes
+            logger.warn({msg: 'Failed to load price update history from RPC; proceeding to eviction', err, contract: this.contractId})
+            entries = {}
         }
 
         function restorePricesFromUpdate(update) {

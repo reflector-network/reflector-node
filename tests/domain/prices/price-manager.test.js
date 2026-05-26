@@ -19,13 +19,9 @@ function normalizeTradeData(data, toString) {
         return toString ? value.toString() : BigInt(value)
     }
     return data.map(assetTradeData =>
-        assetTradeData.map(({ts, ...tradeData}) => {
-            if (tradeData.type === 'price') {
-                tradeData.price = normalizeValue(tradeData.price, toString)
-            } else {
-                tradeData.volume = normalizeValue(tradeData.volume, toString)
-                tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
-            }
+        assetTradeData.map(({ts, ...tradeData}) => {//we need ts only for debugging purposes, so we can remove it from the data that we send to sync
+            tradeData.volume = normalizeValue(tradeData.volume, toString)
+            tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
             return tradeData
         })
     )
@@ -118,7 +114,7 @@ describe('getPricesForContract', () => {
         setupContainer('node1')
     })
 
-    test('computes prices for oracle contract with price-type trades', async () => {
+    test('computes prices for two assets with VWAP ordering', async () => {
         const assets = [new Asset(2, 'BTC'), new Asset(2, 'ETH')]
         const baseAsset = new Asset(2, 'USD')
         const assetsMap = new AssetsMap('exchanges', baseAsset, assets)
@@ -140,7 +136,7 @@ describe('getPricesForContract', () => {
         feedTradesData(key, assetsMap, timestamps, (assetIndex) => {
             //BTC = 50000, ETH = 3000 (scaled to 14 decimals)
             const prices = [50000n * (10n ** 14n), 3000n * (10n ** 14n)]
-            return [{price: prices[assetIndex], source: 'binance', type: 'price'}]
+            return [{volume: prices[assetIndex], quoteVolume: 10n ** 14n, source: 'binance'}]
         })
 
         const prices = await getPricesForContract('contract1', timestamp)
@@ -152,7 +148,7 @@ describe('getPricesForContract', () => {
         expect(prices[0]).toBeGreaterThan(prices[1])
     })
 
-    test('computes prices for oracle contract with volume-type trades', async () => {
+    test('computes VWAP price for single asset', async () => {
         const assets = [new Asset(2, 'BTC')]
         const baseAsset = new Asset(2, 'USD')
         const assetsMap = new AssetsMap('exchanges', baseAsset, assets)
@@ -172,7 +168,7 @@ describe('getPricesForContract', () => {
         })
 
         //volume=100, quoteVolume=2 => VWAP = 100*10^14 / 2 = 50*10^14
-        feedTradesData(key, assetsMap, timestamps, () => [{volume: 100n, quoteVolume: 2n, source: 'binance', type: 'volume'}])
+        feedTradesData(key, assetsMap, timestamps, () => [{volume: 100n, quoteVolume: 2n, source: 'binance'}])
 
         const prices = await getPricesForContract('contract1', timestamp)
 
@@ -226,8 +222,8 @@ describe('getPricesForContract', () => {
         //timestamp 4min has zero price, timestamp 5min has real price
         feedTradesData(key, assetsMap, timestamps, (assetIndex, ts) => {
             if (ts === 4 * minute)
-                return [{price: 0n, source: 'binance', type: 'price'}]
-            return [{price: 50000n * (10n ** 14n), source: 'binance', type: 'price'}]
+                return [{volume: 0n, quoteVolume: 0n, source: 'binance'}]
+            return [{volume: 50000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}]
         })
 
         const prices = await getPricesForContract('contract1', timestamp)
@@ -256,8 +252,8 @@ describe('getPricesForContract', () => {
         })
 
         feedTradesData(key, assetsMap, timestamps, () => [
-            {price: 50000n * (10n ** 14n), source: 'binance', type: 'price'},
-            {price: 50100n * (10n ** 14n), source: 'kraken', type: 'price'}
+            {volume: 50000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'},
+            {volume: 50100n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'kraken'}
         ])
 
         const prices = await getPricesForContract('contract1', timestamp)
@@ -284,7 +280,7 @@ describe('getPricesForContract', () => {
             timeframe: 2 * minute
         })
 
-        feedTradesData(key, assetsMap, timestamps, () => [{price: 50000n * (10n ** 14n), source: 'binance', type: 'price'}])
+        feedTradesData(key, assetsMap, timestamps, () => [{volume: 50000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}])
 
         const prices = await getPricesForContract('beam1', timestamp)
         expect(prices).toHaveLength(1)
@@ -320,7 +316,7 @@ describe('getConcensusData', () => {
         //majority (2 out of 3) agrees on 100
         feedPerNodeTradesData(key, assetsMap, timestamps, (nodeIdx) => {
             const price = nodeIdx === 1 ? 200n * (10n ** 14n) : 100n * (10n ** 14n)
-            return [{price, source: 'binance', type: 'price'}]
+            return [{volume: price, quoteVolume: 10n ** 14n, source: 'binance'}]
         })
 
         const result = await getConcensusData('exchanges', baseAsset, assets, timestamp, 2 * minute)
@@ -330,7 +326,7 @@ describe('getConcensusData', () => {
         for (const timestampData of result) {
             for (const assetData of timestampData) {
                 for (const trade of assetData) {
-                    expect(trade.price).toBe(100n * (10n ** 14n))
+                    expect(trade.volume).toBe(100n * (10n ** 14n))
                 }
             }
         }
@@ -348,8 +344,8 @@ describe('getConcensusData', () => {
         //all nodes agree: BTC has a real price, ETH has zero price
         feedTradesData(key, assetsMap, timestamps, (assetIndex) => {
             if (assetIndex === 0)
-                return [{price: 50000n * (10n ** 14n), source: 'binance', type: 'price'}]
-            return [{price: 0n, source: 'binance', type: 'price'}]
+                return [{volume: 50000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}]
+            return [{volume: 0n, quoteVolume: 0n, source: 'binance'}]
         })
 
         const result = await getConcensusData('exchanges', baseAsset, assets, timestamp, 2 * minute)
@@ -367,13 +363,13 @@ describe('getConcensusData', () => {
         const timestamp = 3 * minute
         const timestamps = [2 * minute, 3 * minute]
 
-        feedTradesData(key, assetsMap, timestamps, () => [{price: 42000n * (10n ** 14n), source: 'binance', type: 'price'}])
+        feedTradesData(key, assetsMap, timestamps, () => [{volume: 42000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}])
 
         const result = await getConcensusData('exchanges', baseAsset, assets, timestamp, 2 * minute)
 
         expect(result.length).toBe(2) //2 timestamps within timeframe
         for (const timestampData of result) {
-            expect(timestampData[0][0].price).toBe(42000n * (10n ** 14n))
+            expect(timestampData[0][0].volume).toBe(42000n * (10n ** 14n))
         }
     })
 
@@ -387,7 +383,7 @@ describe('getConcensusData', () => {
 
         //mock getTradesData to return only 1 node — below majority of 2
         tm.getTradesData = jest.fn().mockResolvedValue(new Map([
-            ['node1', [[{price: 100n * (10n ** 14n), source: 'binance', type: 'price'}]]]
+            ['node1', [[{volume: 100n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}]]]
         ]))
 
         const result = await getConcensusData('exchanges', baseAsset, assets, 3 * minute, minute)
@@ -425,7 +421,7 @@ describe('getPricesForPair', () => {
         const timestamp = 3 * minute
         const timestamps = [2 * minute, 3 * minute]
 
-        feedTradesData(key, ethMap, timestamps, () => [{price: 3000n * (10n ** 14n), source: 'binance', type: 'price'}, {price: 3050n * (10n ** 14n), source: 'okx', type: 'price'}])
+        feedTradesData(key, ethMap, timestamps, () => [{volume: 3000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}, {volume: 3050n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'okx'}])
 
         //quote is USD which is the base asset for 'exchanges' — should use precise value 1
         const result = await getPricesForPair(
@@ -447,7 +443,7 @@ describe('getPricesForPair', () => {
         const timestamp = 3 * minute
         const timestamps = [2 * minute, 3 * minute]
 
-        feedTradesData(key, btcMap, timestamps, () => [{price: 50000n * (10n ** 14n), source: 'binance', type: 'price'}])
+        feedTradesData(key, btcMap, timestamps, () => [{volume: 50000n * (10n ** 14n), quoteVolume: 10n ** 14n, source: 'binance'}])
 
         //base is USD which is the base asset for 'exchanges' — should use precise value 1
         const result = await getPricesForPair(

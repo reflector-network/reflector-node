@@ -24,12 +24,11 @@ function getPrices(pricesCount, sourcesCount) {
         for (let j = 0; j < sourcesCount; j++) {
             //if (Math.random() > 0.9)
             //continue
+            const v = Math.random() > 0.9 ? BigInt(1000005378) : BigInt(1000000000 + i + j)
             price.push({
-                //volume: BigInt(i * Math.pow(10, 7)),
-                //quoteVolume: BigInt(i * Math.pow(10, 7)) * (Math.random() > 0.9 ? BigInt(1000005378) : BigInt(1000000000 + i + j)),
-                price: Math.random() > 0.9 ? BigInt(1000005378) : BigInt(1000000000 + i + j),
-                source: `source${j}`,
-                type: 'price'
+                volume: v,
+                quoteVolume: 10n ** 14n,
+                source: `source${j}`
             })
         }
         prices.push(price)
@@ -53,12 +52,8 @@ function normalizeTradeData(data, toString) {
     }
     return data.map(assetTradeData =>
         assetTradeData.map(({ts, ...tradeData}) => {//we need ts only for debugging purposes, so we can remove it from the data that we send to sync
-            if (tradeData.type === 'price') {
-                tradeData.price = normalizeValue(tradeData.price, toString)
-            } else {
-                tradeData.volume = normalizeValue(tradeData.volume, toString)
-                tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
-            }
+            tradeData.volume = normalizeValue(tradeData.volume, toString)
+            tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
             return tradeData
         })
     )
