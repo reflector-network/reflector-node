@@ -3,7 +3,6 @@ const {Asset, getMajority} = require('@reflector/reflector-shared')
 const container = require('../../../src/domain/container')
 const AssetsMap = require('../../../src/domain/prices/assets-map')
 const {getConcensusData} = require('../../../src/domain/prices/price-manager')
-const {calcPrice} = require('../../../src/utils/price-utils') //for full price computation
 const TradesManager = require('../../../src/domain/prices/trades-manager')
 const logger = require('../../../src/logger')
 
@@ -24,21 +23,17 @@ function normalizeTradeData(data, toString) {
         return toString ? value.toString() : BigInt(value)
     }
     return data.map(assetTradeData =>
-        assetTradeData.map(({ts, ...tradeData}) => {
-            if (tradeData.type === 'price') {
-                tradeData.price = normalizeValue(tradeData.price, toString)
-            } else {
-                tradeData.volume = normalizeValue(tradeData.volume, toString)
-                tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
-            }
+        assetTradeData.map(({ts, ...tradeData}) => {//we need ts only for debugging purposes, so we can remove it from the data that we send to sync
+            tradeData.volume = normalizeValue(tradeData.volume, toString)
+            tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
             return tradeData
         })
     )
 }
 
-function buildPriceData(prices, source) {
+function buildTradesData(prices, source) {
     return prices.map(price => {
-        const entry = {price, type: 'price'}
+        const entry = {volume: price, quoteVolume: 10n ** 14n}
         if (source !== undefined) entry.source = source
         return [entry]
     })
@@ -96,20 +91,11 @@ function aggregatePrices(concensusData, assetCount) {
             for (const sourceTradeData of assetTradeData) {
                 let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
                 if (!sourceTotalTradesData) {
-                    sourceTotalTradesData = sourceTradeData.type === 'price'
-                        ? {sum: 0n, entries: 0, type: 'price'}
-                        : {volume: 0n, quoteVolume: 0n}
+                    sourceTotalTradesData = {volume: 0n, quoteVolume: 0n}
                     totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
                 }
-                if (sourceTotalTradesData.type === 'price') {
-                    if (sourceTradeData.price === 0n)
-                        continue
-                    sourceTotalTradesData.sum += sourceTradeData.price
-                    sourceTotalTradesData.entries++
-                } else {
-                    sourceTotalTradesData.volume += sourceTradeData.volume
-                    sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
-                }
+                sourceTotalTradesData.volume += sourceTradeData.volume
+                sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
             }
         }
     }
@@ -146,7 +132,7 @@ describe('getConcensusData — consensus', () => {
                     prices.push(0n)
                 }
             }
-            return buildPriceData(prices)
+            return buildTradesData(prices)
         })
 
         for (let i = 0; i < nodes.length; i++) {
@@ -167,7 +153,7 @@ describe('getConcensusData — consensus', () => {
             let assetsWithData = 0
             for (let i = 0; i < 15; i++) {
                 const assetAgg = aggregated[i]
-                if (assetAgg.length > 0 && assetAgg[0].entries > 0) {
+                if (assetAgg.length > 0 && assetAgg[0].volume > 0n) {
                     assetsWithData++
                 }
             }
@@ -188,7 +174,7 @@ describe('getConcensusData — consensus', () => {
 
         feedAllNodes(tm, assetsMap10, minuteTimestamps, (nodeIndex) =>
             //ALL 10 assets have non-zero prices on 6 nodes, zero on node7
-            buildPriceData(
+            buildTradesData(
                 Array(10).fill(null).map((_, i) => nodeIndex === 6 ? 0n : BigInt(100 + i))
             )
         )
@@ -205,7 +191,7 @@ describe('getConcensusData — consensus', () => {
         for (const ts of result) {
             for (const assetData of ts) {
                 expect(assetData.length).toBe(1)
-                expect(assetData[0].price).toBeGreaterThan(0n)
+                expect(assetData[0].volume).toBeGreaterThan(0n)
             }
         }
     })
@@ -221,7 +207,7 @@ describe('getConcensusData — consensus', () => {
             const prices = [1n]
             prices.push(nodeIndex === 1 ? 0n : 1n)
             prices.push(nodeIndex === 2 ? 0n : 1n)
-            return buildPriceData(prices)
+            return buildTradesData(prices)
         })
 
         const expected = new Array(minuteTimestamps.length).fill(null).map(() => [1n, undefined, undefined])
@@ -237,7 +223,7 @@ describe('getConcensusData — consensus', () => {
                 timeframe
             )
 
-            expect(result.map((ts) => ts.flatMap((entry) => entry[0]?.price))).toEqual(expected)
+            expect(result.map((ts) => ts.flatMap((entry) => entry[0]?.volume))).toEqual(expected)
         }
     })
 })

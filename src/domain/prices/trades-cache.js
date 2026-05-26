@@ -20,12 +20,8 @@ function normalizeTradeData(data, toString) {
     }
     return data.map(assetTradeData =>
         assetTradeData.map(({ts, ...tradeData}) => {//we need ts only for debugging purposes, so we can remove it from the data that we send to sync
-            if (tradeData.type === 'price') {
-                tradeData.price = normalizeValue(tradeData.price, toString)
-            } else {
-                tradeData.volume = normalizeValue(tradeData.volume, toString)
-                tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
-            }
+            tradeData.volume = normalizeValue(tradeData.volume, toString)
+            tradeData.quoteVolume = normalizeValue(tradeData.quoteVolume, toString)
             return tradeData
         })
     )

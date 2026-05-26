@@ -1,5 +1,5 @@
 const {ContractTypes, getMajority} = require('@reflector/reflector-shared')
-const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice, getAveragePrice} = require('../../utils/price-utils')
+const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
 
@@ -18,12 +18,7 @@ function calcPrice(tradesData, decimals) {
     const prices = Array(tradesData.length).fill(0n)
     for (let i = 0; i < tradesData.length; i++) {
         const assetTradesData = tradesData[i] || []
-        const assetPrices = assetTradesData.map(td => {
-            if (td.type === 'price')
-                return getAveragePrice(td.sum, td.entries, decimals)
-            else
-                return getVWAP(td.volume, td.quoteVolume, decimals)
-        })
+        const assetPrices = assetTradesData.map(td => getVWAP(td.volume, td.quoteVolume, decimals))
         prices[i] = getMedianPrice(assetPrices) || 0n
     }
 
@@ -87,18 +82,11 @@ function aggrTradesData(assetsLength, concensusData) {
             for (const sourceTradeData of assetTradeData) {
                 let sourceTotalTradesData = totalAssetTradesData.get(sourceTradeData.source)
                 if (!sourceTotalTradesData) {
-                    sourceTotalTradesData = sourceTradeData.type === 'price' ? {sum: 0n, entries: 0, type: 'price'} : {volume: 0n, quoteVolume: 0n}
+                    sourceTotalTradesData = {volume: 0n, quoteVolume: 0n}
                     totalAssetTradesData.set(sourceTradeData.source, sourceTotalTradesData)
                 }
-                if (sourceTotalTradesData.type === 'price') {
-                    if (sourceTradeData.price === 0n)
-                        continue //skip zero prices
-                    sourceTotalTradesData.sum += sourceTradeData.price
-                    sourceTotalTradesData.entries++
-                } else {
-                    sourceTotalTradesData.volume += sourceTradeData.volume
-                    sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
-                }
+                sourceTotalTradesData.volume += sourceTradeData.volume
+                sourceTotalTradesData.quoteVolume += sourceTradeData.quoteVolume
             }
         }
     }
@@ -114,7 +102,7 @@ async function getPriceForAsset(source, baseAsset, asset, timestamp) {
         logger.warn({msg: 'Volume for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
         return {price: 0n, decimals}
     }
-    const price = calcPrice(tradesData, decimals, [0n])[0]
+    const price = calcPrice(tradesData, decimals)[0]
     if (price === 0n)
         logger.debug({msg: 'Price for asset not found', asset: asset.toString(), timestamp, source, baseAsset: baseAsset.toString()})
     return {price, decimals}
@@ -169,10 +157,8 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
     const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask
 
     const isSameData = (a, b) =>
-        a.type === b.type &&
-      a.price === b.price &&
-      a.quoteVolume === b.quoteVolume &&
-      a.volume === b.volume
+        a.volume === b.volume &&
+        a.quoteVolume === b.quoteVolume
 
     let currentTimestamp = timestamp - timeframe
     const masks = new Map()
@@ -207,7 +193,6 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             if (!data)
                 return null
             return {
-                price: (data.price ? data.price.toString() : undefined),
                 volume: (data.volume ? data.volume.toString() : undefined),
                 quoteVolume: (data.quoteVolume ? data.quoteVolume.toString() : undefined)
             }
@@ -258,7 +243,7 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
                 }
 
                 //increment the mask count for the source data nodes (skip zero prices — they trivially agree across all nodes)
-                const hasValue = sourceData.type === 'price' ? sourceData.price > 0n : (sourceData.volume > 0n || sourceData.quoteVolume > 0n)
+                const hasValue = sourceData.volume > 0n
                 if (hasValue) {
                     masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
                     nodeMasks.set(sourceData.nodes, sourceData.rawNodes)

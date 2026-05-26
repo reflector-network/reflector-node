@@ -1,5 +1,3 @@
-const PROVIDER_PRICE_DECIMALS = 14
-
 /**
  * Get сross price
  * @param {BigInt} quoteAssetPrice - quote asset price
@@ -51,34 +49,6 @@ function getVWAP(volume, quoteVolume, decimals) {
     if (quoteVolume === 0n || scaledtotalVolume === 0n)
         return 0n
     return scaledtotalVolume / quoteVolume
-}
-
-/**
- * Normalize price. The prices from providers are a BigInt with 14 decimals.
- * @param {BigInt} price - price
- * @param {number} decimals - number of decimals
- * @returns {BigInt}
- */
-function normalizePrice(price, decimals) {
-    if (decimals > PROVIDER_PRICE_DECIMALS) {
-        return price * (BigInt(10) ** BigInt(decimals - PROVIDER_PRICE_DECIMALS))
-    } else if (decimals < PROVIDER_PRICE_DECIMALS) {
-        return price / (BigInt(10) ** BigInt(PROVIDER_PRICE_DECIMALS - decimals))
-    }
-    return price
-}
-
-/**
- * Calculate price from sum and number of entries
- * @param {BigInt} sum - sum of prices
- * @param {number} entries - number of entries
- * @param {number} decimals - number of decimals
- * @returns {BigInt}
- */
-function getAveragePrice(sum, entries, decimals) {
-    if (entries === 0)
-        return 0n
-    return normalizePrice(sum, decimals) / BigInt(entries)
 }
 
 /**
@@ -145,7 +115,6 @@ module.exports = {
     getPreciseValue,
     calcCrossPrice,
     getVWAP,
-    getAveragePrice,
     getMedianPrice,
     getPriceDiff
 }
