@@ -1,5 +1,5 @@
-# Using the Node LTS Alpine as the base
-FROM node:lts-alpine
+# Node 24 LTS on Alpine 3.23 — the last Alpine release that packages loki-promtail (dropped in 3.24 after upstream EOL)
+FROM node:24-alpine3.23
 
 # Install curl, jq, bash, and supervisor utilities
 RUN apk add --no-cache curl jq bash supervisor util-linux loki-promtail \

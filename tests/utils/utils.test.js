@@ -11,12 +11,12 @@ describe('utils', () => {
 
     it('get BigInt price for NaN', () => {
         const price = 'Not a number'
-        expect(() => getPreciseValue(price, 14)).toThrowError('value should be expressed as BigInt')
+        expect(() => getPreciseValue(price, 14)).toThrow('value should be expressed as BigInt')
     })
 
     it('get BigInt price for NaN decimals', () => {
         const price = 1000n
-        expect(() => getPreciseValue(price, 'Not a number')).toThrowError('decimals should be expressed as Number')
+        expect(() => getPreciseValue(price, 'Not a number')).toThrow('decimals should be expressed as Number')
     })
 
     it('get VWAP', () => {
@@ -29,13 +29,13 @@ describe('utils', () => {
     it('get VWAP for NaN', () => {
         const volume = 'Not a number'
         const quoteVolume = 1000000n
-        expect(() => getVWAP(volume, quoteVolume, 14)).toThrowError('volume should be expressed as BigInt')
+        expect(() => getVWAP(volume, quoteVolume, 14)).toThrow('volume should be expressed as BigInt')
     })
 
     it('get VWAP for NaN quote volume', () => {
         const volume = 1000n
         const quoteVolume = 'Not a number'
-        expect(() => getVWAP(volume, quoteVolume, 14)).toThrowError('quoteVolume should be expressed as BigInt')
+        expect(() => getVWAP(volume, quoteVolume, 14)).toThrow('quoteVolume should be expressed as BigInt')
     })
 
     it('get VWAP for zero', () => {
