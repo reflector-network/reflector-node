@@ -1,5 +1,5 @@
 /*eslint-disable class-methods-use-this */
-const {Account, Transaction} = require('@stellar/stellar-sdk')
+const {Account, Transaction, xdr} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../../logger')
 const container = require('../container')
@@ -27,7 +27,7 @@ function getSignatureMessage(contractId, tx) {
         data: {
             contractId,
             hash: tx.hashHex,
-            signature: tx.signatures[0].toXDR('hex') //first signature always belongs to the current node
+            signature: tx.signatures[0].toXdr('hex') //first signature always belongs to the current node
         }
     }
 }
@@ -135,7 +135,7 @@ class RunnerBase {
         const timestamp = normalizeTimestamp(Date.now(), this.__timeframe)
         this.isRunning = true
         //awoid starting before sync time
-        setTimeout(() => this.__runWorker(timestamp), this.__getWorkerTimeout(timestamp))
+        setTimeout(() => this.__runWorker(timestamp), Math.max(1, this.__getWorkerTimeout(timestamp)))
         this.__clearPendingSignatures()
     }
 
@@ -152,7 +152,7 @@ class RunnerBase {
             /**@type {timestamp: number, signatures: DecoratedSignature[]} */
             const signaturesData =
                 this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
-            if (!signaturesData.signatures.find(s => s.hint().equals(signature.hint())))
+            if (!signaturesData.signatures.find(s => s.hint.equals(signature.hint)))
                 signaturesData.signatures.push(signature)
             logger.debug({msg: 'Signature added to the pending signatures.', ...this.__contractInfo, node: from, txHash})
             return
@@ -311,7 +311,7 @@ class RunnerBase {
             resolve(result)
             logger.debug({msg: 'Transaction is processed.', ...this.__contractInfo, txDebugInfo: tx.getDebugInfo()})
         } catch (e) {
-            const error = new Error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx fee: ${tx?.transaction.fee}, tx: ${tx.transaction.toXDR()}`)
+            const error = new Error(`Error in submit worker. Tx type: ${tx?.type}, tx hash: ${tx?.hashHex}, tx fee: ${tx?.transaction.fee}, tx: ${tx.transaction.toXdr()}`)
             error.originalError = e
             reject(e)
         }
@@ -350,7 +350,7 @@ class RunnerBase {
                     maxTime
                 )
                 logger.debug({msg: 'Transaction is built.', ...this.__contractInfo, syncTimestamp, submitAttempt, txType: tx?.type, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, hash: tx?.hashHex})
-                logger.trace({msg: 'Transaction XDR', tx: tx?.transaction.toXDR()})
+                logger.trace({msg: 'Transaction XDR', tx: tx?.transaction.toXdr()})
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
                     pendingTx = this.__setPendingTransaction(tx, maxTime)
                     this.__trySubmitTransaction()
@@ -362,9 +362,9 @@ class RunnerBase {
                     //check if transaction was signed by the current node
                     const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
                     if (this.contractId
-                        && resultTx.signatures.some(s => s.hint().equals(settingsManager.appConfig.keypair.signatureHint())))
+                        && resultTx.signatures.some(s => s.hint.equals(new xdr.SignatureHint(settingsManager.appConfig.keypair.signatureHint()))))
                         statisticsManager.incSubmittedTransactions(this.contractId, this.__contractType)
-                    statisticsManager.setProcessedTx(this.contractId, resultTx.hash().toString('hex'))
+                    statisticsManager.setProcessedTx(this.contractId, Buffer.from(resultTx.hash()).toString('hex'))
                 }
                 return response
             } catch (e) {

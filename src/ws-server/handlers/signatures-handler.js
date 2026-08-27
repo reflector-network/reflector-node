@@ -23,10 +23,10 @@ class SignaturesHandler extends BaseHandler {
             return
 
         const signatureBuffer = Buffer.from(signature, 'hex')
-        const decoratedSignature = xdr.DecoratedSignature.fromXDR(signatureBuffer, 'hex')
+        const decoratedSignature = xdr.DecoratedSignature.fromXdr(signatureBuffer)
         const keypair = Keypair.fromPublicKey(ws.pubkey)
-        if (keypair.verify(Buffer.from(hash, 'hex'), decoratedSignature.signature())) {
-            oracleRunner.addSignature(hash, xdr.DecoratedSignature.fromXDR(signatureBuffer, 'raw'), ws.pubkey)
+        if (keypair.verify(Buffer.from(hash, 'hex'), decoratedSignature.signature)) {
+            oracleRunner.addSignature(hash, xdr.DecoratedSignature.fromXdr(signatureBuffer), ws.pubkey)
         }
     }
 }

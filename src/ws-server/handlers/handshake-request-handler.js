@@ -26,7 +26,7 @@ class HandshakeRequestHandler extends BaseHandler {
         if (!authPayload.startsWith(constants.payloadPrefix))
             throw new Error('Invalid payload')
         const {keypair} = container.settingsManager.appConfig
-        const signature = keypair.sign(Buffer.from(authPayload)).toString('hex')
+        const signature = Buffer.from(keypair.sign(Buffer.from(authPayload))).toString('hex')
         return {type: MessageTypes.HANDSHAKE_RESPONSE, data: {signature}}
     }
 }

@@ -191,9 +191,9 @@ class SettingsManager {
         if (urls) {
             if (!Array.isArray(urls))
                 throw new Error('Gateways must be an array')
-            const gatewayValidationKey = this.appConfig.keypair.sign(
+            const gatewayValidationKey = Buffer.from(this.appConfig.keypair.sign(
                 Buffer.from(getDataHash(challenge, this.appConfig.publicKey), 'hex')
-            ).toString('base64')
+            )).toString('base64')
             if (isDebugging())
                 logger.info(`Gateway validation key: ${gatewayValidationKey}`)
             this.gateways = {...gatewaysData, gatewayValidationKey}

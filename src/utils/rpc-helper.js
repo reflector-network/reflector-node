@@ -1,4 +1,4 @@
-const {Transaction, rpc} = require('@stellar/stellar-sdk')
+const {Transaction, rpc, xdr} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../logger')
 
@@ -19,13 +19,14 @@ const txTimeoutMessage = 'Tx timed out.'
  */
 function getSubmissionError(submitResult, txXdr) {
     const resultXdr = (submitResult.resultXdr ?? submitResult.errorResult)
-    const {name: errorName, value: code} = resultXdr?.result()?.switch() ?? {}
+    const errorName = resultXdr?.result?.type
+    const code = errorName ? xdr.TransactionResultCode.fromName(errorName).value : undefined
     const error = new Error(`Transaction submit failed: ${submitResult.status}. Error name: ${errorName}, code: ${code}`)
     error.status = submitResult.status
-    error.errorResultXdr = resultXdr?.toXDR('base64') ?? null
+    error.errorResultXdr = resultXdr?.toXdr('base64') ?? null
     error.hash = submitResult.hash
-    error.meta = submitResult.resultMetaXdr?.toXDR('base64') ?? null
-    error.tx = submitResult.envelopeXdr?.toXDR('base64') ?? txXdr
+    error.meta = submitResult.resultMetaXdr?.toXdr('base64') ?? null
+    error.tx = submitResult.envelopeXdr?.toXdr('base64') ?? txXdr
     error.latestLedgerCloseTime = submitResult.latestLedgerCloseTime
     error.code = code
     error.errorName = errorName ?? submitResult.status
@@ -86,7 +87,7 @@ async function submitTransaction(network, sorobanRpc, pendingTx, signatures, run
 
     logger.debug({msg: 'Submitting transaction', ...runnerInfo, account: pendingTx.transaction.source, sequence: pendingTx.transaction.sequence, fee: pendingTx.transaction.fee, maxTime, currentTime: currentTimeInSeconds, hash})
 
-    const txXdr = pendingTx.transaction.toXDR() //Get the raw XDR for the transaction to avoid modifying the transaction object
+    const txXdr = pendingTx.transaction.toXdr() //Get the raw XDR for the transaction to avoid modifying the transaction object
     const tx = new Transaction(txXdr, network) //Create a new transaction object from the XDR
 
     function processResponse(response) {

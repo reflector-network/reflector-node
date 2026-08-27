@@ -67,7 +67,7 @@ class SubscriptionsSyncData {
      * @param {Keypair} keypair - keypair to sign the data
      */
     sign(keypair) {
-        const signature = keypair.sign(this.hash).toString('base64')
+        const signature = Buffer.from(keypair.sign(this.hash)).toString('base64')
         this.tryAddSignature([{pubkey: keypair.publicKey(), signature}], true)
     }
 

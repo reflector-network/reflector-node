@@ -70,7 +70,7 @@ describe('HandshakeResponseHandler', () => {
     })
 
     test('valid signature calls validated', () => {
-        const signature = keypair.sign(Buffer.from(channel.authPayload)).toString('hex')
+        const signature = Buffer.from(keypair.sign(Buffer.from(channel.authPayload))).toString('hex')
         handler.handle(channel, {data: {signature}})
 
         expect(channel.validated).toHaveBeenCalled()
@@ -188,11 +188,11 @@ describe('SignaturesHandler', () => {
 
     beforeEach(() => {
         jest.resetModules()
-        const decoratedSignature = {signature: jest.fn(() => Buffer.from('signature'))}
+        const decoratedSignature = {signature: Buffer.from('signature')}
         starSdkMock = {
             xdr: {
                 DecoratedSignature: {
-                    fromXDR: jest.fn(() => decoratedSignature)
+                    fromXdr: jest.fn(() => decoratedSignature)
                 }
             },
             Keypair: {

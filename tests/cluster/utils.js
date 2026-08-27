@@ -61,7 +61,7 @@ async function deployContract(server, deployer, contractType, salt, network) {
     tx.sign(deployerKeypair)
 
     let response = await sendTransaction(server, tx)
-    const hash = response.returnValue.toXDR('hex').slice(16)
+    const hash = response.returnValue.toXdr('hex').slice(16)
 
     txBuilder = new TransactionBuilder(account, {fee: 1000000, networkPassphrase: constants.networks[network].network})
         .setTimeout(30000)
@@ -87,7 +87,7 @@ async function deployContract(server, deployer, contractType, salt, network) {
     tx.sign(deployerKeypair)
 
     response =  await sendTransaction(server, tx)
-    const contractId = Address.contract(response.returnValue.address().contractId()).toString()
+    const contractId = Address.contract(response.returnValue.address.contractId.toBytes()).toString()
 
     return contractId
 }
@@ -116,7 +116,7 @@ async function generateAssetContract(server, asset, admin, network) {
     tx.sign(adminKeypair)
 
     const response = await sendTransaction(server, tx)
-    const assetContractId = Address.contract(response.returnValue.value().value()).toString()
+    const assetContractId = Address.contract(response.returnValue.value.value.toBytes()).toString()
     return assetContractId
 }
 

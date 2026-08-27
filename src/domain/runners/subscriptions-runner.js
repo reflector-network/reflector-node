@@ -194,7 +194,7 @@ class SubscriptionsRunner extends RunnerBase {
                     event: event.update,
                     root
                 }
-                const signature = container.settingsManager.appConfig.keypair.sign(JSON.stringify(sortObjectKeys(update))).toString('base64')
+                const signature = Buffer.from(container.settingsManager.appConfig.keypair.sign(Buffer.from(JSON.stringify(sortObjectKeys(update))))).toString('base64')
                 //delete fields that can be restored by the gateway
                 delete update.events
                 delete update.root
