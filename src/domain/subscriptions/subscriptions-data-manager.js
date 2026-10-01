@@ -1,4 +1,4 @@
-const {getSubscriptions, Asset, AssetType, getSubscriptionsContractState} = require('@reflector/reflector-shared')
+const {getSubscriptions, Asset, AssetType, getSubscriptionsContractState, compareStrings} = require('@reflector/reflector-shared')
 const {scValToNative} = require('@stellar/stellar-sdk')
 const {getLastContractEvents, getEventsLedgerInfo} = require('../../utils/rpc-helper')
 const {decrypt} = require('../../utils/crypto-helper')
@@ -6,6 +6,7 @@ const {validateWebhookUrl} = require('../../utils/ssrf-validator')
 const logger = require('../../logger')
 const container = require('../container')
 const dataSourceManager = require('../data-sources-manager')
+const {maxVolumeDigits} = require('../prices/price-sync-validator')
 const PendingSyncDataCache = require('./pending-notifications-cache')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
@@ -142,8 +143,14 @@ const minSyncDataEntries = 4096
 const maxSyncDataSignatures = 128
 const maxSignatureLength = 128 //base64 of a 64-byte ed25519 signature is 88 characters; 128 leaves room and bounds the string
 const pubkeyLength = 56 //ed25519 strkey
-const decimalPattern = /^(0|[1-9][0-9]{0,39})$/
-const pricePattern = /^(0|[1-9][0-9]*)$/
+const idPattern = /^(0|[1-9][0-9]{0,39})$/ //a subscription id is a u64, at most 20 digits
+//lastPrice is the pair price an honest node computed, so its bound follows the volume bound the price sync accepts:
+//getVWAP scales a volume by 10^decimals and calcCrossPrice scales the result by 10^decimals again, so a price runs
+//up to 2 x decimals digits past the longest volume - 1028 digits at the default 14. The margin covers two scalings
+//at up to 50 decimals. A lower bound rejects every honest node's SYNC item for a contract as soon as one
+//subscription prices a long-volume token, which freezes sync and fires every subscription by heartbeat
+const maxPriceDigits = maxVolumeDigits + 100
+const pricePattern = new RegExp(`^(0|[1-9][0-9]{0,${maxPriceDigits - 1}})$`)
 const maxSyncDataLookahead = 60 * 1000 //one subscriptions timeframe
 
 /**
@@ -169,7 +176,7 @@ function parseRawSyncData(rawSyncData, maxEntries) {
         throw new Error(`syncData holds more than ${maxEntries} entries`)
     const normalizedSyncData = {}
     for (const id of ids) {
-        if (!decimalPattern.test(id))
+        if (!idPattern.test(id))
             throw new Error('syncData key must be a decimal subscription id')
         const entry = syncData[id]
         if (!entry || typeof entry !== 'object' || Array.isArray(entry))
@@ -468,7 +475,7 @@ function addManager(contractId) {
  */
 function getAllSubscriptions() {
     const allSubscriptions = [...subscriptionManager.values()]
-        .sort((a, b) => a.contractId.localeCompare(b.contractId))
+        .sort((a, b) => compareStrings(a.contractId, b.contractId)) //code-unit order, never the process locale
         .map(x => x.subscriptions)
         .flat()
     return allSubscriptions

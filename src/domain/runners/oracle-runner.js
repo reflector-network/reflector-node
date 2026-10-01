@@ -8,8 +8,7 @@ const {getPriceDiff} = require('../../utils/price-utils')
 const RunnerBase = require('./runner-base')
 
 const DEFAULT_CACHE_SIZE = 3
-//Cache keeps up to 255 most-recent on-chain price entries; entries older than
-//MAX_PRICES_CACHE_SIZE * timeframe are pruned by __loadPriceUpdateHistory.
+//the contract keeps at most 255 price updates, so the history window is at most 255 timeframes
 const MAX_PRICES_CACHE_SIZE = 255
 
 class OracleRunner extends RunnerBase {
@@ -20,7 +19,9 @@ class OracleRunner extends RunnerBase {
         this.__oracleType = type
     }
 
-    __pricesCache = new Map()
+    __lastLoadedEntries = new Map()
+
+    __historyLoadFailed = false
 
     async __workerFn(timestamp) {
         const contractConfig = this.__getCurrentContract()
@@ -56,7 +57,11 @@ class OracleRunner extends RunnerBase {
             this.__contractType
         )
         settingsManager.setAssetExpiration(this.contractId, contractState.expiration)
-        const assets = settingsManager.getAssets(this.contractId)
+        const assets = settingsManager.getAssets(this.contractId, timestamp)
+        //evaluated once, so the skip log below reports exactly what the guard saw; __isTxExpired reads the clock
+        const timestampValid = isTimestampValid(timestamp, timeframe)
+        const txExpired = this.__isTxExpired(timestamp, this.__delay)
+        const activeAssets = assets.filter(a => !!a).length
 
         let updateTxBuilder = null
         if (!contractState.isInitialized) {
@@ -71,10 +76,10 @@ class OracleRunner extends RunnerBase {
                 cacheSize: contractConfig.cacheSize ?? DEFAULT_CACHE_SIZE,
                 protocol
             })
-        } else if (isTimestampValid(timestamp, timeframe)
+        } else if (timestampValid
             && contractState.lastTimestamp < timestamp
-            && !this.__isTxExpired(timestamp, this.__delay)
-            && assets.some(a => !!a)) {
+            && !txExpired
+            && activeAssets > 0) {
 
             const prices = await this.__getPricesToUpdate(
                 await getPricesForContract(this.contractId, timestamp),
@@ -101,7 +106,16 @@ class OracleRunner extends RunnerBase {
                 protocol
             })
         } else {
-            //nothing to do
+            //name the guard that stopped the update; a silent skip here would be indistinguishable from a healthy idle tick
+            logger.debug({
+                msg: 'No oracle update for this tick',
+                ...this.__contractInfo,
+                timestamp,
+                timestampValid,
+                lastTimestamp: Number(contractState.lastTimestamp),
+                txExpired,
+                activeAssets
+            })
             return false
         }
 
@@ -117,44 +131,46 @@ class OracleRunner extends RunnerBase {
     }
 
     /**
-     *
+     * Applies the heartbeat fill-in and the per-asset threshold to the fetched prices. Both decisions read only the
+     * entries this tick loaded from the chain, never per-process state, so every honest node reaches the same payload.
      * @param {bigint[]} prices - Array of fetched prices
-     * @param {bigint} timestamp - Current timestamp
+     * @param {number} timestamp - Current timestamp
      * @param {number} heartbeat - Heartbeat interval
      * @param {number} timeframe - Timeframe for price updates
      * @param {Asset[]} assets - Array of assets
      * @returns {Promise<bigint[]>} - Updated prices
+     * @throws {Error} when this tick's history load failed, so the node abstains
      */
     async __getPricesToUpdate(prices, timestamp, heartbeat, timeframe, assets) {
         if (this.__oracleType === ContractTypes.ORACLE)
             return prices
 
-        await this.__loadPriceUpdateHistory(timestamp, timeframe)
-        const descOrderedTimestamps = [...this.__pricesCache.keys()].sort((a, b) => a > b ? -1 : a < b ? 1 : 0)
+        await this.__loadPriceUpdateHistory(timestamp, timeframe, heartbeat)
+        //no reference this tick: abstain rather than sign a payload the nodes that could read the history will not
+        if (this.__historyLoadFailed)
+            throw new Error('Price history load failed; abstaining from this tick')
+        const lastPrices = this.__getLastOnChainPrices(assets.length)
+        //read from this tick's load only: when the chain drops an entry newer than the boundary while an older one
+        //survives (a lowered period shortens the TTL of later writes), a node that remembered it would take the threshold
+        //branch while a restarted node takes the heartbeat branch - two payloads
+        const descOrderedTimestamps = [...this.__lastLoadedEntries.keys()].sort((a, b) => a > b ? -1 : a < b ? 1 : 0)
         //Heartbeat retry: publish a heartbeat-style update as soon as we notice a
         //gap past the most recent heartbeat boundary, not only at the boundary tick.
-        //An empty cache (fresh restart + dormant contract) also counts as a gap.
-        const mostRecentCached = descOrderedTimestamps[0]
-        const isHeartbeatUpdate = mostRecentCached === undefined || mostRecentCached < normalizeTimestamp(timestamp, heartbeat)
-        logger.trace({msg: 'Checking price updates', contract: this.contractId, timestamp, isHeartbeatUpdate, heartbeat, mostRecentCached})
+        //An empty load (nothing on chain within the window) also counts as a gap.
+        const mostRecentLoaded = descOrderedTimestamps[0]
+        const isHeartbeatUpdate = mostRecentLoaded === undefined || mostRecentLoaded < normalizeTimestamp(timestamp, heartbeat)
+        logger.trace({msg: 'Checking price updates', contract: this.contractId, timestamp, isHeartbeatUpdate, heartbeat, mostRecentLoaded})
 
-        const getLastPrice = (assetIndex) => {
-            for (const ts of descOrderedTimestamps) {
-                const price = this.__pricesCache.get(ts)?.[assetIndex]
-                if (price)
-                    return price
-            }
-        }
         for (let assetIndex = 0; assetIndex < assets.length; assetIndex++) {
             if (!assets[assetIndex]) //asset is not active
                 continue
             if (isHeartbeatUpdate) { //current price or prev price (fall back to 0n so the filter below stays honest)
-                prices[assetIndex] = prices[assetIndex] || getLastPrice(assetIndex) || 0n
+                prices[assetIndex] = prices[assetIndex] || lastPrices[assetIndex]?.price || 0n
                 continue
             }
             if (!prices[assetIndex])
                 continue //we can't calc diff if no price present
-            const lastPrice = getLastPrice(assetIndex)
+            const lastPrice = lastPrices[assetIndex]?.price
             if (!lastPrice)
                 continue //we can't calc diff if no last price present
 
@@ -167,16 +183,31 @@ class OracleRunner extends RunnerBase {
         return prices
     }
 
-    async __loadPriceUpdateHistory(timestamp, timeframe) {
+    /**
+     * Loads this tick's on-chain price updates over the history window. The whole window is requested every tick and
+     * nothing is kept from earlier ticks, so a freshly restarted node and a long-running node decide the per-asset
+     * threshold and the heartbeat from the same entries.
+     * @param {number} timestamp - tick timestamp
+     * @param {number} timeframe - contract timeframe in milliseconds
+     * @param {number} heartbeat - configured price heartbeat in milliseconds
+     * @returns {Promise<void>}
+     */
+    async __loadPriceUpdateHistory(timestamp, timeframe, heartbeat) {
+        this.__historyLoadFailed = false //set again below only if this tick's load fails
+        //the contract keeps at most MAX_PRICES_CACHE_SIZE updates, so a heartbeat longer than that many timeframes is clamped.
+        //The effective heartbeat is therefore min(heartbeat, 255 timeframes): an entry older than the window is invisible
+        //to every node alike, so all of them take the heartbeat branch together - deterministic, but shorter than configured
+        const historyWindow = Math.min(heartbeat, MAX_PRICES_CACHE_SIZE * timeframe)
+        //the reference window is requested in full on every tick, so a long-running node and a restarted node compare
+        //against the same entries and decide the threshold alike
+        const referenceDepth = Math.min(MAX_PRICES_CACHE_SIZE, Math.ceil(historyWindow / timeframe))
         let currentChunk = []
         const timestampsToLoad = [currentChunk]
-        const lowerTimestamp = timestamp - 1000 * 60 * 60 * 2 //2 hours
-        for (let i = 1; i < MAX_PRICES_CACHE_SIZE; i++) {
-            const ts = timestamp - i * timeframe
-            currentChunk.push({key: ts, type: 'u64', persistent: false})
-            if (this.__pricesCache.has(ts) || ts < lowerTimestamp)
-                break
-            if (currentChunk.length === 200) { //split to batches of 200, because of rpc limits on number of entries to load in one request
+        for (let i = 1; i <= referenceDepth; i++) {
+            currentChunk.push({key: timestamp - i * timeframe, type: 'u64', persistent: false})
+            //split to batches of 200, because of rpc limits on number of entries to load in one request;
+            //no batch is opened after the last key, so the rpc never receives an empty request
+            if (currentChunk.length === 200 && i < referenceDepth) {
                 currentChunk = []
                 timestampsToLoad.push(currentChunk)
             }
@@ -193,9 +224,10 @@ class OracleRunner extends RunnerBase {
                 entries = {...entries, ...chunkEntries}
             }
         } catch (err) {
-            //swallow so the eviction below still runs — stale cache from before a long
-            //RPC outage would otherwise linger and diverge between healthy and failed nodes
-            logger.warn({msg: 'Failed to load price update history from RPC; proceeding to eviction', err, contract: this.contractId})
+            //this node has no reference this tick, and publishing without one would sign a different payload from the
+            //nodes that have it, so __getPricesToUpdate abstains
+            logger.warn({msg: 'Failed to load price update history from RPC; this node abstains from the tick', err, contract: this.contractId})
+            this.__historyLoadFailed = true
             entries = {}
         }
 
@@ -221,21 +253,31 @@ class OracleRunner extends RunnerBase {
 
             return prices
         }
-        //update prices cache
-        for (const [key, value] of Object.entries(entries)) {
-            const prices = restorePricesFromUpdate(value)
-            this.__pricesCache.set(Number(key), prices)
-        }
+        //record exactly what this tick loaded; the reference and the heartbeat decision are read from this set only, so
+        //two nodes with different uptimes reach the same payload
+        this.__lastLoadedEntries = new Map(Object.entries(entries).map(([key, value]) => [Number(key), restorePricesFromUpdate(value)]))
+    }
 
-        //remove stale entries — anything older than MAX_PRICES_CACHE_SIZE timeframes.
-        //Age-based eviction (not size-based) so stale cache from before a long
-        //dormancy can't linger in memory and diverge between restarted/non-restarted
-        //nodes.
-        const minAllowedTimestamp = timestamp - MAX_PRICES_CACHE_SIZE * timeframe
-        for (const ts of this.__pricesCache.keys()) {
-            if (ts < minAllowedTimestamp)
-                this.__pricesCache.delete(ts)
+    /**
+     * The most recent non-zero on-chain price per asset index, taken from the entries this tick loaded from the
+     * chain, never from anything an earlier tick loaded: two nodes with different uptimes must decide the threshold alike.
+     * @param {number} assetsLength - number of assets configured for the contract
+     * @returns {Array<{price: bigint, timestamp: number}|null>}
+     */
+    __getLastOnChainPrices(assetsLength) {
+        const result = Array(assetsLength).fill(null)
+        const loaded = this.__lastLoadedEntries || new Map()
+        for (const ts of [...loaded.keys()].sort((a, b) => a > b ? -1 : a < b ? 1 : 0)) {
+            const prices = loaded.get(ts)
+            for (let i = 0; i < assetsLength; i++) {
+                if (result[i])
+                    continue
+                const price = prices?.[i]
+                if (price)
+                    result[i] = {price, timestamp: ts}
+            }
         }
+        return result
     }
 
     get __timeframe() {

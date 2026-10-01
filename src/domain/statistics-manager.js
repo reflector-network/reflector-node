@@ -151,7 +151,10 @@ class StatisticsManager {
         } catch (err) {
             logger.error({err, msg: 'Metrics worker error'})
         } finally {
-            setTimeout(() => this.__metricsWorker(), 60000)
+            //unref: a running node is kept alive by its servers and sockets, not by this housekeeping timer, and an
+            //armed ref'd timer only stops a test process from exiting
+            this.__metricsTimeout = setTimeout(() => this.__metricsWorker(), 60000)
+            this.__metricsTimeout.unref()
         }
     }
 

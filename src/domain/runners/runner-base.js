@@ -247,9 +247,18 @@ class RunnerBase {
         throw new Error('Not implemented')
     }
 
+    /**
+     * @param {number} timestamp - target tick timestamp
+     * @returns {number} milliseconds until the worker should run
+     */
     __getWorkerTimeout(timestamp) {
-        let timeout = timestamp - Date.now()
-        timeout += this.__delay
+        const timeout = timestamp - Date.now() + this.__delay
+        if (!Number.isFinite(timeout)) {
+            //a non-finite delay reaches setTimeout as 1 ms and re-enters the worker about once per millisecond
+            //(as the orchestrator guards its own timers). Fall back to one timeframe, never to 1.
+            logger.error({msg: 'Non-finite worker timeout; falling back to one timeframe', ...this.__contractInfo, timestamp, delay: this.__delay})
+            return this.__timeframe
+        }
         return timeout
     }
 

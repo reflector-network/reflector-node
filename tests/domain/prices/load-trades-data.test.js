@@ -2,6 +2,9 @@
 const {Asset} = require('@reflector/reflector-shared')
 const AssetsMap = require('../../../src/domain/prices/assets-map')
 const TradesManager = require('../../../src/domain/prices/trades-manager')
+const {stopTradesManagersAfterEach} = require('../../helpers/stop-trades-managers')
+
+stopTradesManagersAfterEach(TradesManager)
 
 function makeAssetsMap(source, baseCode, assetCodes) {
     return new AssetsMap(source, new Asset(2, baseCode), assetCodes.map(c => new Asset(2, c)))
@@ -154,5 +157,98 @@ describe('__loadDataForAssetMap', () => {
 
         expect(manager.loadTradesDataForSource).toHaveBeenCalledTimes(3)
         expect(manager.loadTradesDataForSource).toHaveBeenLastCalledWith(map3)
+    })
+})
+
+describe('loadTradesData', () => {
+    test('evaluates asset expiry at the tick timestamp it was given', () => {
+        const container = require('../../../src/domain/container')
+        const {Asset, ContractTypes} = require('@reflector/reflector-shared')
+        const original = container.settingsManager
+        const getAssets = jest.fn(() => [new Asset(2, 'BTC')])
+        container.settingsManager = {
+            config: {
+                contracts: new Map([['contract1', {
+                    type: ContractTypes.ORACLE,
+                    contractId: 'contract1',
+                    dataSource: 'exchanges',
+                    baseAsset: new Asset(2, 'USD')
+                }]])
+            },
+            getAssets
+        }
+        jest.useFakeTimers() //the TradesManager constructor starts a cleanup timer
+        const tm = new TradesManager()
+        tm.__loadDataForAssetMap = jest.fn()
+        try {
+            tm.loadTradesData(7 * 60 * 1000)
+        } finally {
+            container.settingsManager = original
+            jest.clearAllTimers()
+            jest.useRealTimers()
+        }
+        expect(getAssets).toHaveBeenCalledWith('contract1', 7 * 60 * 1000)
+        expect(tm.__loadDataForAssetMap).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('the local key list once expiry is evaluated at a tick', () => {
+    const minute = 60 * 1000
+    const self = 'self-node'
+    const peer = 'peer-a'
+
+    /**
+     * @returns {object} a settings manager with one oracle on exchanges/USD whose only asset is expired, and whose
+     * getAssets throws unless it is given an integer timestamp, as SettingsManager.getAssets does after Step 3
+     */
+    function makeSettings() {
+        const {Asset, ContractTypes} = require('@reflector/reflector-shared')
+        const nodes = new Map([[self, {pubkey: self}], [peer, {pubkey: peer}]])
+        return {
+            appConfig: {publicKey: self, dbSyncDelay: 0},
+            config: {
+                nodes,
+                contracts: new Map([['oracle', {contractId: 'oracle', type: ContractTypes.ORACLE, dataSource: 'exchanges', baseAsset: new Asset(2, 'USD')}]])
+            },
+            nodes,
+            getPriceHeartbeat: () => 2 * 60 * minute,
+            getAssets: jest.fn((contractId, timestamp) => {
+                if (!Number.isInteger(timestamp))
+                    throw new Error('Timestamp is required to evaluate asset expiration')
+                return [null]
+            })
+        }
+    }
+
+    test('a peer item for a key this node reads opens its sync entry on arrival, and nothing is logged as an error', () => {
+        const container = require('../../../src/domain/container')
+        const logger = require('../../../src/logger')
+        const now = 100_000 * minute
+        const ts = now - minute
+        const original = container.settingsManager
+        container.settingsManager = makeSettings()
+        logger.error.mockClear()
+        jest.useFakeTimers({now})
+        try {
+            const tm = new TradesManager()
+            tm.addSyncData(peer, {
+                exchanges_USD: {
+                    [ts]: {
+                        assetsMap: {source: 'exchanges', baseAsset: {type: 2, code: 'USD'}, assets: [{type: 2, code: 'BTC'}]},
+                        trades: [[{volume: '1', quoteVolume: '2', source: 'binance'}]]
+                    }
+                }
+            })
+
+            expect(logger.error).not.toHaveBeenCalled()
+            expect(logger.error).not.toHaveBeenCalledWith(expect.objectContaining({msg: 'Failed to build the local cache keys'}))
+            expect(container.settingsManager.getAssets).toHaveBeenCalledWith('oracle', now)
+            //the contract's only asset is expired and its key is still read: expiry empties a map, it never drops a key
+            expect(tm.__timestamps.get(ts).get('exchanges_USD')).toBeDefined()
+        } finally {
+            container.settingsManager = original
+            jest.clearAllTimers()
+            jest.useRealTimers()
+        }
     })
 })

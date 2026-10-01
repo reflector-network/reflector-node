@@ -254,29 +254,50 @@ class SettingsManager {
     }
 
     /**
+     * Returns the contract assets, with every asset that has expired at the tick timestamp replaced by null.
+     * Expiry is a consensus input, so it is evaluated at the agreed tick timestamp and never at the local clock.
      * @param {string} contractId - contract id
-     * @returns {Asset[]}
+     * @param {number} timestamp - tick timestamp in milliseconds
+     * @returns {Array<Asset|null>}
      */
-    getAssets(contractId) {
+    getAssets(contractId, timestamp) {
+        //isInteger, not isFinite: Number.isFinite(1.5) is true and BigInt(1.5) throws a RangeError four lines down,
+        //and this guard exists precisely to catch a caller that got the timestamp wrong
+        if (!Number.isInteger(timestamp))
+            throw new Error('Timestamp is required to evaluate asset expiration')
         const assets = [...__getContractConfig(this.config, contractId).assets]
-        //set null for expired assets
-        const assetExpiration = this.__assetExpiration.get(contractId) || assets.map(() => BigInt(0))
-        const now = BigInt(Date.now())
-        for (let i = 0; i < assetExpiration.length; i++)
-            if (now > assetExpiration[i]) //asset is expired
+        const assetExpiration = this.__assetExpiration.get(contractId)
+        if (!assetExpiration) //no expiration information for this contract yet - nothing is expired
+            return assets
+        const tick = BigInt(timestamp)
+        const count = Math.min(assetExpiration.length, assets.length)
+        for (let i = 0; i < count; i++) {
+            const expiration = assetExpiration[i]
+            //Only a missing index is unknown, and unknown is active. An explicit 0 is NOT "never expires": the contract
+            //writes 0 for a feed nobody has paid for (beam starts every feed at 0 until track() raises it), extend_ttl
+            //treats 0 exactly like a lapsed value, and the contract's own never-expires marker is DISTANT_FUTURE. So 0
+            //goes through the comparison below and is expired at any positive tick
+            if (expiration === undefined)
+                continue
+            if (tick > expiration)
                 assets[i] = null
+        }
         return assets
     }
 
     /**
      * @param {string} contractId - contract id
-     * @param {BigInt[]} expiration - asset expirations
+     * @param {BigInt[]} expiration - asset expirations read from the contract instance
      */
     setAssetExpiration(contractId, expiration) {
         if (!contractId)
             throw new Error('Contract id is required')
-        if (!expiration || !Array.isArray(expiration))
+        if (expiration === undefined || expiration === null)
             return
+        if (!Array.isArray(expiration)) {
+            logger.warn({msg: 'Contract asset expiration is not an array; assets stay active', contract: contractId, expirationType: typeof expiration})
+            return
+        }
         this.__assetExpiration.set(contractId, expiration)
     }
 

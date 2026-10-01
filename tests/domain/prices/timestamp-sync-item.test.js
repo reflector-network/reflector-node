@@ -50,13 +50,18 @@ describe('TimestampSyncItem timing', () => {
             jest.useFakeTimers()
             jest.spyOn(logger, 'warn').mockImplementation(() => {})
             jest.spyOn(logger, 'trace').mockImplementation(() => {})
+            //the logger is the setup file's shared mock, so spyOn hands back that same jest.fn with every call earlier
+            //tests made through it, and restoreAllMocks does not clear them
+            logger.warn.mockClear()
             nodesManager.getConnectedNodes.mockReturnValue([])
         })
 
         afterEach(() => {
             jest.clearAllTimers()
-            jest.useRealTimers()
+            //restore before leaving fake timers: restoring a setTimeout spy afterwards reinstalls the fake setTimeout
+            //it wrapped
             jest.restoreAllMocks()
+            jest.useRealTimers()
         })
 
         test('warns with missing peers on timeout', async () => {
@@ -96,6 +101,43 @@ describe('TimestampSyncItem timing', () => {
             await item.readyPromise
 
             expect(logger.warn).not.toHaveBeenCalled()
+        })
+
+        test('a NaN maxTime does not collapse the timeout to 1 ms', () => {
+            jest.useFakeTimers()
+            const item = new TimestampSyncItem('exchanges_USD', 60000, NaN)
+
+            jest.advanceTimersByTime(10)
+            expect(item.isProcessed).toBe(false)
+
+            jest.advanceTimersByTime(25 * 1000)
+            expect(item.isProcessed).toBe(true)
+        })
+
+        test('a deadline already past fires at once without handing setTimeout a negative delay', () => {
+            jest.useFakeTimers({now: 10 * 60000})
+            const spy = jest.spyOn(global, 'setTimeout')
+            //a peer's backfill for a minute whose sync window closed 35 s ago
+            const item = new TimestampSyncItem('exchanges_USD', 9 * 60000, 9 * 60000 + 25_000)
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            //Node prints a TimeoutNegativeWarning for a negative delay and then uses 1 ms anyway
+            expect(spy.mock.calls[0][1]).toBe(1)
+            jest.advanceTimersByTime(1)
+            expect(item.isProcessed).toBe(true)
+        })
+
+        test('a deadline past the timer range waits the longest delay instead of 1 ms', () => {
+            jest.useFakeTimers({now: 10 * 60000})
+            const spy = jest.spyOn(global, 'setTimeout')
+            //an operator dbSyncDelay of about 24.9 days puts the deadline past 2^31 - 1 ms
+            const item = new TimestampSyncItem('exchanges_USD', 10 * 60000, 10 * 60000 + 2 ** 31 + 1000)
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            //Node prints a TimeoutOverflowWarning for a longer delay and then uses 1 ms
+            expect(spy.mock.calls[0][1]).toBe(2_147_483_647)
+            jest.advanceTimersByTime(60000)
+            expect(item.isProcessed).toBe(false)
         })
     })
 })

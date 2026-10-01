@@ -5,8 +5,6 @@ const OracleRunner = require('../../../src/domain/runners/oracle-runner')
 const CONTRACT_ID = 'CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN'
 const TIMEFRAME_5M = 5 * 60 * 1000
 const HEARTBEAT_2H = 2 * 60 * 60 * 1000
-const MAX_CACHE_TIMEFRAMES = 255
-const CACHE_MAX_AGE_MS = MAX_CACHE_TIMEFRAMES * TIMEFRAME_5M
 
 const ASSET_COUNT = 10
 
@@ -20,17 +18,19 @@ function makeAssets(count = ASSET_COUNT) {
 
 /**
  * Builds an OracleRunner with __loadPriceUpdateHistory stubbed, so tests
- * don't touch the RPC/container layer. Cache state is populated directly.
+ * don't touch the RPC/container layer. The loaded entries are populated directly.
+ * The entries go into __lastLoadedEntries, which the heartbeat decision and the per-asset reference both read.
  * @param {Object} [opts]
  * @param {string} [opts.type] Contract type. Defaults to ORACLE_BEAM.
- * @param {Array<[number, bigint[]]>} [opts.cache] Initial cache entries.
+ * @param {Array<[number, bigint[]]>} [opts.cache] Entries this tick loaded.
  * @returns {OracleRunner}
  */
 function makeRunner({type = ContractTypes.ORACLE_BEAM, cache = []} = {}) {
     const runner = new OracleRunner(CONTRACT_ID, type)
     runner.__loadPriceUpdateHistory = async () => {}
-    for (const [ts, prices] of cache)
-        runner.__pricesCache.set(ts, prices)
+    for (const [ts, prices] of cache) {
+        runner.__lastLoadedEntries.set(ts, prices)
+    }
     return runner
 }
 
@@ -307,81 +307,6 @@ describe('OracleRunner', () => {
                 )
                 expect(outA).toEqual(outB)
             })
-        })
-    })
-
-    describe('__loadPriceUpdateHistory', () => {
-        /**
-         * Runs the load/evict pass with the RPC path short-circuited. The
-         * helper swallows the URL error internally, so the eviction step
-         * still runs over an empty entries map — which is the only pass
-         * these tests exercise.
-         * @param {OracleRunner} runner
-         * @param {number} timestamp
-         * @param {number} timeframe
-         * @returns {Promise<void>}
-         */
-        async function runEviction(runner, timestamp, timeframe) {
-            const container = require('../../../src/domain/container')
-            const originalSettings = container.settingsManager
-            container.settingsManager = {
-                getBlockchainConnectorSettings: () => ({sorobanRpc: ['noop']})
-            }
-            const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-            try {
-                await runner.__loadPriceUpdateHistory(timestamp, timeframe)
-            } finally {
-                container.settingsManager = originalSettings
-                errSpy.mockRestore()
-            }
-        }
-
-        test('evicts entries older than MAX_PRICES_CACHE_SIZE timeframes', async () => {
-            const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)
-            const now = 10_000_000_000
-            runner.__pricesCache.set(now - CACHE_MAX_AGE_MS - TIMEFRAME_5M, []) //just outside
-            runner.__pricesCache.set(now - CACHE_MAX_AGE_MS + TIMEFRAME_5M, []) //just inside
-            runner.__pricesCache.set(now - TIMEFRAME_5M, []) //recent
-
-            await runEviction(runner, now, TIMEFRAME_5M)
-
-            const keys = [...runner.__pricesCache.keys()].sort((a, b) => a - b)
-            expect(keys).toEqual([
-                now - CACHE_MAX_AGE_MS + TIMEFRAME_5M,
-                now - TIMEFRAME_5M
-            ])
-        })
-
-        test('keeps entries exactly on the age boundary', async () => {
-            const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)
-            const now = 10_000_000_000
-            runner.__pricesCache.set(now - CACHE_MAX_AGE_MS, []) //exactly at the edge
-
-            await runEviction(runner, now, TIMEFRAME_5M)
-
-            expect(runner.__pricesCache.has(now - CACHE_MAX_AGE_MS)).toBe(true)
-        })
-
-        test('fully clears cache when every entry is older than the age window', async () => {
-            const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)
-            const now = 10_000_000_000
-            runner.__pricesCache.set(now - 10 * CACHE_MAX_AGE_MS, [])
-            runner.__pricesCache.set(now - 5 * CACHE_MAX_AGE_MS, [])
-
-            await runEviction(runner, now, TIMEFRAME_5M)
-
-            expect(runner.__pricesCache.size).toBe(0)
-        })
-
-        test('leaves a fully-fresh cache untouched', async () => {
-            const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)
-            const now = 10_000_000_000
-            runner.__pricesCache.set(now - TIMEFRAME_5M, [])
-            runner.__pricesCache.set(now - 2 * TIMEFRAME_5M, [])
-
-            await runEviction(runner, now, TIMEFRAME_5M)
-
-            expect(runner.__pricesCache.size).toBe(2)
         })
     })
 })

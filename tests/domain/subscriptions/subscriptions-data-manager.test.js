@@ -35,7 +35,8 @@ jest.mock('@reflector/reflector-shared', () => ({
     getSubscriptions: jest.fn(),
     getSubscriptionsContractState: jest.fn(),
     Asset: jest.fn().mockImplementation((type, code) => ({type, code, isContractId: false})),
-    AssetType: {STELLAR: 'stellar', OTHER: 'other'}
+    AssetType: {STELLAR: 'stellar', OTHER: 'other'},
+    compareStrings: (a, b) => (a < b ? -1 : (a > b ? 1 : 0))
 }))
 
 //Identity-map scValToNative so our plain-JS event topics/values flow through unchanged.
@@ -592,7 +593,7 @@ describe('module registry (addManager / getManager / removeManager / getAllSubsc
         expect(getManager('cA')).toBeUndefined()
     })
 
-    test('getAllSubscriptions sorts managers by contractId.localeCompare and flattens', () => {
+    test('getAllSubscriptions sorts managers by contractId in code-unit order and flattens', () => {
         const mgrB = addManager('cB')
         const mgrA = addManager('cA')
         mgrA.__subscriptions.set(2n, {id: 2n, tag: 'A2'})
@@ -601,6 +602,23 @@ describe('module registry (addManager / getManager / removeManager / getAllSubsc
         const all = getAllSubscriptions()
         //cA sorts before cB; within each manager, ids sort ascending.
         expect(all.map(s => s.tag)).toEqual(['A1', 'A2', 'B1'])
+    })
+
+    test('getAllSubscriptions orders contractId by code unit, not locale collation', () => {
+        //code-unit: 'B' (U+0042) sorts before 'a' (U+0061); the en locale collates case-insensitively
+        //and would reverse it, so this fixture only passes under a genuine code-unit comparator
+        expect('B'.localeCompare('a')).toBe(1)
+        const mgrLower = addManager('a1')
+        const mgrUpper = addManager('B1')
+        mgrLower.__subscriptions.set(1n, {id: 1n, tag: 'lower'})
+        mgrUpper.__subscriptions.set(1n, {id: 1n, tag: 'upper'})
+        try {
+            const all = getAllSubscriptions()
+            expect(all.map(s => s.tag)).toEqual(['upper', 'lower'])
+        } finally {
+            removeManager('a1')
+            removeManager('B1')
+        }
     })
 })
 
@@ -688,6 +706,52 @@ describe('trySetRawSyncData payload shape', () => {
         const manager = new SubscriptionContractManager('contract-1')
         const payload = goodPayload()
         payload.signatures = [{pubkey: signerPubkey, signature: 'c'.repeat(129)}]
+
+        await manager.trySetRawSyncData(payload)
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+    })
+
+    /**
+     * @param {string} lastPrice - lastPrice of the only entry
+     * @returns {object} a well-formed raw SYNC payload carrying that price
+     */
+    function payloadWithPrice(lastPrice) {
+        const payload = goodPayload()
+        payload.data.syncData['7'].lastPrice = lastPrice
+        return payload
+    }
+
+    test.each([
+        //getVWAP(10^100, 10^20, 14): a public subscriber can make honest volumes this long on pubnet
+        ['a 95-digit price', 95],
+        ['a 120-digit price', 120],
+        //the volume bound is 1000 digits; getVWAP and calcCrossPrice each scale by 10^decimals on top of it
+        ['a price of 1028 digits, the largest volume the price sync accepts restated twice at 14 decimals', 1028],
+        ['a price at the 1100-digit bound', 1100]
+    ])('accepts %s', async (_, digits) => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const lastPrice = '9'.repeat(digits)
+
+        await manager.trySetRawSyncData(payloadWithPrice(lastPrice))
+
+        expect(SubscriptionsSyncData).toHaveBeenCalledTimes(1)
+        expect(SubscriptionsSyncData.mock.calls[0][0].syncData['7'].lastPrice).toBe(lastPrice)
+    })
+
+    test('rejects a price one digit past the 1100-digit bound', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+
+        await manager.trySetRawSyncData(payloadWithPrice('9'.repeat(1101)))
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+        expect(manager.lastSyncData).toBeNull()
+    })
+
+    test('keeps subscription ids to 40 digits while prices may run longer', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const payload = goodPayload()
+        payload.data.syncData = {['1'.repeat(41)]: {lastNotification: 1, lastPrice: '1'}}
 
         await manager.trySetRawSyncData(payload)
 
