@@ -85,6 +85,21 @@ function isValidSymbol(assetInfo) {
     return sourceValidSymbols.includes(assetInfo.asset.code)
 }
 
+/**
+ * Parses a decrypted webhook list. A JSON.parse error message quotes a window of its input, and this input is the
+ * subscriber's decrypted webhook, credentials and tokens included, so the parse error is replaced by a fixed one and
+ * its text never reaches a log.
+ * @param {string} rawWebhook - decrypted webhook text starting with `[`
+ * @returns {any}
+ */
+function parseWebhookJson(rawWebhook) {
+    try {
+        return JSON.parse(rawWebhook)
+    } catch (e) {
+        throw new Error('Webhook payload is not valid JSON')
+    }
+}
+
 async function getWebhook(id, webhookBuffer, contractId) {
     const {clusterSecretObject} = container.settingsManager
     if (!clusterSecretObject)
@@ -100,7 +115,7 @@ async function getWebhook(id, webhookBuffer, contractId) {
         const rawWebhook = Buffer.from(decrypted).toString()
         if (!rawWebhook || !rawWebhook.length)
             return null
-        const webhook = rawWebhook.startsWith('[') ? JSON.parse(rawWebhook) : rawWebhook.split(',').map(url => ({url}))
+        const webhook = rawWebhook.startsWith('[') ? parseWebhookJson(rawWebhook) : rawWebhook.split(',').map(url => ({url}))
         if (webhook && !Array.isArray(webhook))
             throw new Error('Invalid webhook data')
         for (const webhookItem of webhook) {

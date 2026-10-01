@@ -205,6 +205,29 @@ describe('getWebhook (exercised via __setSubscription)', () => {
         const webhook = await decryptThrough(mgr, Buffer.from([1]))
         expect(webhook).toEqual([])
     })
+
+    test('a decrypted webhook that is not valid JSON is logged without any of its text', async () => {
+        //V8 quotes a window of the input around the error position in a JSON.parse message, and here the input is the
+        //subscriber's decrypted webhook, credentials and tokens included
+        const logger = require('../../../src/logger')
+        container.settingsManager.clusterSecretObject = {fake: 'key'}
+        const inputs = [
+            '[https://subscriber:hunter2@hooks.example/path?token=s3cret]', //V8: Unexpected token 'h', "[https://su"...
+            '[{"url":"https://subscriber:hunter2@hooks.example/path?token=s3cret"} oops'
+        ]
+        for (const secretText of inputs) {
+            logger.error.mockClear()
+            decrypt.mockResolvedValue(new TextEncoder().encode(secretText))
+            const mgr = new SubscriptionContractManager('c1')
+            const webhook = await decryptThrough(mgr, Buffer.from([1]))
+            expect(webhook).toEqual([])
+            expect(logger.error).toHaveBeenCalledTimes(1)
+            expect(logger.error.mock.calls[0][0]).toMatchObject({msg: 'Error decrypting webhook', err: 'Webhook payload is not valid JSON'})
+            const logged = JSON.stringify(logger.error.mock.calls)
+            for (const fragment of ['hunter2', 'subscriber', 'hooks.example', 'token', 's3cret', 'oops', 'https', '[h', '"['])
+                expect(logged).not.toContain(fragment)
+        }
+    })
 })
 
 describe('SubscriptionContractManager constructor', () => {

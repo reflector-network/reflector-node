@@ -14,6 +14,20 @@ function flushPromises() {
     return new Promise(resolve => jest.requireActual('timers').setImmediate(resolve))
 }
 
+/**
+ * The container and the TradesManager class from the current module registry. The connector budget suite resets the
+ * registry, and once it has run the top-level TradesManager import reads a different container from the one a test
+ * requires and patches. A test that patches the container must build its manager from this pair. Such a manager is not
+ * seen by stopTradesManagersAfterEach, so the test stops it itself
+ * @returns {{container: object, CurrentTradesManager: Function}}
+ */
+function requireCurrentModules() {
+    return {
+        container: require('../../../src/domain/container'),
+        CurrentTradesManager: require('../../../src/domain/prices/trades-manager')
+    }
+}
+
 describe('__loadDataForAssetMap', () => {
     let manager
     let loadCalls
@@ -162,7 +176,7 @@ describe('__loadDataForAssetMap', () => {
 
 describe('loadTradesData', () => {
     test('evaluates asset expiry at the tick timestamp it was given', () => {
-        const container = require('../../../src/domain/container')
+        const {container, CurrentTradesManager} = requireCurrentModules()
         const {Asset, ContractTypes} = require('@reflector/reflector-shared')
         const original = container.settingsManager
         const getAssets = jest.fn(() => [new Asset(2, 'BTC')])
@@ -178,11 +192,12 @@ describe('loadTradesData', () => {
             getAssets
         }
         jest.useFakeTimers() //the TradesManager constructor starts a cleanup timer
-        const tm = new TradesManager()
+        const tm = new CurrentTradesManager()
         tm.__loadDataForAssetMap = jest.fn()
         try {
             tm.loadTradesData(7 * 60 * 1000)
         } finally {
+            tm.stop()
             container.settingsManager = original
             jest.clearAllTimers()
             jest.useRealTimers()
@@ -221,7 +236,7 @@ describe('the local key list once expiry is evaluated at a tick', () => {
     }
 
     test('a peer item for a key this node reads opens its sync entry on arrival, and nothing is logged as an error', () => {
-        const container = require('../../../src/domain/container')
+        const {container, CurrentTradesManager} = requireCurrentModules()
         const logger = require('../../../src/logger')
         const now = 100_000 * minute
         const ts = now - minute
@@ -229,8 +244,9 @@ describe('the local key list once expiry is evaluated at a tick', () => {
         container.settingsManager = makeSettings()
         logger.error.mockClear()
         jest.useFakeTimers({now})
+        let tm = null
         try {
-            const tm = new TradesManager()
+            tm = new CurrentTradesManager()
             tm.addSyncData(peer, {
                 exchanges_USD: {
                     [ts]: {
@@ -246,6 +262,7 @@ describe('the local key list once expiry is evaluated at a tick', () => {
             //the contract's only asset is expired and its key is still read: expiry empties a map, it never drops a key
             expect(tm.__timestamps.get(ts).get('exchanges_USD')).toBeDefined()
         } finally {
+            tm?.stop()
             container.settingsManager = original
             jest.clearAllTimers()
             jest.useRealTimers()

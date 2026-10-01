@@ -9,6 +9,7 @@ jest.mock('../../src/domain/data-sources-manager', () => ({
 }))
 
 const SettingsManager = require('../../src/domain/settings-manager')
+const dataSourcesManager = require('../../src/domain/data-sources-manager')
 
 const CONTRACT_ID = 'CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN'
 const TICK = 1_700_000_000_000
@@ -143,5 +144,233 @@ describe('SettingsManager.getAssets', () => {
         const manager = makeManager(assets)
         manager.setAssetExpiration(CONTRACT_ID, [])
         expect(manager.getAssets(CONTRACT_ID, TICK)).toEqual(assets)
+    })
+})
+
+const CHALLENGE = 'b8b4a2f0c1d24e7f9a3b5c6d7e8f9012'
+
+/**
+ * @returns {SettingsManager} a manager with a signing key, ready for setGateways
+ */
+function makeGatewayManager() {
+    const manager = new SettingsManager()
+    manager.appConfig = {
+        publicKey: 'GDCOZYKHZXOJANHK3ASICJYEFGYUBSEP3YQKEXXLAGV3BBPLOFLGBAZX',
+        keypair: {sign: () => Buffer.alloc(64, 3)}
+    }
+    return manager
+}
+
+describe('SettingsManager.setGateways', () => {
+    beforeEach(() => {
+        dataSourcesManager.setGateways.mockClear()
+    })
+
+    test('gateways is always an object, and no gateways configured is null, not an empty array', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({challenge: CHALLENGE}, false)
+        expect(manager.gateways).toEqual({
+            urls: null,
+            configuredUrls: [],
+            challenge: CHALLENGE,
+            gatewayValidationKey: Buffer.alloc(64, 3).toString('base64')
+        })
+    })
+
+    test('an explicitly empty list is also "no gateways configured"', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: [], challenge: CHALLENGE}, false)
+        expect(manager.gateways.urls).toBe(null)
+        expect(manager.gateways.configuredUrls).toEqual([])
+    })
+
+    test('a valid https gateway is kept and normalised', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: ['https://gateway.example.com/'], challenge: CHALLENGE}, false)
+        expect(manager.gateways.urls).toEqual(['https://gateway.example.com'])
+        expect(manager.gateways.configuredUrls).toEqual(['https://gateway.example.com/'])
+    })
+
+    test('invalid urls are dropped and the valid ones survive', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({
+            urls: [
+                'ftp://gateway.example.com',
+                'https://user:pass@gateway.example.com',
+                'https://10.0.0.5',
+                'https://[::1]',
+                'not-a-url',
+                'https://good.example.com'
+            ],
+            challenge: CHALLENGE
+        }, false)
+        expect(manager.gateways.urls).toEqual(['https://good.example.com'])
+    })
+
+    test('configured but none usable is an empty array, which means "fail closed", not "go direct"', () => {
+        const logger = require('../../src/logger')
+        logger.error.mockClear()
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: ['ftp://gateway.example.com', 'https://10.0.0.5'], challenge: CHALLENGE}, false)
+        expect(manager.gateways.urls).toEqual([])
+        expect(manager.gateways.configuredUrls).toEqual(['ftp://gateway.example.com', 'https://10.0.0.5'])
+        expect(logger.error).toHaveBeenCalledTimes(1)
+        expect(logger.error.mock.calls[0][0].msg).toBe('Every configured gateway url was rejected; webhook notifications will not be sent rather than go direct')
+    })
+
+    test('the configured list is what is reported and persisted, not the validated subset', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: ['ftp://gateway.example.com', 'https://good.example.com'], challenge: CHALLENGE}, false)
+        expect(manager.gateways.configuredUrls).toEqual(['ftp://gateway.example.com', 'https://good.example.com'])
+        expect(manager.gateways.urls).toEqual(['https://good.example.com'])
+    })
+
+    test('the data source manager always receives the resulting object', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: ['https://good.example.com'], challenge: CHALLENGE}, false)
+        expect(dataSourcesManager.setGateways).toHaveBeenCalledTimes(1)
+        expect(dataSourcesManager.setGateways).toHaveBeenCalledWith(manager.gateways)
+    })
+
+    test('a missing challenge is rejected instead of hashing the string "undefined"', () => {
+        const manager = makeGatewayManager()
+        expect(() => manager.setGateways({urls: []}, false)).toThrow('challenge')
+        expect(manager.gateways).toBe(undefined)
+        expect(dataSourcesManager.setGateways).not.toHaveBeenCalled()
+    })
+
+    test('a non-array urls value is rejected', () => {
+        const manager = makeGatewayManager()
+        expect(() => manager.setGateways({urls: 'https://good.example.com', challenge: CHALLENGE}, false)).toThrow('array')
+    })
+
+    test('too many gateways are rejected', () => {
+        const manager = makeGatewayManager()
+        const urls = Array(11).fill(0).map((_, i) => `https://gw${i}.example.com`)
+        expect(() => manager.setGateways({urls, challenge: CHALLENGE}, false)).toThrow('Too many gateway urls')
+    })
+
+    test('ten gateways are accepted', () => {
+        const manager = makeGatewayManager()
+        const urls = Array(10).fill(0).map((_, i) => `https://gw${i}.example.com`)
+        manager.setGateways({urls, challenge: CHALLENGE}, false)
+        expect(manager.gateways.urls).toEqual(urls)
+    })
+})
+
+describe('SettingsManager.setGateways, edge cases', () => {
+    const fs = require('fs')
+    const logger = require('../../src/logger')
+
+    beforeEach(() => {
+        dataSourcesManager.setGateways.mockClear()
+        logger.info.mockClear()
+    })
+
+    test('an http gateway, as the dashboard builds it, is routable', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: ['http://203.0.114.7:8080'], challenge: CHALLENGE}, false)
+        expect(manager.gateways.urls).toEqual(['http://203.0.114.7:8080'])
+    })
+
+    test('a challenge that is not a string is rejected, not hashed', () => {
+        const manager = makeGatewayManager()
+        for (const challenge of [5, {}, ['c'], true])
+            expect(() => manager.setGateways({urls: ['https://good.example.com'], challenge}, false)).toThrow('Gateway challenge is required')
+        expect(manager.gateways).toBe(undefined)
+        expect(dataSourcesManager.setGateways).not.toHaveBeenCalled()
+    })
+
+    test('a list that cannot be persisted is not applied either', () => {
+        const manager = makeGatewayManager()
+        manager.setGateways({urls: [], challenge: CHALLENGE}, false)
+        dataSourcesManager.setGateways.mockClear()
+        const write = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+            throw new Error('ENOSPC: no space left on device')
+        })
+        try {
+            expect(() => manager.setGateways({urls: ['https://good.example.com'], challenge: CHALLENGE})).toThrow('ENOSPC')
+        } finally {
+            write.mockRestore()
+        }
+        expect(manager.gateways.urls).toBe(null)
+        expect(dataSourcesManager.setGateways).not.toHaveBeenCalled()
+    })
+
+    test('debug mode logs a fingerprint of the validation key, never the key', () => {
+        const manager = makeGatewayManager()
+        const previous = process.env.DEBUG
+        process.env.DEBUG = 'true'
+        try {
+            manager.setGateways({urls: ['https://good.example.com'], challenge: CHALLENGE}, false)
+        } finally {
+            if (previous === undefined)
+                delete process.env.DEBUG
+            else
+                process.env.DEBUG = previous
+        }
+        const key = manager.gateways.gatewayValidationKey
+        const fingerprint = require('crypto').createHash('sha256').update(key).digest('hex').slice(0, 8)
+        expect(logger.info).toHaveBeenCalledWith({msg: 'Gateway validation key applied', fingerprint})
+        expect(JSON.stringify(logger.info.mock.calls)).not.toContain(key)
+    })
+})
+
+describe('SettingsManager.statistics reports unusable gateways', () => {
+    /**
+     * @param {string[]|null} urls - routing set
+     * @returns {object} statistics of a manager in that gateway state
+     */
+    function statisticsWith(urls) {
+        const manager = makeGatewayManager()
+        manager.appConfig.trace = false
+        manager.gateways = {urls, configuredUrls: urls || [], challenge: CHALLENGE}
+        return manager.statistics
+    }
+
+    test('gateways configured but none usable are a connection issue', () => {
+        expect(statisticsWith([]).connectionIssues).toEqual([
+            'Gateways are configured but none is usable: webhooks are not sent and exchanges prices are not fetched until the gateway list is fixed'
+        ])
+    })
+
+    test('no gateways and usable gateways report nothing', () => {
+        expect(statisticsWith(null).connectionIssues).toEqual([])
+        expect(statisticsWith(['https://gw.example.com']).connectionIssues).toEqual([])
+    })
+
+    test('a manager that has not applied gateways yet reports nothing about them', () => {
+        const manager = makeGatewayManager()
+        manager.appConfig.trace = false
+        expect(manager.statistics.connectionIssues).toEqual([])
+    })
+
+    //the growth needs the condition that produced it: the data source manager holds a registration issue (its issues
+    //getter then returns its internal array) and the config names a data source the node lacks
+    test('reading the statistics twice leaves the data source manager issues as they were', () => {
+        const {ContractTypes} = require('@reflector/reflector-shared')
+        const registrationIssue = 'Data source exchanges failed to register'
+        dataSourcesManager.issues = [registrationIssue]
+        dataSourcesManager.has.mockImplementation(name => name !== 'missing')
+        try {
+            const manager = makeGatewayManager()
+            manager.appConfig.trace = false
+            manager.config = {
+                isValid: true,
+                network: 'testnet',
+                contracts: new Map([[CONTRACT_ID, {type: ContractTypes.ORACLE, dataSource: 'missing'}]]),
+                getHash: () => 'config-hash'
+            }
+
+            const first = manager.statistics.connectionIssues
+            const second = manager.statistics.connectionIssues
+
+            expect(first).toEqual([registrationIssue, 'Connection data for data source missing not found'])
+            expect(second).toEqual(first)
+            expect(dataSourcesManager.issues).toEqual([registrationIssue])
+        } finally {
+            dataSourcesManager.issues = []
+            dataSourcesManager.has.mockImplementation(() => true)
+        }
     })
 })

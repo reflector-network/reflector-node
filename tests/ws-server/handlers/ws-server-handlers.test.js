@@ -449,6 +449,19 @@ describe('GatewaysGetHandler and GatewaysPostHandler', () => {
         expect(nonceManager.setNonce).toHaveBeenCalledWith('gateways', 1)
     })
 
+    test('reports the configured list, never the routing subset that passed validation', () => {
+        settingsManager.gateways = {urls: [], configuredUrls: ['ftp://plain.example.com'], challenge: 'challenge', gatewayValidationKey: 'k'}
+        const handler = new GatewaysGetHandler()
+        const result = handler.handle({}, {
+            data: {
+                signature: 'signature',
+                data: {payload: 'https://gateway.example.com?nonce=1'}
+            }
+        })
+
+        expect(result).toEqual({urls: ['ftp://plain.example.com'], challenge: 'challenge', unusable: true})
+    })
+
     test('accepts valid gateway post and applies new gateway values', () => {
         const handler = new GatewaysPostHandler()
         const payload = {nonce: 1, urls: ['https://new.example.com'], challenge: 'new-challenge'}

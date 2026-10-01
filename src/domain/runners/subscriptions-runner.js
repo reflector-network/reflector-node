@@ -11,7 +11,7 @@ const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const {addManager, getManager, removeManager} = require('../subscriptions/subscriptions-data-manager')
-const {makeRequest} = require('../../utils/requests-helper')
+const {makeRequest, loggableHost} = require('../../utils/requests-helper')
 const statisticsManager = require('../statistics-manager')
 const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
@@ -236,10 +236,17 @@ class SubscriptionsRunner extends RunnerBase {
                 if (webhookData)
                     notifications.push(webhookData)
             }
-            if (urls && urls.length > 0)
-                this.__postNotificationsViaGateway(urls, gatewayValidationKey, notifications, events, root)
-            else
+            if (urls === null) { //no gateways configured at all - a direct post is the only route there is
                 this.__postNotifications(notifications, events, root)
+            } else if (urls.length > 0) {
+                this.__postNotificationsViaGateway(urls, gatewayValidationKey, notifications, events, root)
+            } else {
+                //gateways are configured and none of them is usable. Posting directly here would reveal the node
+                //address to the subscriber's endpoint, which is what the gateways exist to prevent, so the tick's
+                //notifications are dropped instead
+                logger.error({msg: 'Gateways are configured but none is usable; webhook notifications dropped rather than sent directly', contract: this.contractId, timestamp, notificationsCount: notifications.length})
+                return
+            }
             logger.debug({msg: 'Webhook data sent', contract: this.contractId, notificationsCount: notifications.length})
         } catch (err) {
             logger.error({err, msg: 'Failed to process trigger data', contract: this.contractId})
@@ -253,7 +260,8 @@ class SubscriptionsRunner extends RunnerBase {
 
         const unusedGateways = shuffleArray([...gateways]) //clone the gateways array to avoid mutations, and shuffle it
 
-        logger.debug({msg: 'Sending webhook data to gateways', gateways: unusedGateways, contract: this.contractId, notificationsCount: notifications.length})
+        //hosts only, here and below: a gateway url can carry a token in its path
+        logger.debug({msg: 'Sending webhook data to gateways', hosts: unusedGateways.map(loggableHost), contract: this.contractId, notificationsCount: notifications.length})
 
         const successfulGateways = []
         while (successfulGateways.length < 2 && unusedGateways.length > 0) {
@@ -270,17 +278,20 @@ class SubscriptionsRunner extends RunnerBase {
                             verifier,
                             contract
                         },
-                        timeout: 5000
+                        timeout: 5000,
+                        //resolved, checked and pinned like a subscriber webhook; config-time validation only sees the
+                        //url, not what its host resolves to
+                        validateSsrf: true
                     })
                 successfulGateways.push(currentGateway)
             } catch (e) {
-                logger.debug({msg: 'Failed to send webhook data to gateway', gateway: currentGateway, message: e.message})
+                logger.debug({msg: 'Failed to send webhook data to gateway', host: loggableHost(currentGateway), err: e.safeMessage || e.message})
             }
         }
         if (successfulGateways.length === 0)
             logger.error({msg: 'Failed to send webhook data to gateways', contract: this.contractId, notificationsCount: notifications.length})
         else
-            logger.debug({msg: 'Webhook data sent to gateways', gateways: successfulGateways, contract: this.contractId, notificationsCount: notifications.length})
+            logger.debug({msg: 'Webhook data sent to gateways', hosts: successfulGateways.map(loggableHost), contract: this.contractId, notificationsCount: notifications.length})
     }
 
     async __postNotifications(notifications, events, root) {
@@ -302,7 +313,9 @@ class SubscriptionsRunner extends RunnerBase {
                             validateSsrf: true
                         })
                 } catch (e) {
-                    logger.debug({msg: 'Failed to send webhook data', url: urls[j], err: e.message})
+                    //only the host: the url is the subscriber's and may carry credentials or a token, and a response
+                    //body is never logged
+                    logger.debug({msg: 'Failed to send webhook data', host: loggableHost(urls[j]), err: e.safeMessage || e.message})
                 }
             }
         }

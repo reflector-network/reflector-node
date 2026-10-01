@@ -1,10 +1,12 @@
 const fs = require('fs')
+const {createHash} = require('crypto')
 const {ValidationError, ConfigEnvelope, buildUpdates, Config, ContractTypes, getDataHash} = require('@reflector/reflector-shared')
 const AppConfig = require('../models/app-config')
 const logger = require('../logger')
 const {importRSAKey, randomUUID} = require('../utils/crypto-helper')
 const nonceManager = require('../ws-server/nonce-manager')
 const {isDebugging} = require('../utils')
+const {validateGatewayUrl, maxGatewayUrls} = require('../utils/ssrf-validator')
 const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
@@ -50,6 +52,31 @@ function __hasContractConfig(config, contractId, type = null) {
     return true
 }
 
+/**
+ * A gateways.json whose list is empty or missing is "no gateways configured" whatever its challenge says: nothing could
+ * be routed through it, so it cannot be a configuration that failed. Such a file gets a fresh challenge, as a first boot
+ * does, rather than being refused and read as configured-but-none-usable. Only a non-empty list can fail.
+ * @param {any} gatewaysData - parsed gateways.json
+ * @returns {any} the data to apply
+ */
+function withChallengeWhenUnconfigured(gatewaysData) {
+    if (!gatewaysData || typeof gatewaysData !== 'object' || Array.isArray(gatewaysData))
+        return gatewaysData //not a gateways object at all; setGateways refuses it
+    const {urls, challenge} = gatewaysData
+    const unconfigured = urls === undefined || urls === null || (Array.isArray(urls) && urls.length === 0)
+    if (!unconfigured || (typeof challenge === 'string' && challenge))
+        return gatewaysData
+    return {urls: [], challenge: randomUUID()}
+}
+
+/**
+ * @param {string} gatewayValidationKey - the node's gateway token
+ * @returns {string} a short, non-reversible identifier of the token, safe to log
+ */
+function getKeyFingerprint(gatewayValidationKey) {
+    return createHash('sha256').update(gatewayValidationKey).digest('hex').slice(0, 8)
+}
+
 class SettingsManager {
     /**
      * @type {AppConfig}
@@ -67,7 +94,9 @@ class SettingsManager {
     config
 
     /**
-     * @type {{urls: string[], challenge: string, gatewayValidationKey: string}}
+     * Always an object once init has run. `urls` is the routing set in one of three states - see setGateways;
+     * `configuredUrls` is the list as pushed or read from disk, which is what is persisted and reported back
+     * @type {{urls: string[]|null, configuredUrls: string[], challenge: string, gatewayValidationKey: string}}
      */
     gateways
 
@@ -88,12 +117,26 @@ class SettingsManager {
         }
         await this.setAppConfig(this.appConfig)
 
-        //set gateways
+        //set gateways. Only a missing file means "no gateways configured": a gateways.json that exists belongs to a
+        //node that configured gateways, so a file this node cannot use fails closed instead of going direct
         const gatewaysExist = fs.existsSync(gatewaysPath)
-        const gatewaysData = gatewaysExist
-            ? JSON.parse(fs.readFileSync(gatewaysPath).toString().trim())
-            : {urls: [], challenge: randomUUID(32)}
-        await this.setGateways(gatewaysData, !gatewaysExist)
+        if (!gatewaysExist) {
+            //first boot: nothing is configured, so the direct route is the only one there is
+            this.setGateways({urls: [], challenge: randomUUID(32)}, true)
+        } else {
+            try {
+                this.setGateways(withChallengeWhenUnconfigured(JSON.parse(fs.readFileSync(gatewaysPath).toString().trim())), false)
+            } catch (err) {
+                //a JSON.parse message quotes the text around the error, which can be part of a gateway url and its token
+                const reason = err instanceof SyntaxError ? 'not valid JSON' : err.message
+                logger.error({msg: 'gateways.json cannot be used; webhook posts and gateway price fetches fail closed until it is repaired', err: reason})
+                //configured but none usable, and the file is left exactly as it is for the operator to repair - it is never
+                //rewritten as "no gateways", which would send webhooks and price fetches direct on the next boot. The
+                //state is installed directly: run through validation, the placeholder entry would log a second error
+                //naming an empty url the file does not contain
+                this.__applyGateways([], [''], randomUUID(), false)
+            }
+        }
 
         //set current config
         const rawConfig = fs.existsSync(clusterConfigPath)
@@ -186,22 +229,71 @@ class SettingsManager {
             fs.writeFileSync(clusterPendingConfigPath, JSON.stringify(envelope.toPlainObject(), null, 2))
     }
 
+    /**
+     * Applies the gateway list. The consumer must always find an object here: an undefined `gateways` would throw
+     * inside the trigger handler and silently disable every webhook.
+     * `urls` carries three states and the empty one is NOT "no gateways":
+     * `null` - none configured, so a direct request is the only route there is;
+     * a non-empty array - the usable gateways, and every request goes through them;
+     * `[]` - gateways are configured and none is usable, so there is no route and nothing is sent.
+     * @param {{urls: string[], challenge: string}} gatewaysData - gateway data from disk or from the orchestrator
+     * @param {boolean} [save] - persist the configured list to gateways.json
+     */
     setGateways(gatewaysData, save = true) {
         const {urls, challenge} = gatewaysData || {}
-        if (urls) {
-            if (!Array.isArray(urls))
-                throw new Error('Gateways must be an array')
-            const gatewayValidationKey = Buffer.from(this.appConfig.keypair.sign(
-                Buffer.from(getDataHash(challenge, this.appConfig.publicKey), 'hex')
-            )).toString('base64')
-            if (isDebugging())
-                logger.info(`Gateway validation key: ${gatewayValidationKey}`)
-            this.gateways = {...gatewaysData, gatewayValidationKey}
-        } else
-            logger.warn('Gateway is not defined')
-        dataSourceManager.setGateways(this.gateways)
+        if (!challenge || typeof challenge !== 'string')
+            throw new Error('Gateway challenge is required')
+        if (urls !== undefined && urls !== null && !Array.isArray(urls))
+            throw new Error('Gateways must be an array')
+        const configuredUrls = Array.isArray(urls) ? [...urls] : []
+        if (configuredUrls.length > maxGatewayUrls)
+            throw new Error(`Too many gateway urls: ${configuredUrls.length}`)
+        const validUrls = []
+        const rejected = []
+        for (const url of configuredUrls) {
+            try {
+                validUrls.push(validateGatewayUrl(url))
+            } catch (err) {
+                rejected.push(err.message)
+            }
+        }
+        let routableUrls
+        if (configuredUrls.length === 0) {
+            routableUrls = null //nothing configured: a direct webhook post is the only route there is
+        } else if (validUrls.length === 0) {
+            //fail closed. Going direct would reveal the node address, which is the one thing gateways exist to
+            //prevent, so an empty array here means "no route" and the webhook is simply not sent
+            logger.error({msg: 'Every configured gateway url was rejected; webhook notifications will not be sent rather than go direct', configured: configuredUrls.length, rejected})
+            routableUrls = []
+        } else {
+            if (rejected.length > 0) //the orchestrator pushed a signed list; say plainly that part of it is unused
+                logger.error({msg: 'Gateway list partially rejected; the routing set is smaller than the list pushed', configured: configuredUrls.length, accepted: validUrls.length, rejected})
+            routableUrls = validUrls
+        }
+        this.__applyGateways(routableUrls, configuredUrls, challenge, save)
+    }
+
+    /**
+     * Installs one gateway state. The configured list is written first, so a list that could not be persisted never
+     * routes in memory while the file on disk still reads back as a different state on the next boot.
+     * @param {string[]|null} urls - routing set: null none configured, [] none usable, otherwise the usable gateways
+     * @param {string[]} configuredUrls - the list as pushed or read from disk
+     * @param {string} challenge - gateway challenge
+     * @param {boolean} save - persist the configured list to gateways.json
+     * @private
+     */
+    __applyGateways(urls, configuredUrls, challenge, save) {
+        const gatewayValidationKey = Buffer.from(this.appConfig.keypair.sign(
+            Buffer.from(getDataHash(challenge, this.appConfig.publicKey), 'hex')
+        )).toString('base64')
         if (save)
-            fs.writeFileSync(gatewaysPath, JSON.stringify(gatewaysData, null, 2))
+            //persist what was configured, not the subset that validated: a truncated file would read back on the next
+            //boot as "no gateways configured", which is the state that posts directly
+            fs.writeFileSync(gatewaysPath, JSON.stringify({urls: configuredUrls, challenge}, null, 2))
+        this.gateways = {urls, configuredUrls, challenge, gatewayValidationKey}
+        dataSourceManager.setGateways(this.gateways)
+        if (isDebugging()) //the key itself is the token gateways accept, so only a fingerprint of it is logged
+            logger.info({msg: 'Gateway validation key applied', fingerprint: getKeyFingerprint(gatewayValidationKey)})
     }
 
     /**
@@ -336,7 +428,12 @@ class SettingsManager {
      * Returns node settings statistics
      */
     get statistics() {
-        const connectionIssues = dataSourceManager.issues || []
+        //a copy: the data source manager's own list must not grow by one entry per statistics request
+        const connectionIssues = [...(dataSourceManager.issues || [])]
+        //configured but none usable stops webhooks and exchanges fetches on this node; the orchestrator alerts the
+        //operator on connection issues, so the state is reported there rather than only in the log
+        if (Array.isArray(this.gateways?.urls) && this.gateways.urls.length === 0)
+            connectionIssues.push('Gateways are configured but none is usable: webhooks are not sent and exchanges prices are not fetched until the gateway list is fixed')
         if (this.config && this.config.isValid) {
             const dataSources = [...this.config.contracts.values()]
                 .filter(c => c.type === ContractTypes.ORACLE || c.type === ContractTypes.ORACLE_BEAM)

@@ -122,6 +122,22 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
     return removeUndefinedOptions(options)
 }
 
+//the only data source whose requests are routed through the operator's gateways
+const gatewayRoutedSource = 'exchanges'
+
+/**
+ * Whether this source must not be fetched because gateways are configured and none of them is usable.
+ * The node checks this itself rather than relying on the connector.
+ * @param {string} source - data source name
+ * @returns {boolean}
+ */
+function hasNoGatewayRoute(source) {
+    if (source !== gatewayRoutedSource)
+        return false
+    const urls = container.settingsManager?.gateways?.urls
+    return Array.isArray(urls) && urls.length === 0
+}
+
 const baseExchangesAsset = new Asset(AssetType.OTHER, 'USD')
 const baseStellarAsset = new Asset(AssetType.STELLAR, 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN')
 
@@ -529,6 +545,17 @@ class TradesManager {
         logger.trace({assetsMap: assetsMap.toPlainObject(), msg: 'Loading trades data for the asset map', tradesTimestamp, currentTimestamp})
 
         const {source, baseAsset} = assetsMap
+
+        //configured gateways, none usable: no route, so nothing is fetched rather than fetched directly. This only drops
+        //this node's own samples for the tick, exactly as a failed fetch does; what it signs is still decided by the
+        //samples a majority of the cluster reported, so consensus is untouched
+        if (hasNoGatewayRoute(source)) {
+            if (this.__noGatewayRouteWarnedAt !== currentTimestamp) { //once per tick, however many maps the source has
+                this.__noGatewayRouteWarnedAt = currentTimestamp
+                logger.warn({msg: 'Gateways are configured but none is usable; exchanges prices are not fetched rather than fetched directly', source, timestamp: currentTimestamp})
+            }
+            return
+        }
 
         const key = formatSourceAssetKey(source, baseAsset)
         const lastTimestamp = this.__trades.getLastTimestamp(key)
