@@ -10,6 +10,9 @@ const {maxVolumeDigits} = require('../prices/price-sync-validator')
 const PendingSyncDataCache = require('./pending-notifications-cache')
 const SubscriptionsSyncData = require('./subscriptions-sync-data')
 
+//how often one sender's rejected SYNC frames are logged at warn; the rest go to debug
+const rejectionWarnInterval = 10 * 60 * 1000
+
 let validSymbols = null
 function getValidSymbols() {
     if (validSymbols === null) {
@@ -251,6 +254,13 @@ class SubscriptionContractManager {
     __lastSyncData = null
 
     /**
+     * When each sender's last rejected SYNC frame was logged at warn. Senders are authenticated cluster members, so the
+     * node set bounds the map
+     * @type {Map<string, number>}
+     */
+    __rejectionWarnedAt = new Map()
+
+    /**
      * @type {PendingSyncDataCache}
      */
     __pendingSyncData = new PendingSyncDataCache()
@@ -476,8 +486,16 @@ class SubscriptionContractManager {
             newSyncData.tryAddSignature(signatures)
             this.trySetSyncData(newSyncData, sender)
         } catch (e) {
-            //warn, not debug: a rejection is the only signal an operator gets that peer sync has stopped merging
-            logger.warn({msg: 'Rejected raw sync data', contract: this.contractId, err: e.message})
+            //a rejection is the only signal an operator gets that peer sync has stopped merging, so it warns - once per
+            //sender and interval, because a member streaming malformed frames would otherwise flush the log
+            const now = Date.now()
+            const warnedAt = this.__rejectionWarnedAt.get(sender)
+            const entry = {msg: 'Rejected raw sync data', contract: this.contractId, node: sender, err: e.message}
+            if (warnedAt === undefined || now - warnedAt >= rejectionWarnInterval) {
+                this.__rejectionWarnedAt.set(sender, now)
+                logger.warn(entry)
+            } else
+                logger.debug(entry)
         }
     }
 

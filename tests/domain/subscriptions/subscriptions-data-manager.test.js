@@ -910,3 +910,44 @@ describe('trySetSyncData timestamp window', () => {
         expect(pushSpy.mock.calls[0][0]).toBe(atEdge)
     })
 })
+
+describe('rejected SYNC frames are rate-limited per sender', () => {
+    const logger = require('../../../src/logger')
+    const malformed = {data: [], signatures: []}
+
+    beforeEach(() => {
+        logger.warn.mockClear()
+        logger.debug.mockClear()
+    })
+
+    test('one member sending malformed frames warns once per ten minutes, the rest at debug', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+        try {
+            for (let i = 0; i < 100; i++)
+                await manager.trySetRawSyncData(malformed, 'GPEERA')
+            const rejected = entries => entries.mock.calls.filter(([entry]) => entry.msg === 'Rejected raw sync data')
+            expect(rejected(logger.warn)).toHaveLength(1)
+            expect(rejected(logger.warn)[0][0]).toMatchObject({node: 'GPEERA', contract: 'contract-1'})
+            expect(rejected(logger.debug)).toHaveLength(99)
+
+            //another member has its own allowance
+            await manager.trySetRawSyncData(malformed, 'GPEERB')
+            expect(rejected(logger.warn)).toHaveLength(2)
+
+            //one millisecond short of ten minutes the first member is still at debug; ten minutes later it warns again
+            now.mockReturnValue(1_700_000_000_000 + 10 * 60 * 1000 - 1)
+            await manager.trySetRawSyncData(malformed, 'GPEERA')
+            expect(rejected(logger.warn)).toHaveLength(2)
+            now.mockReturnValue(1_700_000_000_000 + 10 * 60 * 1000)
+            await manager.trySetRawSyncData(malformed, 'GPEERA')
+            expect(rejected(logger.warn)).toHaveLength(3)
+            //and the next ten minutes are counted from that warning
+            now.mockReturnValue(1_700_000_000_000 + 20 * 60 * 1000 - 1)
+            await manager.trySetRawSyncData(malformed, 'GPEERA')
+            expect(rejected(logger.warn)).toHaveLength(3)
+        } finally {
+            now.mockRestore()
+        }
+    })
+})

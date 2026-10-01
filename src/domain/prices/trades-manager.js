@@ -5,7 +5,9 @@ const container = require('../container')
 const {getAllSubscriptions} = require('../subscriptions/subscriptions-data-manager')
 const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
+const wsConstants = require('../../ws-server/contstants')
 const {runWithContext} = require('../../async-storage')
+const {withDeadline} = require('../../utils')
 const TradesCache = require('./trades-cache')
 const {getRetentionHeartbeat} = require('./trades-cache')
 const AssetsMap = require('./assets-map')
@@ -15,11 +17,31 @@ const {validatePriceSyncItem, getSyncWindow, getMaxSyncTimestamps, maxSyncKeys} 
 
 const cacheSize = 15
 const minute = 60 * 1000
+//outer budget for one connector call. Each connector bounds a single provider request (3 tries of 10 s plus
+//back-off), but not the whole call, and __loadDataForAssetMap only queues the next tick behind a pending request - so a
+//promise that never settles would stop this source for good
+const minPriceFetchTimeout = 90 * 1000
+const priceFetchMargin = 45 * 1000
+//connector calls abandoned at that budget, keyed by source and base asset, with when each started and its budget.
+//withDeadline stops the wait but cannot stop the call, so under rate limiting an abandoned call and the next tick's call
+//for the same key piled up. A key whose previous call has not settled is not fetched again:
+//this node loses its own samples for the tick, as a failed fetch does, and still signs what the cluster majority agreed
+//on. A call that never settles would block its key until a restart, so after three of its budgets it
+//is given up and the key is fetched again
+const unsettledConnectorCalls = new Map()
+const unsettledCallBudgets = 3
 //the validated ingest window admits about priceHeartbeat/1 min distinct minutes; keep two windows of slack so a
 //legitimate heartbeat change can never make the read path throw
 const minPendingTimestamps = 512
 const defaultSyncWait = 25 * 1000
 const maxTimerDelay = 2 ** 31 - 1 //Node replaces any longer delay with 1 ms
+//every peer refuses a frame above wsConstants.maxPayload (1 MiB), and a reconnect backfill of one key holds every minute
+//of the heartbeat window - 1 183 538 bytes for 20 assets priced by 5 exchanges at the default 2 h. PRICE_SYNC therefore
+//goes out in frames of at most half the cap; a receiver merges each frame on its own, so the cut changes nothing it
+//caches or computes
+const maxPriceSyncFrameBytes = wsConstants.maxPayload / 2
+//ChannelBase.send adds a uuid requestId to every message it sends, and it counts against the peer's cap too
+const priceSyncFrameEnvelope = {type: MessageTypes.PRICE_SYNC, data: {}, requestId: '00000000-0000-0000-0000-000000000000'}
 
 /**
  * @returns {number} upper bound on distinct timestamps held in the sync map
@@ -65,6 +87,20 @@ function getSampleSize(lastTimestemp, targetTimestamp) {
 }
 
 /**
+ * The outer budget for one connector call. The exchanges connector builds one pair per asset and walks the pairs in
+ * batches of batchSize, one batch per batchDelay at best, so a healthy fetch of a large map outlasts any fixed budget;
+ * the map has no cap, because every subscription asset joins it. The margin covers market loading and one slow batch
+ * @param {number} pairs - number of assets requested
+ * @param {number} batchSize - pairs per batch, as the node passes it to the connector
+ * @param {number} batchDelay - minimum milliseconds per batch, as the node passes it to the connector
+ * @returns {number} budget in milliseconds, never below 90 s
+ */
+function getPriceFetchTimeout(pairs, batchSize, batchDelay) {
+    const batches = Math.ceil(pairs / Math.max(1, batchSize || 1))
+    return Math.max(minPriceFetchTimeout, batches * (batchDelay || 0) + priceFetchMargin)
+}
+
+/**
  * @param {any} dataSource - source
  * @param {Asset} baseAsset - base asset
  * @param {Asset[]} assets - assets
@@ -73,10 +109,65 @@ function getSampleSize(lastTimestemp, targetTimestamp) {
  * @return {Promise<AggregatedTradeData>}
  */
 async function loadPriceData(dataSource, baseAsset, assets, from, count) {
+    const callKey = `${dataSource.name}_${baseAsset.code}`
+    const unsettled = unsettledConnectorCalls.get(callKey)
+    if (unsettled) {
+        const heldMs = Date.now() - unsettled.startedAt
+        if (heldMs < unsettledCallBudgets * unsettled.budget) {
+            //expected for every tick of the hold, so it is no error: announced once per hold as a warning, followed at
+            //debug, and the caller logs nothing more for it
+            const skipEntry = {msg: 'Price data request skipped: the previous request for the key has not settled', key: callKey, heldMs}
+            if (unsettled.announced)
+                logger.debug(skipEntry)
+            else {
+                unsettled.announced = true
+                logger.warn(skipEntry)
+            }
+            const skipped = new Error(`Price data request for ${dataSource.name} skipped: the previous request has not settled`)
+            skipped.skipped = true
+            throw skipped
+        }
+        logger.warn({
+            msg: 'A connector call has not settled after three fetch budgets; the key is fetched again',
+            key: callKey,
+            startedAt: unsettled.startedAt
+        })
+        unsettledConnectorCalls.delete(callKey)
+    }
     from = from / 1000 //convert to seconds
     const start = Date.now()
     const requestOptions = normalizePriceDataFetchOptions(dataSource, baseAsset, assets, from, minute / 1000, count)
-    const tradesData = await dataSource.instance.getPriceData(requestOptions)
+    //the node's own batching options, not the connector's defaults, decide how long a healthy fetch takes.
+    //reflector-exchanges-connector merges them over its defaults ({...defaultFetchOptions, ...options}, src/index.js
+    //in 2.1.0), so its batchSize 10 / batchDelay 2000 (src/index.js:43) never apply to this node,
+    //and its getPairs (src/index.js:65-72) builds exactly one pair per requested asset
+    const {batchSize, batchDelay} = requestOptions.options
+    const priceFetchTimeout = getPriceFetchTimeout(requestOptions.assets.length, batchSize, batchDelay)
+    //an answer after the budget is discarded by withDeadline: the caller has already failed this source for the tick,
+    //so nothing from it can reach the trades cache or the gossip
+    let call = null
+    try {
+        call = Promise.resolve(dataSource.instance.getPriceData(requestOptions))
+    } catch (err) {
+        call = Promise.reject(err) //a connector that throws synchronously settles like any other failure
+    }
+    //removed only by the call that made the entry, so a given-up call that settles late leaves a newer call's entry alone
+    const entry = {startedAt: Date.now(), budget: priceFetchTimeout}
+    unsettledConnectorCalls.set(callKey, entry)
+    const settle = () => {
+        if (unsettledConnectorCalls.get(callKey) !== entry)
+            return
+        unsettledConnectorCalls.delete(callKey)
+        //the end of a hold that was announced is logged once; a call that held no tick back settles silently
+        if (entry.announced)
+            logger.info({msg: 'The held connector call settled; the key is fetched again', key: callKey, heldMs: Date.now() - entry.startedAt})
+    }
+    call.then(settle, settle)
+    const tradesData = await withDeadline(
+        call,
+        priceFetchTimeout,
+        `Price data request for ${dataSource.name} timed out after ${priceFetchTimeout} ms`
+    )
     logger.info({msg: 'Loaded trade data', count: tradesData.length, source: dataSource.name, duration: Date.now() - start})
     return tradesData
 }
@@ -114,7 +205,8 @@ function normalizePriceDataFetchOptions(datasource, baseAsset, assets, from, per
         for (const key of Object.keys(raw)) {
             if (raw[key] === undefined)
                 delete raw[key]
-            else if (typeof raw[key] === 'object' && !Array.isArray(raw[key]))
+            //null is a value the connector reads (a provider entry of null means its defaults), not a nested object
+            else if (raw[key] !== null && typeof raw[key] === 'object' && !Array.isArray(raw[key]))
                 raw[key] = removeUndefinedOptions(raw[key])
         }
         return raw
@@ -230,31 +322,45 @@ function getLocalKeys() {
 
 
 /**
+ * Serialises trades data into PRICE_SYNC messages of at most maxPriceSyncFrameBytes each. Keys are visited in sorted
+ * order and each key's minutes in cache order, so the frames carry every item exactly once, whole, and are cut the same
+ * way for the same data. An item is never split: a receiver merges item by item, so a peer is counted as presenting a
+ * minute only once the whole item for it has arrived. An item larger than a frame that still fits the peer's cap goes
+ * out alone, as it did before the cut; only an item no peer would accept is kept back
  * @param {Map<string, Map<number, TimestampTradeData>>} tradesData - trades data
- * @returns {any}
+ * @returns {Array<{type: number, data: Object.<string, Object.<number, any>>}>}
  */
-function getPriceSyncMessage(tradesData) {
-    /**
-     * @param {Map<string, Map<number, TimestampTradeData>>} tradesData - trades data
-     * @returns {Object.<string, Object.<number, any>>}
-     */
-    function serialize(tradesData) {
-        const plainData = {}
-        for (const key of [...tradesData.keys()].sort()) {
-            plainData[key] = {}
-            const sourceData = tradesData.get(key)
-            for (const ts of sourceData.keys()) {
-                const cacheItem = sourceData.get(ts).toPlainObject()
-                plainData[key][ts] = cacheItem
+function getPriceSyncMessages(tradesData) {
+    const messages = []
+    if (!tradesData)
+        return messages
+    const frameOverhead = Buffer.byteLength(JSON.stringify(priceSyncFrameEnvelope))
+    let data = {}
+    let bytes = frameOverhead
+    for (const key of [...tradesData.keys()].sort()) {
+        const sourceData = tradesData.get(key)
+        for (const ts of sourceData.keys()) {
+            const item = sourceData.get(ts).toPlainObject()
+            //charged as if it opened its own key object, which overestimates a little, so a frame never exceeds the budget
+            const itemBytes = Buffer.byteLength(JSON.stringify({[key]: {[ts]: item}}))
+            if (frameOverhead + itemBytes > wsConstants.maxPayload) {
+                logger.warn({msg: 'Price sync item is larger than a frame and is not sent', key, timestamp: ts, bytes: itemBytes})
+                continue
             }
+            if (bytes > frameOverhead && bytes + itemBytes > maxPriceSyncFrameBytes) {
+                messages.push({type: MessageTypes.PRICE_SYNC, data})
+                data = {}
+                bytes = frameOverhead
+            }
+            if (!data[key])
+                data[key] = {}
+            data[key][ts] = item
+            bytes += itemBytes
         }
-        return plainData
     }
-
-    return {
-        type: MessageTypes.PRICE_SYNC,
-        data: serialize(tradesData)
-    }
+    if (bytes > frameOverhead)
+        messages.push({type: MessageTypes.PRICE_SYNC, data})
+    return messages
 }
 
 /**
@@ -290,6 +396,10 @@ class TimestampSyncItem {
         //without the TimeoutNegativeWarning Node prints for a negative delay. A delay past the timer range - an
         //operator dbSyncDelay above about 24.8 days - would be replaced with 1 ms too, so it is capped at the range.
         const timeout = Number.isFinite(rawTimeout) ? Math.min(maxTimerDelay, Math.max(1, rawTimeout)) : defaultSyncWait
+        //an entry opened after its own deadline - a peer's backfill for a minute whose sync window has closed - waited for
+        //nothing, so its resolution is no operator signal; one PRICE_SYNC can open such an entry for every minute of the
+        //window and every local key
+        const openedLate = Number.isFinite(rawTimeout) && rawTimeout <= 0
         if (!Number.isFinite(rawTimeout))
             logger.error({msg: 'Non-finite sync timeout; falling back to the default wait', key, timestamp, maxTime: this.maxTime})
         const timeoutId = setTimeout(() => {
@@ -299,7 +409,7 @@ class TimestampSyncItem {
                 ? [...container.settingsManager.config.nodes.keys()]
                 : []
             const missing = expectedPubkeys.filter(p => !this.__presentedPubkeys.has(p))
-            logger.warn({
+            logger[openedLate ? 'debug' : 'warn']({
                 msg: 'TimestampSyncItem auto-resolved by timeout',
                 key: this.key,
                 timestamp: this.timestamp,
@@ -488,7 +598,9 @@ class TradesManager {
      * @returns {void}
      */
     sendTradesData(pubKey) {
-        nodesManager.sendTo(pubKey, getPriceSyncMessage(this.__trades.getAll()))
+        //a reconnect backfill holds the whole heartbeat window, so it goes out in frames under the peer cap
+        for (const message of getPriceSyncMessages(this.__trades.getAll()))
+            nodesManager.sendTo(pubKey, message)
     }
 
     /**
@@ -604,8 +716,9 @@ class TradesManager {
             broadcastItems.get(key).set(currentIterationTimestamp, tradeDataItem)
             currentIterationTimestamp = currentIterationTimestamp - minute
         }
-        //broadcast the data
-        nodesManager.broadcast(getPriceSyncMessage(broadcastItems))
+        //broadcast the data, in frames under the peer cap: a fresh cache sends 15 minutes of a map at once
+        for (const message of getPriceSyncMessages(broadcastItems))
+            nodesManager.broadcast(message)
 
         logger.trace({msg: 'Pushed trades data for source', source, baseAsset, from, to: from + (count - 1) * minute})
     }
@@ -638,7 +751,11 @@ class TradesManager {
             //register catch and finally
             pendingRequest
                 .promise
-                .catch(err => logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset.toString()}))
+                .catch(err => {
+                    if (err?.skipped) //a key held by an unsettled call: loadPriceData has logged it
+                        return
+                    logger.error({err, msg: 'Error loading prices for source', source: assetsMap.source, baseAsset: assetsMap.baseAsset.toString()})
+                })
                 .finally(() => {
                     const {nextMap} = this.__pendingTradesRequest.get(key)
                     this.__pendingTradesRequest.delete(key)
@@ -675,3 +792,9 @@ class TradesManager {
 module.exports = TradesManager
 module.exports.TimestampSyncItem = TimestampSyncItem
 module.exports.normalizePriceDataFetchOptions = normalizePriceDataFetchOptions
+//test seams: loadPriceData is where the budget lives, getPriceFetchTimeout is how long it is, and getSampleSize decides
+//whether loadTradesDataForSource ever reaches it. Nothing in src/ calls any of them through the export.
+module.exports.__loadPriceData = loadPriceData
+module.exports.__getSampleSize = getSampleSize
+module.exports.__getPriceFetchTimeout = getPriceFetchTimeout
+module.exports.__getPriceSyncMessages = getPriceSyncMessages

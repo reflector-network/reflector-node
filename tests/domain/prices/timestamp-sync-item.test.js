@@ -81,6 +81,35 @@ describe('TimestampSyncItem timing', () => {
             expect(payload.waitedMs).toBeGreaterThanOrEqual(25_000)
         })
 
+        test('an entry opened after its deadline resolves at debug, not warn', async () => {
+            jest.spyOn(logger, 'debug').mockImplementation(() => {})
+            logger.debug.mockClear()
+            const t0 = Date.now()
+            //a peer's backfill for a minute whose sync window closed a minute ago
+            const item = new TimestampSyncItem('exchanges:USD', t0 - 120_000, t0 - 60_000)
+
+            jest.advanceTimersByTime(1)
+            await item.readyPromise
+
+            expect(logger.warn).not.toHaveBeenCalled()
+            expect(logger.debug).toHaveBeenCalledWith(expect.objectContaining({msg: 'TimestampSyncItem auto-resolved by timeout', key: 'exchanges:USD'}))
+        })
+
+        test('an entry opened at its deadline waited for nothing; one opened a millisecond before it still warns', async () => {
+            jest.spyOn(logger, 'debug').mockImplementation(() => {})
+            const t0 = Date.now()
+            const atDeadline = new TimestampSyncItem('exchanges:USD', t0 - 60_000, t0)
+            const justBefore = new TimestampSyncItem('exchanges:EUR', t0 - 60_000, t0 + 1)
+            logger.debug.mockClear()
+
+            jest.advanceTimersByTime(1)
+            await Promise.all([atDeadline.readyPromise, justBefore.readyPromise])
+
+            const resolved = fn => fn.mock.calls.map(([entry]) => entry).filter(entry => entry?.msg === 'TimestampSyncItem auto-resolved by timeout')
+            expect(resolved(logger.debug).map(({key}) => key)).toEqual(['exchanges:USD'])
+            expect(resolved(logger.warn).map(({key}) => key)).toEqual(['exchanges:EUR'])
+        })
+
         test('no warn when resolved normally by presented peers', async () => {
             //Use real timers: resolution is synchronous, so no clock advancement
             //is required. Real timers also dodge any fake-timer state carryover.
