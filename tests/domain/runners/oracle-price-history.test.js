@@ -172,6 +172,29 @@ function maskFor(assetIndex) {
     return mask
 }
 
+describe('price history load deadline', () => {
+    afterEach(() => {
+        jest.clearAllTimers()
+        jest.useRealTimers()
+    })
+
+    test('a history load that never answers ends at the budget and the node abstains', async () => {
+        const {getContractEntries} = require('@reflector/reflector-shared')
+        getContractEntries.mockImplementationOnce(() => new Promise(() => {}))
+        jest.useFakeTimers()
+        const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)
+        runner.__lastLoadedEntries.set(NOW - TIMEFRAME_5M, [1n]) //an earlier tick loaded it; a timed-out load must not keep it
+
+        const attempt = runner.__getPricesToUpdate([5n], NOW, HEARTBEAT_2H, TIMEFRAME_5M, [{code: 'BTC'}])
+        const assertion = expect(attempt).rejects.toThrow('Price history load failed')
+        await jest.advanceTimersByTimeAsync(20_001)
+        await assertion
+
+        expect(runner.__historyLoadFailed).toBe(true)
+        expect(runner.__lastLoadedEntries.size).toBe(0)
+    })
+})
+
 describe('no accumulated per-process cache', () => {
     test('the runner keeps only what this tick loaded', async () => {
         const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)

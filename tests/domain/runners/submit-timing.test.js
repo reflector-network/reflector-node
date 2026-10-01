@@ -176,11 +176,21 @@ describe('Submit-timing budget', () => {
         })
     })
 
-    describe('constants currently in runner-base.js', () => {
-        const src = require('fs').readFileSync(
-            require('path').join(__dirname, '../../../src/domain/runners/runner-base.js'),
+    //the schedule lives in update-schedule.js, a byte-identical copy of node-orchestrator's module,
+    //and runner-base.js builds with it
+    describe('constants currently in the submit schedule (update-schedule.js, used by runner-base.js)', () => {
+        const readSource = file => require('fs').readFileSync(
+            require('path').join(__dirname, '../../../src/domain/runners', file),
             'utf8'
         )
+        const src = readSource('update-schedule.js')
+        const runnerSrc = readSource('runner-base.js')
+
+        test('runner-base.js takes the schedule from update-schedule.js and keeps no copy of its own', () => {
+            expect(runnerSrc).toMatch(/require\('\.\/update-schedule'\)/)
+            expect(runnerSrc).not.toMatch(/const (firstAttemptTimeout|retryAttemptTimeout|maxSubmitAttempts|feeMultiplier) =/)
+            expect(runnerSrc).not.toMatch(/function getMaxTime\(/)
+        })
 
         test('firstAttemptTimeout is 30000', () => {
             const match = src.match(/const firstAttemptTimeout = (\d[\d_]*)/)
@@ -201,13 +211,16 @@ describe('Submit-timing budget', () => {
         })
 
         test('fee escalation base is 8', () => {
-            const match = src.match(/Math\.pow\((\d+),\s*submitAttempt\)/)
+            //the multiplier is a named constant, exported for the schedule parity test
+            expect(runnerSrc).toMatch(/Math\.pow\(feeMultiplier,\s*submitAttempt\)/)
+            const match = src.match(/const FEE_MULTIPLIER = (\d+)/)
             expect(match).not.toBeNull()
             expect(Number(match[1])).toBe(8)
         })
 
         test('legacy single-knob constant is gone', () => {
             expect(src).not.toMatch(/const maxSubmitTimeout\s*=/)
+            expect(runnerSrc).not.toMatch(/const maxSubmitTimeout\s*=/)
         })
     })
 })

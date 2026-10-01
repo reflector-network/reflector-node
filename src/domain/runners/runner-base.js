@@ -5,15 +5,24 @@ const logger = require('../../logger')
 const container = require('../container')
 const MessageTypes = require('../../ws-server/handlers/message-types')
 const nodesManager = require('../nodes/nodes-manager')
-const {submitTransaction, txTimeoutMessage} = require('../../utils')
+const {submitTransaction, txTimeoutMessage, withDeadline} = require('../../utils')
 const statisticsManager = require('../statistics-manager')
 const {runWithContext} = require('../../async-storage')
+//the submit schedule of every runner. update-schedule.js is a byte-identical copy of node-orchestrator's module, which
+//derives the cluster update hash from the same values (tests/cross-repo/update-schedule-parity.test.js)
+const {FEE_MULTIPLIER: feeMultiplier, maxSubmitAttempts, __getMaxTime: getMaxTime} = require('./update-schedule')
 
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
  * @typedef {import('@stellar/stellar-sdk').xdr.DecoratedSignature} DecoratedSignature
  * @typedef {import('@stellar/stellar-sdk').rpc.Api.GetSuccessfulTransactionResponse} SuccessfulTransactionResponse
  * @typedef {import('@reflector/reflector-shared').ContractConfigBase} ContractConfigBase
+ */
+
+/**
+ * @typedef {Object} LandedTransaction
+ * @property {SuccessfulTransactionResponse|null} response - submission result; null when the build returned no transaction
+ * @property {PendingTransactionBase|null} tx - the built transaction that landed; null when the build returned none
  */
 
 /**
@@ -30,20 +39,6 @@ function getSignatureMessage(contractId, tx) {
             signature: tx.signatures[0].toXdr('hex') //first signature always belongs to the current node
         }
     }
-}
-
-/**
- * @param {number} syncTimestamp - sync timestamp in milliseconds
- * @param {number} iteration - 1-based iteration (attempt 0 = iteration 1)
- * @returns {number} - max time in seconds
- */
-function getMaxTime(syncTimestamp, iteration) {
-    //attempt 0 gets firstAttemptTimeout; each retry adds retryAttemptTimeout.
-    //decoupling these budgets lets us keep the happy-path window generous
-    //(cluster signature collection is the bottleneck) while retries rely on
-    //fee escalation rather than long envelopes.
-    const budgetMs = firstAttemptTimeout + retryAttemptTimeout * (iteration - 1)
-    return (syncTimestamp + budgetMs) / 1000
 }
 
 /**
@@ -68,10 +63,11 @@ async function sendSignature(contractId, pubkey, tx) {
 /**
  * @param {PendingTransactionBase} tx - transaction
  * @param {number} maxTime - max time in seconds
- * @returns {{tx: PendingTransactionBase, resolve: Function, reject: Function, submitPromise: Promise<any>, iteration: number, status: string}}
+ * @param {number} signersCount - size of the node set captured when the transaction was built
+ * @returns {{tx: PendingTransactionBase, signersCount: number, resolve: Function, reject: Function, submitPromise: Promise<any>, iteration: number, status: string}}
  */
-function createPendingTransactionObject(tx, maxTime) {
-    const pendingTxObject = {tx}
+function createPendingTransactionObject(tx, maxTime, signersCount) {
+    const pendingTxObject = {tx, signersCount}
     pendingTxObject.submitPromise = new Promise((resolve, reject) => {
         let isSettled = false
 
@@ -121,9 +117,28 @@ function createMajorityPromiseData() {
     return majorityPromiseData
 }
 
-const maxSubmitAttempts = 3
-const firstAttemptTimeout = 30_000 //attempt 0 budget (ms) — covers worker + build + signature collection + RPC + Stellar lookahead
-const retryAttemptTimeout = 15_000 //per-retry budget (ms) — relies on fee escalation to land
+//getMaxTime gives attempt 0 firstAttemptTimeout (30 s: worker, build, signature collection, rpc and the Stellar
+//lookahead) and each retry retryAttemptTimeout more (15 s). Decoupling the two keeps the happy-path window generous
+//(cluster signature collection is the bottleneck) while retries rely on the fee, escalated feeMultiplier (8) times per
+//retry so a retry outbids the prior attempt decisively, rather than on long envelopes
+//defence in depth: worker() awaits __workerFn, so a build that never settles would suppress every later tick
+const buildTimeout = 15_000
+const buildTimeoutMessage = 'Transaction build timed out.'
+//one budget for the reads a worker makes before it builds. They sit outside the build deadline, and makeServerRequest
+//retries 3 x N urls with a 300 ms sleep between rounds, so the 15 s per-request deadline still allows ~135 s per call
+//on three dead urls - longer than the whole transaction envelope (60 s from syncTimestamp). Ruling 6
+//Sizing: the shortest oracle timeframe is 60 s (OracleConfig: a whole number of minutes), and an oracle worker has
+//60 s from its start to the end of the last attempt's envelope. Pre-build reads (20 s), the price-history load
+//(20 s, the same budget) and the build (15 s) take at most 20 + 20 + 15 = 55 s of it. With a hung first rpc url the
+//node abstains for the first tick rather than failing over within it: every request of that tick pays the 15 s
+//per-request deadline on the hung url first, and three pre-build requests (45 s) cannot fit in 20 s. Each rpc helper
+//(this node's makeServerRequest, reflector-shared makeRequest, oracle-client makeServerRequest) then remembers the url
+//that answered for ten minutes, so later ticks start there and the node signs again while the first url is still hung;
+//every ten minutes the configured order is tried again, which can cost one more tick each time.
+//These deadlines end the wait; the shared reads and the simulations carry a 15 s per-request deadline of their own
+//in reflector-shared and oracle-client.
+const preBuildTimeout = 20_000
+const preBuildTimeoutMessage = 'Pre-build contract reads timed out.'
 const txHashPattern = /^[0-9a-f]{64}$/
 //A bucket is opened only by an authenticated cluster peer, and every peer is capped at maxPendingHashesPerPeer, so
 //filling this bound takes 256 / 16 = 16 distinct peers each holding a full quota inside the 60 s TTL. A majority is
@@ -135,6 +150,29 @@ const txHashPattern = /^[0-9a-f]{64}$/
 //runner is about to build, so a cluster of 32 nodes or more should evict the oldest bucket instead.
 const maxPendingHashes = 256 //distinct transaction hashes buffered per runner
 const maxPendingHashesPerPeer = 16 //3 attempts x 2 ticks inside the 60 s TTL, doubled for clock skew
+const runnerStoppedMessage = 'Runner stopped'
+const maxTimerDelay = 2 ** 31 - 1 //Node replaces any longer delay with 1 ms
+
+/**
+ * A deadline that expired is logged as one line; anything else is logged as a full error object. A build deadline
+ * is a timeout and has to read as one, or the retry loop prints the whole error for it.
+ * @param {Error} e - error raised by one submit attempt
+ * @returns {boolean}
+ */
+function isExpectedTimeout(e) {
+    return e?.message === txTimeoutMessage || e?.message === buildTimeoutMessage
+}
+
+/**
+ * Bounds the contract reads a runner makes before it builds, as one budget for all of them. The rejection is left to
+ * RunnerBase.worker, which logs it and schedules the next tick as usual
+ * @param {Promise<any>} promise - the reads, already started
+ * @param {string} [message] - error message used when the budget is exhausted
+ * @returns {Promise<any>}
+ */
+function withPreBuildDeadline(promise, message = preBuildTimeoutMessage) {
+    return withDeadline(promise, preBuildTimeout, message)
+}
 
 class RunnerBase {
 
@@ -145,8 +183,8 @@ class RunnerBase {
     start() {
         const timestamp = normalizeTimestamp(Date.now(), this.__timeframe)
         this.isRunning = true
-        //awoid starting before sync time
-        setTimeout(() => this.__runWorker(timestamp), Math.max(1, this.__getWorkerTimeout(timestamp)))
+        //avoid starting before sync time; the timer is stored like every later one, so stop() cancels it too
+        this.__scheduleWorker(timestamp)
         this.__clearPendingSignatures()
     }
 
@@ -220,10 +258,16 @@ class RunnerBase {
             clearTimeout(this.__workerTimeout)
         if (this.__pendingSignaturesTimeout)
             clearTimeout(this.__pendingSignaturesTimeout)
+        //abort the transaction in flight so a stopped or removed contract cannot submit afterwards
+        if (this.__pendingTransaction) {
+            const {reject} = this.__pendingTransaction
+            this.__clearPendingTransaction()
+            reject(new Error(runnerStoppedMessage))
+        }
     }
 
     /**
-     * @type {{tx: PendingTransactionBase, resolve: Function, reject: Function, submitPromise: Promise<any>, iteration: number, status: string}}
+     * @type {{tx: PendingTransactionBase, signersCount: number, resolve: Function, reject: Function, submitPromise: Promise<any>, iteration: number, status: string}}
      */
     __pendingTransaction = null
 
@@ -238,6 +282,12 @@ class RunnerBase {
      * @type {Map<string, number>}
      */
     __pendingSignaturesByPeer = new Map()
+
+    /**
+     * Set when an attempt in this worker run submitted a footprint-restore transaction instead of the update
+     * @type {boolean}
+     */
+    __isRestoreSubstitution = false
 
     /**
      * @param {number} timestamp - timestamp
@@ -262,15 +312,33 @@ class RunnerBase {
         return timeout
     }
 
+    /**
+     * Arms the worker for a tick. A delay past the timer range - a cluster update scheduled more than about 24.8 days
+     * ahead, or an operator dbSyncDelay that long - would be replaced by 1 ms and re-enter the worker about once per
+     * millisecond. Such a delay is waited out in steps of the
+     * largest delay the timer takes, and the worker runs only once its tick is due
+     * @param {number} timestamp - tick to run the worker for
+     */
+    __scheduleWorker(timestamp) {
+        const timeout = this.__getWorkerTimeout(timestamp)
+        logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
+        if (timeout > maxTimerDelay) {
+            this.__workerTimeout = setTimeout(() => this.__scheduleWorker(timestamp), maxTimerDelay)
+            return
+        }
+        this.__workerTimeout = setTimeout(() => this.__runWorker(timestamp), Math.max(1, timeout))
+    }
+
     async worker(timestamp) {
         if (!this.isRunning)
             return
         try {
             logger.info({msg: 'Start worker', timestamp, ...this.__contractInfo})
             this.__payloadMajorityData = createMajorityPromiseData()
+            this.__isRestoreSubstitution = false
             const isTxProcessed = await this.__workerFn(timestamp)
-            //update last processed timestamp
-            if (isTxProcessed && this.contractId)
+            //update last processed timestamp - but a substituted restore transaction is not the update this tick asked for
+            if (isTxProcessed && !this.__isRestoreSubstitution && this.contractId)
                 statisticsManager.setLastProcessedTimestamp(this.contractId, this.__contractType, timestamp)
         } catch (err) {
             logger.error({err, msg: 'Error in worker', ...this.__contractInfo, timestamp})
@@ -278,10 +346,7 @@ class RunnerBase {
             //TODO: improve resolve logic for other runners
             //only subscriptions runner should resolve the promise every run
             this.__payloadMajorityData.resolve(false)
-            const nextTimestamp = this.__getNextTimestamp(timestamp)
-            const timeout = this.__getWorkerTimeout(nextTimestamp)
-            logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
-            this.__workerTimeout = setTimeout(() => this.__runWorker(nextTimestamp), Math.max(1, timeout))
+            this.__scheduleWorker(this.__getNextTimestamp(timestamp))
         }
     }
 
@@ -317,7 +382,7 @@ class RunnerBase {
     /**
      * @param {PendingTransactionBase} tx - transaction
      * @param {number} maxTime - max time in seconds
-     * @returns {{tx: PendingTransactionBase, resolve: Function, reject: Function, submitPromise: Promise<SuccessfulTransactionResponse>}}
+     * @returns {{tx: PendingTransactionBase, signersCount: number, resolve: Function, reject: Function, submitPromise: Promise<SuccessfulTransactionResponse>}}
      */
     __setPendingTransaction(tx, maxTime) {
         if (this.__pendingTransaction) {
@@ -330,8 +395,10 @@ class RunnerBase {
 
         const {keypair, publicKey} = container.settingsManager.appConfig
 
-        //only the cluster as it stands when the transaction is built may sign it
-        tx.setAllowedSigners([...container.settingsManager.nodes.keys()])
+        //only the cluster as it stands when the transaction is built may sign it, and the majority threshold is the
+        //one that node set implies, not whatever the config says at submit time
+        const signers = [...container.settingsManager.nodes.keys()]
+        tx.setAllowedSigners(signers)
         //addSignature returns false rather than throwing when the signer is outside the allowed set. If this node has
         //just been removed from the cluster, an unchecked false leaves tx.signatures empty and the very next line -
         //broadcastSignature -> getSignatureMessage -> tx.signatures[0].toXdr('hex') - throws a bare TypeError on every
@@ -339,7 +406,7 @@ class RunnerBase {
         if (!tx.addSignature(keypair.signDecorated(tx.hash), publicKey))
             throw new Error('This node is not in the current cluster node set; not signing')
 
-        this.__pendingTransaction = createPendingTransactionObject(tx, maxTime)
+        this.__pendingTransaction = createPendingTransactionObject(tx, maxTime, signers.length)
 
         this.__assignPendingSignatures(tx.hashHex, tx)
         broadcastSignature(this.contractId, tx)
@@ -367,9 +434,14 @@ class RunnerBase {
      * @returns {Promise<void>}
      */
     async __trySubmitTransaction() {
+        if (!this.isRunning) //a stopped or removed runner must not submit
+            return
         const {settingsManager} = container
-        const currentNodesLength = settingsManager.nodes.size
-        if (!this.__pendingTransaction || !this.__pendingTransaction.tx.isReadyToSubmit(currentNodesLength))
+        if (!this.__pendingTransaction)
+            return
+        //the threshold is the one captured when the transaction was built, not the live node count
+        const {signersCount} = this.__pendingTransaction
+        if (!this.__pendingTransaction.tx.isReadyToSubmit(signersCount))
             return
         this.__payloadMajorityData.resolve(true) //we got the majority, so the payload is the same for the majority of nodes
         const {tx, reject, resolve} = this.__pendingTransaction
@@ -379,11 +451,15 @@ class RunnerBase {
             tx.submitted = true
             //sleep for random time from 0 to 1 seconds to avoid simultaneous submissions
             await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 1000)))
+            if (!this.isRunning) { //stopped while waiting out the submission jitter
+                reject(new Error(runnerStoppedMessage))
+                return
+            }
             const result = await submitTransaction(
                 networkPassphrase,
                 sorobanRpc,
                 tx,
-                tx.getMajoritySignatures(currentNodesLength),
+                tx.getMajoritySignatures(signersCount),
                 this.__contractInfo
             )
             resolve(result)
@@ -401,57 +477,78 @@ class RunnerBase {
      * @param {number} baseFee - base fee
      * @param {number} timestamp - sync timestamp
      * @param {number} [syncDelay] - sync delay
-     * @returns {Promise<SuccessfulTransactionResponse>}
+     * @returns {Promise<LandedTransaction>} the submission result and the built transaction that landed. A caller that
+     * needs anything from the build reads it from this tx: a build abandoned by its deadline keeps running and must not
+     * be able to decide anything
      */
     async __buildAndSubmitTransaction(buildTxFn, account, baseFee, timestamp, syncDelay = 0) {
         const errors = []
-        let pendingTx = null
-        let response = null
 
         const {settingsManager} = container
 
         const syncTimestamp = timestamp + syncDelay
 
         for (let submitAttempt = 0; submitAttempt < maxSubmitAttempts; submitAttempt++) {
+            if (!this.isRunning) { //stopped or removed mid-flight
+                logger.debug({msg: 'Runner stopped, abandoning the transaction.', ...this.__contractInfo, syncTimestamp})
+                throw new Error(runnerStoppedMessage)
+            }
             try {
-                const fee = baseFee * Math.pow(8, submitAttempt) //fee escalates 8x per retry so retries can outbid the prior attempt decisively
+                //per attempt: a response an earlier attempt left behind must never pair with this attempt's tx (N-4)
+                let response = null
+                const fee = baseFee * Math.pow(feeMultiplier, submitAttempt)
                 const maxTime = getMaxTime(syncTimestamp, submitAttempt + 1)
                 logger.debug({msg: 'Build transaction.', ...this.__contractInfo, syncTimestamp, submitAttempt, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, fee, baseFee})
 
                 if (maxTime * 1000 < Date.now()) //if the max time is already passed
                     throw new Error(txTimeoutMessage)
 
-                //build transaction
-                const tx = await buildTxFn(
-                    new Account(account.accountId(), account.sequenceNumber()),
-                    fee,
-                    maxTime
+                //build transaction under its own deadline, never longer than what is left of this attempt's envelope
+                const tx = await withDeadline(
+                    buildTxFn(
+                        new Account(account.accountId(), account.sequenceNumber()),
+                        fee,
+                        maxTime
+                    ),
+                    Math.min(buildTimeout, maxTime * 1000 - Date.now()),
+                    buildTimeoutMessage
                 )
+                //oracle-client substitutes a footprint-restore transaction when the simulation demands one. The flag is
+                //non-enumerable and does not survive an xdr rebuild, so it is read here, before anything re-parses the tx.
+                const isRestore = !!tx?.transaction?.isRestore
+                if (isRestore)
+                    logger.warn({msg: 'Simulation demanded a footprint restore; submitting the restore transaction instead of the requested update', ...this.__contractInfo, syncTimestamp, submitAttempt, txType: tx?.type, hash: tx?.hashHex})
                 logger.debug({msg: 'Transaction is built.', ...this.__contractInfo, syncTimestamp, submitAttempt, txType: tx?.type, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, hash: tx?.hashHex})
                 logger.trace({msg: 'Transaction XDR', tx: tx?.transaction.toXdr()})
                 if (tx) { //if tx is null, it means that update is not required on the blockchain, but we need to apply it locally
-                    pendingTx = this.__setPendingTransaction(tx, maxTime)
+                    const pendingTx = this.__setPendingTransaction(tx, maxTime)
                     this.__trySubmitTransaction()
                     response = await pendingTx.submitPromise
 
+                    if (isRestore) {
+                        //marked only once the restore has landed: a failed restore attempt followed by a retry that
+                        //lands the requested update must still count that update
+                        this.__isRestoreSubstitution = true
+                        logger.debug({msg: 'Restore transaction processed; the requested update is not counted', ...this.__contractInfo, hash: tx?.hashHex})
+                    } else {
+                        const {networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
 
-                    const {networkPassphrase} = settingsManager.getBlockchainConnectorSettings()
-
-                    //check if transaction was signed by the current node
-                    const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
-                    if (this.contractId
-                        && resultTx.signatures.some(s => s.hint.equals(new xdr.SignatureHint(settingsManager.appConfig.keypair.signatureHint()))))
-                        statisticsManager.incSubmittedTransactions(this.contractId, this.__contractType)
-                    statisticsManager.setProcessedTx(this.contractId, Buffer.from(resultTx.hash()).toString('hex'))
+                        //check if transaction was signed by the current node
+                        const resultTx = new Transaction(response.envelopeXdr, networkPassphrase)
+                        if (this.contractId
+                            && resultTx.signatures.some(s => s.hint.equals(new xdr.SignatureHint(settingsManager.appConfig.keypair.signatureHint()))))
+                            statisticsManager.incSubmittedTransactions(this.contractId, this.__contractType)
+                        statisticsManager.setProcessedTx(this.contractId, Buffer.from(resultTx.hash()).toString('hex'))
+                    }
                 }
-                return response
+                return {response, tx: tx || null}
             } catch (e) {
-                logger.debug(e.message === txTimeoutMessage ? e.message : e)
+                logger.debug(isExpectedTimeout(e) ? e.message : e)
                 errors.push(e)
             }
         }
         for (const e of errors)
-            logger.error(e.message === txTimeoutMessage ? e.message : e)
+            logger.error(isExpectedTimeout(e) ? e.message : e)
         throw new Error('Failed to submit transaction. See logs for details.')
     }
 
@@ -497,3 +594,9 @@ class RunnerBase {
 }
 
 module.exports = RunnerBase
+module.exports.runnerStoppedMessage = runnerStoppedMessage
+module.exports.withPreBuildDeadline = withPreBuildDeadline
+//the submit schedule node-orchestrator derives the update hash from (tests/cross-repo/update-schedule-parity.test.js)
+module.exports.getMaxTime = getMaxTime
+module.exports.feeMultiplier = feeMultiplier
+module.exports.maxSubmitAttempts = maxSubmitAttempts

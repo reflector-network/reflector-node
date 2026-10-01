@@ -2,6 +2,10 @@ const {Keypair, StrKey} = require('@stellar/stellar-sdk')
 const {IssuesContainer, mapToPlainObject} = require('@reflector/reflector-shared')
 const DataSource = require('./data-source')
 const defaultDbSyncDelay = 15_000
+const configHashPattern = /^[0-9a-fA-F]{64}$/
+//STATISTICS_REQUEST is unsigned and a node trusts whatever answers on this url, so TLS is what authenticates the
+//orchestrator
+const orchestratorProtocols = ['wss:', 'https:']
 
 function getNormalizedDbSyncDelay(dbSyncDelay) {
     if (dbSyncDelay === defaultDbSyncDelay)
@@ -26,6 +30,7 @@ class AppConfig extends IssuesContainer {
         this.__assignDbSyncDelay(config.dbSyncDelay)
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
+        this.__assignClusterConfigHash(config.clusterConfigHash)
     }
 
     /**
@@ -68,6 +73,13 @@ class AppConfig extends IssuesContainer {
      */
     orchestratorUrl
 
+    /**
+     * Hash of the cluster config this node is allowed to adopt when it holds none yet. Optional: absent means no
+     * anchor, which only matters at bootstrap, where the node then needs its own accepting signature instead
+     * @type {string}
+     */
+    clusterConfigHash
+
     __assignKeypair(secret) {
         try {
             if (!(secret && StrKey.isValidEd25519SecretSeed(secret)))
@@ -108,6 +120,14 @@ class AppConfig extends IssuesContainer {
         try {
             if (!orchestratorUrl)
                 return
+            let parsed = null
+            try {
+                parsed = new URL(orchestratorUrl)
+            } catch (e) {
+                throw new Error('must be a valid url')
+            }
+            if (!orchestratorProtocols.includes(parsed.protocol))
+                throw new Error(`must use wss:// or https://, got ${parsed.protocol}`)
             this.orchestratorUrl = orchestratorUrl
         } catch (e) {
             this.__addIssue(`orchestratorUrl: ${e.message}`)
@@ -136,6 +156,18 @@ class AppConfig extends IssuesContainer {
         this.trace = !!trace
     }
 
+    __assignClusterConfigHash(clusterConfigHash) {
+        try {
+            if (!clusterConfigHash)
+                return
+            if (typeof clusterConfigHash !== 'string' || !configHashPattern.test(clusterConfigHash))
+                throw new Error('Cluster config hash must be 64 hex characters')
+            this.clusterConfigHash = clusterConfigHash.toLowerCase()
+        } catch (e) {
+            this.__addIssue(`clusterConfigHash: ${e.message}`)
+        }
+    }
+
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
@@ -143,6 +175,7 @@ class AppConfig extends IssuesContainer {
             handshakeTimeout: this.handshakeTimeout,
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,
+            clusterConfigHash: this.clusterConfigHash,
             trace: this.trace,
             port: this.port
         }

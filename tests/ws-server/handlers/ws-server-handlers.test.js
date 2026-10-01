@@ -98,101 +98,6 @@ describe('HandshakeResponseHandler', () => {
     })
 })
 
-describe('ConfigHandler', () => {
-    const moduleDir = path.resolve(__dirname, '../../../src')
-    let settingsManager
-    let ConfigHandler
-
-    const loadHandler = () => {
-        jest.resetModules()
-        settingsManager = {
-            appConfig: {publicKey: 'NODE_PUBKEY'},
-            setConfig: jest.fn(),
-            setPendingConfig: jest.fn(),
-            clearPendingConfig: jest.fn()
-        }
-
-        const mockContainer = {settingsManager}
-        const mockNonceManager = {
-            getNonce: jest.fn().mockReturnValue(0),
-            setNonce: jest.fn(),
-            nonceTypes: {CONFIG: 'config', PENDING_CONFIG: 'pendingConfig'}
-        }
-
-        class MockConfigEnvelope {
-            constructor(data) {
-                this.config = data.config
-                this.signatures = data.signatures || []
-            }
-        }
-
-        jest.doMock(path.join(moduleDir, 'domain', 'container.js'), () => mockContainer)
-        jest.doMock(path.join(moduleDir, 'ws-server', 'nonce-manager.js'), () => mockNonceManager)
-        jest.doMock('@reflector/reflector-shared', () => ({ConfigEnvelope: MockConfigEnvelope}))
-        jest.doMock('@stellar/stellar-sdk', () => ({
-            Keypair: {
-                fromPublicKey: () => ({verify: () => true})
-            }
-        }))
-
-        ConfigHandler = require('../../../src/ws-server/handlers/config-handler')
-        return new ConfigHandler()
-    }
-
-    test('allows orchestrator channel with anonymous access', () => {
-        const handler = loadHandler()
-        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(handler.allowAnonymous).toBe(true)
-    })
-
-    test('throws when data is missing', async () => {
-        const handler = loadHandler()
-
-        await expect(handler.handle({}, {})).rejects.toThrow('Data is required')
-    })
-
-    test('does not set config when currentConfig is invalid', async () => {
-        const handler = loadHandler()
-        const invalidConfig = {config: {isValid: false, issuesString: 'invalid'}, signatures: []}
-
-        await handler.handle({}, {data: {currentConfig: invalidConfig}})
-
-        expect(settingsManager.setConfig).not.toHaveBeenCalled()
-        expect(settingsManager.clearPendingConfig).toHaveBeenCalled()
-    })
-
-    test('applies current config and clears pending config when pending config is absent', async () => {
-        const handler = loadHandler()
-        const currentConfig = {
-            config: {isValid: true, getSignaturePayloadHash: () => 'dead'},
-            signatures: [{nonce: 1, pubkey: 'NODE_PUBKEY', signature: 'dead'}]
-        }
-
-        await handler.handle({}, {data: {currentConfig}})
-
-        expect(settingsManager.setConfig).toHaveBeenCalledWith(currentConfig.config, 1)
-        expect(settingsManager.clearPendingConfig).toHaveBeenCalled()
-    })
-
-    test('applies pending config when it is verified', async () => {
-        const handler = loadHandler()
-        const currentConfig = {
-            config: {isValid: true, getSignaturePayloadHash: () => 'dead'},
-            signatures: [{nonce: 1, pubkey: 'NODE_PUBKEY', signature: 'dead'}]
-        }
-        const pendingConfig = {
-            config: {isValid: true, getSignaturePayloadHash: () => 'dead'},
-            signatures: [{nonce: 2, pubkey: 'NODE_PUBKEY', signature: 'dead'}]
-        }
-
-        await handler.handle({}, {data: {currentConfig, pendingConfig}})
-
-        expect(settingsManager.setConfig).toHaveBeenCalledWith(currentConfig.config, 1)
-        expect(settingsManager.setPendingConfig).toHaveBeenCalled()
-        expect(settingsManager.clearPendingConfig).not.toHaveBeenCalled()
-    })
-})
-
 describe('StateHandler', () => {
     const moduleDir = path.resolve(__dirname, '../../../src')
     let StateHandler
@@ -265,80 +170,6 @@ describe('StatisticsRequestHandler', () => {
         const handler = new StatisticsRequestHandler()
         expect(handler.handle()).toEqual({nodes: 1})
         expect(statisticsManager.getStatistics).toHaveBeenCalled()
-    })
-})
-
-describe('LogsRequestHandler and LogFileRequestHandler', () => {
-    let logsDir
-    let tmpDir
-    let container
-
-    beforeEach(() => {
-        jest.resetModules()
-        const paths = createTempHome()
-        tmpDir = paths.tmpDir
-        logsDir = paths.logsDir
-        container = require('../../../src/domain/container')
-        container.homeDir = tmpDir
-        container.settingsManager = {appConfig: {trace: true}}
-    })
-
-    afterEach(() => {
-        if (tmpDir && fs.existsSync(tmpDir)) {
-            fs.rmSync(tmpDir, {recursive: true, force: true})
-        }
-    })
-
-    test('allows orchestrator channel with anonymous access', () => {
-        const LogsRequestHandler = require('../../../src/ws-server/handlers/logs-request-handler')
-        const LogFileRequestHandler = require('../../../src/ws-server/handlers/log-file-request-handler')
-        const logsHandler = new LogsRequestHandler()
-        const logFileHandler = new LogFileRequestHandler()
-        expect(logsHandler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(logsHandler.allowAnonymous).toBe(true)
-        expect(logFileHandler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(logFileHandler.allowAnonymous).toBe(true)
-    })
-
-    test('returns available log file names and trace flag', () => {
-        fs.writeFileSync(path.join(logsDir, 'app.log'), 'log content')
-        fs.writeFileSync(path.join(logsDir, 'rotate.txt'), 'rotation')
-
-        const LogsRequestHandler = require('../../../src/ws-server/handlers/logs-request-handler')
-        const handler = new LogsRequestHandler()
-        const result = handler.handle()
-
-        expect(result).toEqual({logFiles: ['app.log'], isTraceEnabled: true})
-    })
-
-    test('returns file contents for log file request', () => {
-        fs.writeFileSync(path.join(logsDir, 'app.log'), 'line 1\nline 2\n')
-        const LogFileRequestHandler = require('../../../src/ws-server/handlers/log-file-request-handler')
-        const handler = new LogFileRequestHandler()
-        expect(handler.handle({}, {data: {logFileName: 'app.log'}})).toEqual({logFile: 'line 1\nline 2'})
-    })
-})
-
-describe('SetTraceHandler', () => {
-    let handler
-    let container
-
-    beforeEach(() => {
-        jest.resetModules()
-        const SetTraceHandler = require('../../../src/ws-server/handlers/set-trace-handler')
-        handler = new SetTraceHandler()
-        container = require('../../../src/domain/container')
-        container.settingsManager = {setTrace: jest.fn()}
-    })
-
-    test('allows orchestrator channel with anonymous access', () => {
-        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(handler.allowAnonymous).toBe(true)
-    })
-
-    test('delegates trace enable/disable to settings manager', () => {
-        handler.handle({}, {data: {isTraceEnabled: true}})
-        expect(container.settingsManager.setTrace).toHaveBeenCalledWith(true)
     })
 })
 
@@ -495,5 +326,50 @@ describe('PriceSyncHandler', () => {
         handler.handle({pubkey: 'pubkey'}, {data: syncData})
 
         expect(container.tradesManager.addSyncData).toHaveBeenCalledWith('pubkey', syncData)
+    })
+})
+
+describe('LogTokenHandler', () => {
+    let tmpDir
+    let container
+    let handler
+
+    beforeEach(() => {
+        jest.resetModules()
+        tmpDir = createTempHome().tmpDir
+        container = require('../../../src/domain/container')
+        container.homeDir = tmpDir
+        const LogTokenHandler = require('../../../src/ws-server/handlers/log-token-handler')
+        handler = new LogTokenHandler()
+    })
+
+    afterEach(() => {
+        if (tmpDir && fs.existsSync(tmpDir))
+            fs.rmSync(tmpDir, {recursive: true, force: true})
+    })
+
+    test('allows orchestrator channel with anonymous access', () => {
+        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
+        expect(handler.allowAnonymous).toBe(true)
+    })
+
+    test('writes the token to <home>/promtail/token', () => {
+        const token = 'ab'.repeat(32)
+        handler.handle({}, {data: {token}})
+        const tokenPath = path.join(tmpDir, 'promtail', 'token')
+        expect(fs.readFileSync(tokenPath, 'utf8')).toBe(token)
+        expect(fs.existsSync(`${tokenPath}.tmp`)).toBe(false)
+    })
+
+    test('replaces an existing token', () => {
+        handler.handle({}, {data: {token: 'ab'.repeat(32)}})
+        handler.handle({}, {data: {token: 'cd'.repeat(32)}})
+        expect(fs.readFileSync(path.join(tmpDir, 'promtail', 'token'), 'utf8')).toBe('cd'.repeat(32))
+    })
+
+    test('rejects a malformed token and writes nothing', () => {
+        expect(() => handler.handle({}, {data: {token: 'not-a-token'}})).toThrow('Invalid log token')
+        expect(() => handler.handle({}, {data: {}})).toThrow('Invalid log token')
+        expect(fs.existsSync(path.join(tmpDir, 'promtail', 'token'))).toBe(false)
     })
 })

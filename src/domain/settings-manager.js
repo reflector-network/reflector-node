@@ -1,12 +1,13 @@
 const fs = require('fs')
 const {createHash} = require('crypto')
-const {ValidationError, ConfigEnvelope, buildUpdates, Config, ContractTypes, getDataHash} = require('@reflector/reflector-shared')
+const {ValidationError, ConfigEnvelope, buildUpdates, Config, ContractTypes, getDataHash, isAllowedValidatorsUpdate} = require('@reflector/reflector-shared')
 const AppConfig = require('../models/app-config')
 const logger = require('../logger')
 const {importRSAKey, randomUUID} = require('../utils/crypto-helper')
 const nonceManager = require('../ws-server/nonce-manager')
 const {isDebugging} = require('../utils')
 const {validateGatewayUrl, maxGatewayUrls} = require('../utils/ssrf-validator')
+const {writeFileAtomic} = require('../utils/fs-helper')
 const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
@@ -18,6 +19,8 @@ const appConfigPath = `${container.homeDir}/app.config.json`
 const gatewaysPath = `${container.homeDir}/gateways.json`
 const clusterConfigPath = `${container.homeDir}/.config.json`
 const clusterPendingConfigPath = `${container.homeDir}/.pending.config.json`
+//runtime state that is not configuration: the trace toggle. It holds nothing secret
+const statePath = `${container.homeDir}/.state.json`
 
 /**
  * @typedef {import('@reflector/reflector-shared').Node} Node
@@ -50,6 +53,21 @@ function __hasContractConfig(config, contractId, type = null) {
     if (!contractConfig || (type && contractConfig.type !== type))
         return false
     return true
+}
+
+/**
+ * Lowest nonce among the signatures of an envelope that verify against a node set, rejections excluded. Unknown and
+ * invalid entries do not count, so a forged entry cannot move the result
+ * @param {ConfigEnvelope} envelope - envelope
+ * @param {string[]} nodes - node set the envelope was voted on
+ * @returns {number} lowest counted nonce, 0 when nothing counted
+ */
+function getLowestCountedNonce(envelope, nodes) {
+    if (!nodes.length)
+        return 0
+    const {accepted} = envelope.verifySignatures(nodes)
+    const nonces = envelope.signatures.filter(s => !s.rejected && accepted.includes(s.pubkey)).map(s => s.nonce)
+    return nonces.length ? Math.min(...nonces) : 0
 }
 
 /**
@@ -89,6 +107,14 @@ class SettingsManager {
     pendingConfig
 
     /**
+     * Expiration date of the pending config, milliseconds, as node-orchestrator sends it beside the envelope; null when
+     * it sent none. Unsigned metadata: the cluster runner uses it only to skip a round that would end after it,
+     * and it never reaches a payload
+     * @type {number|null}
+     */
+    pendingExpirationDate = null
+
+    /**
      * @type {Config}
      */
     config
@@ -106,6 +132,7 @@ class SettingsManager {
     clusterSecretObject = null
 
     async init() {
+        this.__restrictHomeDir()
         //set app config
         if (!fs.existsSync(appConfigPath))
             throw new Error('Config file not found')
@@ -115,6 +142,7 @@ class SettingsManager {
             //shutdown the app if app config is invalid
             throw new Error(`Invalid app config. Issues: ${this.appConfig.issuesString}`)
         }
+        this.__applyStoredTrace()
         await this.setAppConfig(this.appConfig)
 
         //set gateways. Only a missing file means "no gateways configured": a gateways.json that exists belongs to a
@@ -122,7 +150,7 @@ class SettingsManager {
         const gatewaysExist = fs.existsSync(gatewaysPath)
         if (!gatewaysExist) {
             //first boot: nothing is configured, so the direct route is the only one there is
-            this.setGateways({urls: [], challenge: randomUUID(32)}, true)
+            this.setGateways({urls: [], challenge: randomUUID()}, true)
         } else {
             try {
                 this.setGateways(withChallengeWhenUnconfigured(JSON.parse(fs.readFileSync(gatewaysPath).toString().trim())), false)
@@ -144,37 +172,228 @@ class SettingsManager {
             : null
         if (rawConfig) {
             const clusterConfig = new Config(rawConfig)
-            if (!clusterConfig.isValid) {
-                logger.error({msg: 'Invalid config. Config will not be assigned. Issues:', issues: clusterConfig.issuesString})
-            } else
-                await this.setConfig(clusterConfig, null, false)
+            //a node that has a stored config must never continue without it: with no config loaded the config handler
+            //has nothing but the incoming envelope's own node set to verify the first config against, and a node that
+            //has already joined a cluster must not fall back into that state unnoticed
+            if (!clusterConfig.isValid)
+                throw new Error(`Invalid cluster config ${clusterConfigPath}. Issues: ${clusterConfig.issuesString}`)
+            await this.setConfig(clusterConfig, null, false)
         }
         //set pending updates
-        const rawPendingConfig = fs.existsSync(clusterPendingConfigPath)
-            ? JSON.parse(fs.readFileSync(clusterPendingConfigPath).toString().trim())
-            : null
-        if (rawPendingConfig) {
-            const clusterPendingConfig = new ConfigEnvelope(rawPendingConfig)
-            if (!clusterPendingConfig.config.isValid) {
-                logger.error({msg: 'Invalid pending config. Config will not be assigned. Issues:', issues: clusterPendingConfig.issuesString})
-            } else
-                this.setPendingConfig(clusterPendingConfig, null, false)
+        this.__loadPendingConfig()
+    }
+
+    /**
+     * The home directory holds the node seed, the cluster RSA key and the nonces, and nobody but the node's own user
+     * needs to list or read it. A home the process may not chmod - a mount owned by another user - is
+     * reported, not fatal
+     */
+    //eslint-disable-next-line class-methods-use-this
+    __restrictHomeDir() {
+        try {
+            fs.chmodSync(container.homeDir, 0o700)
+        } catch (err) {
+            logger.warn({msg: 'Cannot restrict the home directory to its owner', err: err.message})
         }
     }
 
+    /**
+     * Loads the stored pending update. Unlike the current config, a pending update is re-sent by the orchestrator while it
+     * is still open and is verified again on arrival, so one that cannot be used is set aside and the node boots. The
+     * two cases set aside: a torn file, and a pending config equal to the current
+     * one, left when the process stopped between writing the applied config and removing the pending file
+     */
+    __loadPendingConfig() {
+        if (!fs.existsSync(clusterPendingConfigPath))
+            return
+        let clusterPendingConfig = null
+        let rawPending = null
+        try {
+            rawPending = JSON.parse(fs.readFileSync(clusterPendingConfigPath).toString().trim())
+            clusterPendingConfig = new ConfigEnvelope(rawPending)
+            if (!clusterPendingConfig.config.isValid)
+                throw new Error(`Invalid pending config. Issues: ${clusterPendingConfig.config.issuesString}`)
+        } catch (err) {
+            this.__setPendingConfigAside(err)
+            return
+        }
+        if (this.config && clusterPendingConfig.config.getHash() === this.config.getHash()) {
+            //the process stopped after setConfig and before the rest of applyPendingUpdate, so the floor it raises is
+            //raised here. The node set that voted is gone; the signers are counted against the adopted
+            //set, the closest set this node holds, and the floor stays capped at the node clock. The floor is raised
+            //before the file is removed and a failure stops the boot, so a floor that could not be stored is raised
+            //again on the next boot rather than lost with the file
+            const nodes = [...this.config.nodes.keys()]
+            const lowestNonce = getLowestCountedNonce(clusterPendingConfig, nodes)
+            logger.info({msg: 'The stored pending config is the config this node already runs; removing it'})
+            this.raisePendingConfigFloor(lowestNonce)
+            this.raiseConfigFloor(lowestNonce)
+            this.clearPendingConfig()
+            return
+        }
+        try {
+            //the expiration date is stored beside the envelope (setPendingConfig) and validated again here
+            this.setPendingConfig(clusterPendingConfig, null, false, rawPending.expirationDate)
+        } catch (err) {
+            this.__setPendingConfigAside(err)
+        }
+    }
+
+    /**
+     * Moves an unusable stored pending update aside, byte for byte, for the operator to inspect
+     * @param {Error} err - why it cannot be used
+     */
+    __setPendingConfigAside(err) {
+        //a JSON.parse message quotes the text around the error, which is config content
+        const reason = err instanceof SyntaxError ? 'not valid JSON' : err.message
+        logger.error({msg: 'The stored pending config cannot be used; it is moved aside to .pending.config.json.corrupt, and the orchestrator re-sends an update that is still pending', err: reason})
+        this.pendingConfig = null
+        this.pendingExpirationDate = null
+        fs.renameSync(clusterPendingConfigPath, `${clusterPendingConfigPath}.corrupt`)
+    }
+
+    /**
+     * Applies the trace toggle and stores it in the state file. app.config.json holds the node seed and is never
+     * rewritten by the node
+     * @param {boolean} trace - whether trace logging is on
+     */
     setTrace(trace) {
         this.appConfig.trace = !!trace
         logger.setTrace(this.appConfig.trace)
-        fs.writeFileSync(appConfigPath, JSON.stringify(this.appConfig.toPlainObject(), null, 2))
+        writeFileAtomic(statePath, JSON.stringify({trace: this.appConfig.trace}, null, 2))
     }
 
-    async applyPendingUpdate(nonce) {
-        await this.setConfig(this.pendingConfig.config, nonce)
-        this.clearPendingConfig()
+    /**
+     * A trace toggle stored by setTrace wins over `trace` in app.config.json. A state file that cannot be read keeps the
+     * value from app.config.json
+     */
+    __applyStoredTrace() {
+        if (!fs.existsSync(statePath))
+            return
+        try {
+            const {trace} = JSON.parse(fs.readFileSync(statePath).toString().trim())
+            if (typeof trace === 'boolean')
+                this.appConfig.trace = trace
+        } catch (err) {
+            logger.warn({msg: 'The stored trace state cannot be read; the trace setting in app.config.json applies', err: err.message})
+        }
+    }
+
+    /**
+     * Adopts the scheduled update once it has landed. The floors are stored before the pending file is removed, in the
+     * order the boot recovery path uses: a stop at any point leaves either the floors stored or a pending file equal to
+     * the current config, which the next boot turns into the same floors
+     *
+     * The cluster runner passes the envelope and the base config the landed transaction was built from, because a CONFIG
+     * message can clear or replace the pending config while the round is in flight - an update the orchestrator rejected
+     * at its expiration date or its initiator withdrew, or the echo of the applied config arriving before the submit
+     * returns. Then: when the landed config is already the current one (adopted from the echo), nothing is
+     * adopted again; when the base config is unchanged, the landed envelope is adopted, as a majority of the current set
+     * verified it when it was scheduled and a majority of node signatures put it on-chain, so this node's signer set
+     * stays the chain's; when the base config changed meanwhile, nothing is adopted. The pending config is cleared only
+     * when it is the one that landed. Nothing here reads a cleared pending config
+     * @param {number} nonce - this node's own vote on the update, stored as its CONFIG nonce
+     * @param {ConfigEnvelope} [landed] - the envelope the landed transaction was built from; the pending config if omitted
+     * @param {Config} [base] - the current config the transaction was built against; the current config if omitted
+     */
+    async applyPendingUpdate(nonce, landed = this.pendingConfig, base = this.config) {
+        if (!landed || !this.config || !base) {
+            logger.error({msg: 'A cluster update landed, but there is no update to apply or no config it was built against'})
+            return
+        }
+        const landedHash = landed.config.getHash()
+        const isPendingLanded = this.pendingConfig?.config.getHash() === landedHash
+        if (this.config.getHash() === landedHash) {
+            //the orchestrator's echo of the applied config arrived while the round was in flight and was adopted, floors
+            //included, by the config handler
+            if (isPendingLanded)
+                this.clearPendingConfig()
+            return
+        }
+        const baseHash = base.getHash()
+        if (this.config.getHash() !== baseHash) {
+            logger.error({
+                msg: 'A cluster update landed, but the config it was built against was replaced while it was in flight; adopting nothing. The chain and this node disagree until an operator reconciles them',
+                hash: landedHash,
+                baseHash,
+                currentHash: this.config.getHash()
+            })
+            return
+        }
+        //counted against the node set that voted on it, which is the one about to be replaced
+        const nodes = [...this.config.nodes.keys()]
+        const lowestNonce = getLowestCountedNonce(landed, nodes)
+        if (isPendingLanded) {
+            await this.setConfig(landed.config, nonce)
+            this.raisePendingConfigFloor(lowestNonce)
+            this.raiseConfigFloor(lowestNonce)
+            this.clearPendingConfig()
+            return
+        }
+        logger.error({
+            msg: 'A cluster update landed after the orchestrator cleared or replaced it: the chain moved without the orchestrator. Adopting the landed config; the orchestrator record needs an operator',
+            hash: landedHash,
+            pendingHash: this.pendingConfig?.config.getHash() || null
+        })
+        //no pending file holds the landed update, so nothing on disk would raise the floors again after a stop: they are
+        //stored before the config is written, as the config handler does
+        this.raisePendingConfigFloor(lowestNonce)
+        this.raiseConfigFloor(lowestNonce)
+        await this.setConfig(landed.config, nonce)
+    }
+
+    /**
+     * Raises the PENDING_CONFIG floor to the lowest counted nonce of a config this node has just adopted. A floor that
+     * moved only with this node's own votes would let a node that did not vote on the latest change accept a
+     * replayed proposal signed before it. Signature nonces are the signers' signing times and a later proposal is signed
+     * after the config it follows was applied, so an honest one clears the raised floor. The lowest counted nonce,
+     * not the highest: a top-up of the adopted config can be signed after the next proposal was, and must not lift the
+     * floor past it, while a replay signed before the adopted config's earliest counted signature is still below it.
+     *
+     * Nonces come from each operator's own browser clock, so the floor compares one operator's clock with another's.
+     * It is therefore capped at this node's clock at the moment of adoption: a signer whose clock runs hours ahead cannot
+     * lift the floor past real time and refuse the next honest proposal on every node, while a replay signed before the
+     * adopted config is still below it. The floor is per-node state and never reaches a payload, so reading the clock
+     * here does not touch consensus. Remaining risk: a signer whose clock lags the adopted config's earliest counted
+     * signer by more than the time between the two signatures signs below the CONFIG floor, which is raised with this
+     * one. A next proposal is refused while every counted signature is below this floor, and, since verifyConfig counts
+     * fresh signatures against the CONFIG floor, while fewer than a majority of the current set are at or above that
+     * one: one such signer is enough on a bare majority. It ends when enough operators with
+     * correct clocks have signed.
+     * @param {number} nonce - lowest counted nonce of the adopted config
+     */
+    //eslint-disable-next-line class-methods-use-this
+    raisePendingConfigFloor(nonce) {
+        const {PENDING_CONFIG} = nonceManager.nonceTypes
+        if (!Number.isSafeInteger(nonce))
+            return
+        const floor = Math.min(nonce, Date.now())
+        if (floor > nonceManager.getNonce(PENDING_CONFIG))
+            nonceManager.setNonce(PENDING_CONFIG, floor)
+    }
+
+    /**
+     * Raises the CONFIG floor to the lowest counted nonce of a config this node has just adopted, so a config signed
+     * before it is refused although this node voted on neither. verifyConfig also requires a majority
+     * of the current node set to have signed a pending or current envelope at or after it, so the config this one
+     * replaced does not come back on the top-ups of operators who had not signed it, unless a later config removed
+     * its other signers. Capped at this node's clock like the pending floor; per-node
+     * state that never reaches a payload
+     * @param {number} nonce - lowest counted nonce of the adopted config
+     */
+    //eslint-disable-next-line class-methods-use-this
+    raiseConfigFloor(nonce) {
+        const {CONFIG_FLOOR} = nonceManager.nonceTypes
+        if (!Number.isSafeInteger(nonce) || nonce <= 0)
+            return
+        const floor = Math.min(nonce, Date.now())
+        if (floor > nonceManager.getNonce(CONFIG_FLOOR))
+            nonceManager.setNonce(CONFIG_FLOOR, floor)
     }
 
     clearPendingConfig() {
         this.pendingConfig = null
+        this.pendingExpirationDate = null
         //remove pending config
         if (fs.existsSync(clusterPendingConfigPath))
             fs.unlinkSync(clusterPendingConfigPath)
@@ -195,6 +414,10 @@ class SettingsManager {
      * @param {boolean} [save] - save config to file
      */
     async setConfig(config, nonce, save = true) {
+        //setPendingConfig reaches the same check through buildUpdates, but a current config adopted directly - the
+        //normal path for a node that was offline across an update - gets the same continuity check
+        if (this.config && !isAllowedValidatorsUpdate([...this.config.nodes.keys()], [...config.nodes.keys()]))
+            throw new Error('Validators update is not allowed: a majority of the current node set must remain')
         this.config = config
         if (!config.clusterSecret)
             logger.warn('RSA key is not defined')
@@ -208,25 +431,34 @@ class SettingsManager {
         if (nonce) //set nonce on config update
             nonceManager.setNonce(nonceManager.nonceTypes.CONFIG, nonce)
         if (save)
-            fs.writeFileSync(clusterConfigPath, JSON.stringify(config.toPlainObject(), null, 2))
+            writeFileAtomic(clusterConfigPath, JSON.stringify(config.toPlainObject(), null, 2))
     }
 
     /**
      * @param {ConfigEnvelope} envelope - config
      * @param {number} nonce - nonce for the pending config
      * @param {boolean} [save] - save config to file
+     * @param {any} [expirationDate] - the expiration date node-orchestrator sent beside the envelope, milliseconds. It is
+     * kept only when it is a positive safe integer; anything else, or none, leaves the node building every due round as
+     * before. Every CONFIG for the held update replaces it
      */
-    setPendingConfig(envelope, nonce, save = true) {
+    setPendingConfig(envelope, nonce, save = true, expirationDate = null) {
         if (this.pendingConfig && this.pendingConfig.config.getHash() !== envelope.config.getHash())//allow update current config
             throw new Error('Pending config already exists')
         const updates = buildUpdates(envelope.timestamp, this.config, envelope.config)
         if (updates.size === 0)
             throw new Error('No updates found in pending config')
         this.pendingConfig = envelope
+        this.pendingExpirationDate = Number.isSafeInteger(expirationDate) && expirationDate > 0 ? expirationDate : null
         if (nonce)
             nonceManager.setNonce(nonceManager.nonceTypes.PENDING_CONFIG, nonce)
-        if (save)
-            fs.writeFileSync(clusterPendingConfigPath, JSON.stringify(envelope.toPlainObject(), null, 2))
+        if (save) {
+            //stored beside the envelope, whose own plain object - what the node verifies and signs against - is unchanged
+            const stored = this.pendingExpirationDate
+                ? {...envelope.toPlainObject(), expirationDate: this.pendingExpirationDate}
+                : envelope.toPlainObject()
+            writeFileAtomic(clusterPendingConfigPath, JSON.stringify(stored, null, 2))
+        }
     }
 
     /**
@@ -289,7 +521,7 @@ class SettingsManager {
         if (save)
             //persist what was configured, not the subset that validated: a truncated file would read back on the next
             //boot as "no gateways configured", which is the state that posts directly
-            fs.writeFileSync(gatewaysPath, JSON.stringify({urls: configuredUrls, challenge}, null, 2))
+            writeFileAtomic(gatewaysPath, JSON.stringify({urls: configuredUrls, challenge}, null, 2))
         this.gateways = {urls, configuredUrls, challenge, gatewayValidationKey}
         dataSourceManager.setGateways(this.gateways)
         if (isDebugging()) //the key itself is the token gateways accept, so only a fingerprint of it is logged

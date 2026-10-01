@@ -88,3 +88,60 @@ describe('RunnerBase worker timeout', () => {
         }
     })
 })
+
+describe('RunnerBase worker timer range', () => {
+    const day = 24 * 60 * 60 * 1000
+
+    afterEach(() => {
+        jest.clearAllTimers()
+        jest.useRealTimers()
+    })
+
+    test('a tick more than 24.8 days ahead is waited out in steps and never run early', async () => {
+        jest.useFakeTimers({now: 1_000_000})
+        const runner = new NormalRunner('c5')
+        runner.__runWorker = jest.fn()
+        const tick = 1_000_000 + 30 * day
+
+        runner.__scheduleWorker(tick)
+        await jest.advanceTimersByTimeAsync(2 ** 31 - 1)
+        expect(runner.__runWorker).not.toHaveBeenCalled()
+
+        //NormalRunner delays its worker by 20 s past the tick
+        await jest.advanceTimersByTimeAsync(tick + 20_000 - Date.now() - 1)
+        expect(runner.__runWorker).not.toHaveBeenCalled()
+        await jest.advanceTimersByTimeAsync(1)
+        expect(runner.__runWorker).toHaveBeenCalledTimes(1)
+        expect(runner.__runWorker).toHaveBeenCalledWith(tick)
+    })
+
+    test('stop() also cancels the first tick start() armed', async () => {
+        jest.useFakeTimers({now: 1_000_000})
+        const runner = new NormalRunner('c6')
+        runner.__clearPendingSignatures = jest.fn()
+        runner.__runWorker = jest.fn()
+
+        runner.start()
+        runner.stop()
+        await jest.advanceTimersByTimeAsync(10 * 60 * 1000)
+
+        expect(runner.__runWorker).not.toHaveBeenCalled()
+    })
+
+    //ClusterRunner's next tick is the switch time of a pending update, which can lie weeks ahead
+    test('a next tick weeks ahead that a finished worker arms is not run early either', async () => {
+        jest.useFakeTimers({now: 1_000_000})
+        const tick = 1_000_000 + 30 * day
+        const runner = new NormalRunner('c7')
+        runner.__getNextTimestamp = () => tick
+        runner.isRunning = true
+        await runner.worker(960_000)
+        runner.__runWorker = jest.fn()
+
+        await jest.advanceTimersByTimeAsync(tick + 20_000 - Date.now() - 1)
+        expect(runner.__runWorker).not.toHaveBeenCalled()
+        await jest.advanceTimersByTimeAsync(1)
+        expect(runner.__runWorker).toHaveBeenCalledTimes(1)
+        expect(runner.__runWorker).toHaveBeenCalledWith(tick)
+    })
+})

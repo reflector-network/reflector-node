@@ -6,6 +6,7 @@ const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const {getPriceDiff} = require('../../utils/price-utils')
 const RunnerBase = require('./runner-base')
+const {withPreBuildDeadline} = RunnerBase
 
 const DEFAULT_CACHE_SIZE = 3
 //the contract keeps at most 255 price updates, so the history window is at most 255 timeframes
@@ -33,19 +34,21 @@ class OracleRunner extends RunnerBase {
         //cluster network data
         const {networkPassphrase: network, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
 
-        //get account info
-        const sourceAccount = await getAccount(admin, sorobanRpc)
-
-        const contractState = await getOracleContractState(
-            this.contractId,
-            sorobanRpc,
-            sourceAccount,
-            {
-                networkPassphrase: network,
-                fee: baseFee,
-                timebounds: {minTime: 0, maxTime: 0}
-            }
-        )
+        //get account info and contract state under one shared budget
+        const [sourceAccount, contractState] = await withPreBuildDeadline((async () => {
+            const account = await getAccount(admin, sorobanRpc)
+            const state = await getOracleContractState(
+                this.contractId,
+                sorobanRpc,
+                account,
+                {
+                    networkPassphrase: network,
+                    fee: baseFee,
+                    timebounds: {minTime: 0, maxTime: 0}
+                }
+            )
+            return [account, state]
+        })())
 
         const protocol = contractState.protocol || (contractState.version >= 6 ? 2 : 1)
 
@@ -219,10 +222,17 @@ class OracleRunner extends RunnerBase {
             throw new Error('Soroban RPC not configured')
         let entries = {}
         try {
-            for (const chunk of timestampsToLoad) {
-                const chunkEntries = await getContractEntries(this.contractId, rpc, chunk)
-                entries = {...entries, ...chunkEntries}
-            }
+            //one budget for the whole load: a timeout lands in the catch below exactly like an rpc failure, so this node
+            //abstains for the tick. A chunk that answers after the budget has run out only reaches
+            //the abandoned loop's own accumulator
+            entries = await withPreBuildDeadline((async () => {
+                let loaded = {}
+                for (const chunk of timestampsToLoad) {
+                    const chunkEntries = await getContractEntries(this.contractId, rpc, chunk)
+                    loaded = {...loaded, ...chunkEntries}
+                }
+                return loaded
+            })(), 'Price history load timed out.')
         } catch (err) {
             //this node has no reference this tick, and publishing without one would sign a different payload from the
             //nodes that have it, so __getPricesToUpdate abstains

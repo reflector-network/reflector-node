@@ -285,12 +285,17 @@ describe('SettingsManager.setGateways, edge cases', () => {
         const manager = makeGatewayManager()
         manager.setGateways({urls: [], challenge: CHALLENGE}, false)
         dataSourcesManager.setGateways.mockClear()
-        const write = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+        //writeFileAtomic opens a temporary file before it writes, so both calls fail alike; with writeFileSync alone the
+        //open failed first with ENOENT wherever ./home did not exist
+        const noSpace = () => {
             throw new Error('ENOSPC: no space left on device')
-        })
+        }
+        const open = jest.spyOn(fs, 'openSync').mockImplementation(noSpace)
+        const write = jest.spyOn(fs, 'writeFileSync').mockImplementation(noSpace)
         try {
             expect(() => manager.setGateways({urls: ['https://good.example.com'], challenge: CHALLENGE})).toThrow('ENOSPC')
         } finally {
+            open.mockRestore()
             write.mockRestore()
         }
         expect(manager.gateways.urls).toBe(null)

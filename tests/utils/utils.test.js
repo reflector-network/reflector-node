@@ -98,3 +98,82 @@ describe('utils', () => {
         expect(medianPrice).toBe(1000n)
     })
 })
+
+describe('withDeadline', () => {
+    const {withDeadline} = require('../../src/utils/utils')
+
+    it('resolves when the promise settles in time', async () => {
+        await expect(withDeadline(Promise.resolve('ok'), 1000, 'too slow')).resolves.toBe('ok')
+    })
+
+    it('rejects with the given message when the promise never settles', async () => {
+        await expect(withDeadline(new Promise(() => {}), 20, 'too slow')).rejects.toThrow('too slow')
+    })
+
+    it('rejects immediately when there is no budget left', async () => {
+        await expect(withDeadline(new Promise(() => {}), 0, 'no budget')).rejects.toThrow('no budget')
+    })
+
+    it('propagates the original rejection', async () => {
+        await expect(withDeadline(Promise.reject(new Error('boom')), 1000, 'too slow')).rejects.toThrow('boom')
+    })
+
+    it('does not leave a late rejection unhandled', async () => {
+        let fail
+        const late = new Promise((_, reject) => {
+            fail = reject
+        })
+        await expect(withDeadline(late, 20, 'too slow')).rejects.toThrow('too slow')
+        fail(new Error('late failure'))
+        await new Promise(resolve => setTimeout(resolve, 10))
+    })
+
+    it.each([
+        ['zero', 0],
+        ['negative', -5],
+        ['not a number', NaN]
+    ])('rejects a %s budget at once, without arming a timer', async (label, budget) => {
+        jest.useFakeTimers()
+        try {
+            //a build deadline computed from an envelope that has already closed comes out zero or negative
+            const attempt = withDeadline(new Promise(() => {}), budget, 'no budget')
+            expect(jest.getTimerCount()).toBe(0)
+            await expect(attempt).rejects.toThrow('no budget')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        ['resolves', () => Promise.resolve('ok')],
+        ['rejects', () => Promise.reject(new Error('boom'))]
+    ])('leaves no timer behind when the promise %s before the deadline', async (label, settle) => {
+        jest.useFakeTimers()
+        try {
+            await withDeadline(settle(), 20_000, 'too slow').catch(() => {})
+            //a live deadline timer would hold a clean process exit for up to the whole budget
+            expect(jest.getTimerCount()).toBe(0)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('treats a plain value as an already settled promise', async () => {
+        await expect(withDeadline('ok', 1000, 'too slow')).resolves.toBe('ok')
+    })
+
+    it('handles a late rejection of the bounded promise even when there was no budget to race it against', () => {
+        //jest does not fail a test on an unhandled rejection, so this runs where one ends the process
+        const {execFileSync} = require('child_process')
+        const utilsPath = require.resolve('../../src/utils/utils')
+        const script = `
+            const {withDeadline} = require(${JSON.stringify(utilsPath)})
+            let fail
+            const late = new Promise((_, reject) => { fail = reject })
+            withDeadline(late, 0, 'no budget').catch(() => {})
+            setTimeout(() => fail(new Error('late failure')), 5)
+            setTimeout(() => process.stdout.write('survived'), 50)
+        `
+        expect(execFileSync(process.execPath, ['--unhandled-rejections=strict', '-e', script], {encoding: 'utf8', stdio: 'pipe'})).toBe('survived')
+    })
+})

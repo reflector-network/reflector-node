@@ -261,13 +261,22 @@ class SubscriptionContractManager {
     __lastLedger = null
 
     /**
-     * Load subscriptions data from the contract
+     * Reads the subscriptions stored in the contract; writes nothing
      * @param {string[]} sorobanRpc - soroban rpc
+     * @return {Promise<any[]>} raw subscriptions
+     */
+    async __readSubscriptionsData(sorobanRpc) {
+        const {lastSubscriptionId} = await getSubscriptionsContractState(this.contractId, sorobanRpc)
+        return await getSubscriptions(this.contractId, sorobanRpc, lastSubscriptionId)
+    }
+
+    /**
+     * Replaces the local subscriptions with the ones read from the contract
+     * @param {any[]} rawData - raw subscriptions
      * @return {Promise<void>}
      */
-    async __loadSubscriptionsData(sorobanRpc) {
-        const {lastSubscriptionId} = await getSubscriptionsContractState(this.contractId, sorobanRpc)
-        const rawData = await getSubscriptions(this.contractId, sorobanRpc, lastSubscriptionId)
+    async __applySubscriptionsData(rawData) {
+        this.__subscriptions.clear()
         for (const raw of rawData)
             await this.__setSubscription(raw)
         logger.trace({msg: `Loaded subscriptions`, contract: this.contractId, count: this.__subscriptions.size})
@@ -325,11 +334,13 @@ class SubscriptionContractManager {
         }
     }
 
-    async processLastEvents() {
-        //get rpc
-        const {settingsManager} = container
-        const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
-
+    /**
+     * The reads of a normal tick; writes nothing to this manager. When the last processed ledger has fallen out of the
+     * rpc's event range it stops after the range check and says so, and the caller makes the full reload instead
+     * @param {string[]} sorobanRpc - soroban rpc
+     * @return {Promise<object>} {isOutOfRange, startLedger}, plus {events, lastLedger} when the cursor is in range
+     */
+    async __readLastEvents(sorobanRpc) {
         //get events ledger info
         const {oldestLedger, latestLedger} = await getEventsLedgerInfo(sorobanRpc, this.contractId)
         //check if out of range
@@ -337,18 +348,62 @@ class SubscriptionContractManager {
         //determine start ledger
         const startLedger = isOutOfRange ? latestLedger - 360 : this.__lastLedger //if out of range, load last 360 ledgers
         logger.debug({msg: 'Processing events for contract', contract: this.contractId, oldestLedger, lastProcessedLedger: this.__lastLedger, latestLedger, isOutOfRange})
+        if (isOutOfRange)
+            return {isOutOfRange, startLedger}
+        return {isOutOfRange, startLedger, ...await this.__readEvents(sorobanRpc, startLedger)}
+    }
 
-        //get start ledger for events
-        if (isOutOfRange) {
-            logger.debug({msg: 'Initializing subscriptions data', contract: this.contractId, lastProcessedLedger: this.__lastLedger, startLedger, isInitialized: this.__isInitialized})
-            this.__subscriptions.clear()
-            await this.__loadSubscriptionsData(sorobanRpc)
-            logger.debug({msg: 'Subscriptions data initialized', contract: this.contractId, count: this.__subscriptions.size})
-        }
-
+    /**
+     * Reads the contract events from a ledger on; writes nothing
+     * @param {string[]} sorobanRpc - soroban rpc
+     * @param {number} startLedger - ledger to read from
+     * @return {Promise<{events: any[], lastLedger: number}>}
+     */
+    async __readEvents(sorobanRpc, startLedger) {
         logger.debug({msg: 'Processing events', contract: this.contractId, startLedger})
         const {events, lastLedger} = await loadLastEvents(this.contractId, startLedger, sorobanRpc)
         logger.debug({msg: 'Loaded events', contract: this.contractId, count: events.length, newLastLedger: lastLedger})
+        return {events, lastLedger}
+    }
+
+    /**
+     * The reads of a full reload: every subscription the contract stores, then the events from the reload's start
+     * ledger. Writes nothing
+     * @param {string[]} sorobanRpc - soroban rpc
+     * @param {number} startLedger - ledger to read the events from
+     * @return {Promise<{rawSubscriptions: any[], events: any[], lastLedger: number}>}
+     */
+    async __readFullReload(sorobanRpc, startLedger) {
+        logger.debug({msg: 'Initializing subscriptions data', contract: this.contractId, lastProcessedLedger: this.__lastLedger, startLedger, isInitialized: this.__isInitialized})
+        const rawSubscriptions = await this.__readSubscriptionsData(sorobanRpc)
+        return {rawSubscriptions, ...await this.__readEvents(sorobanRpc, startLedger)}
+    }
+
+    /**
+     * @param {Function} [bound] - bounds the reads of a normal tick, which are already started when it receives them;
+     * the default leaves them unbounded. A full reload is never bounded by it
+     * @return {Promise<boolean>} true when this call made a full reload
+     */
+    async processLastEvents(bound = reads => reads) {
+        //get rpc
+        const {settingsManager} = container
+        const {sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
+
+        //every rpc read comes first and writes nothing, so reads a deadline abandoned cannot change this manager when
+        //they answer late: only the code below writes it, and it runs only once the reads have resolved
+        const read = await bound(this.__readLastEvents(sorobanRpc))
+        //the full reload - on the first tick after boot, and whenever the cursor falls out of the rpc's event range -
+        //takes ceil(lastSubscriptionId / 50) sequential batches, which no fixed tick budget covers as the contract grows:
+        //a budget would time out every tick and the node would never initialise (N-1). So it is not bounded; each
+        //request still carries its own rpc deadline. It runs inside this worker, so ticks stay serial, and the
+        //subscriptions and the ledger cursor are applied together only once every read has come back, so a reload that
+        //fails partway applies nothing and the next tick starts it again
+        const reload = read.isOutOfRange ? await this.__readFullReload(sorobanRpc, read.startLedger) : null
+        if (reload) {
+            await this.__applySubscriptionsData(reload.rawSubscriptions)
+            logger.debug({msg: 'Subscriptions data initialized', contract: this.contractId, count: this.__subscriptions.size})
+        }
+        const {events, lastLedger} = reload || read
         this.__lastLedger = lastLedger
 
         const triggerEvents = events
@@ -400,6 +455,7 @@ class SubscriptionContractManager {
 
         //make sure that all webhooks are set
         await this.__ensureWebhooksDecrypted()
+        return !!reload
     }
 
     /**

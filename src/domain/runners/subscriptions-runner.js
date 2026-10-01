@@ -17,6 +17,9 @@ const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
 const SubscriptionProcessor = require('../subscriptions/subscriptions-processor')
 const RunnerBase = require('./runner-base')
+const {withPreBuildDeadline} = RunnerBase
+
+const subscriptionEventsTimeoutMessage = 'Subscription events load timed out.'
 
 /**
  * @typedef {import('../subscriptions/subscriptions-sync-data')} SubscriptionsSyncData
@@ -69,11 +72,11 @@ class SubscriptionsRunner extends RunnerBase {
         //cluster network data
         const {networkPassphrase: network, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
 
-        //get account info
-        const sourceAccount = await getAccount(admin, sorobanRpc)
-
-        //get contract state
-        const contractState = await getContractState(this.contractId, sorobanRpc)
+        //get account info and contract state under one shared budget; the array keeps them sequential
+        const [sourceAccount, contractState] = await withPreBuildDeadline((async () => [
+            await getAccount(admin, sorobanRpc),
+            await getContractState(this.contractId, sorobanRpc)
+        ])())
 
         //get contract manager
         const subscriptionsContractManager = getManager(this.contractId)
@@ -101,14 +104,18 @@ class SubscriptionsRunner extends RunnerBase {
             return true
         }
 
-        const {
-            events,
-            charges,
-            eventHexHashes,
-            syncData,
-            root,
-            rootHex
-        } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp) //get actions for the completed timeframe
+        const actions = await this.__subscriptionsProcessor.getSubscriptionActions( //get actions for the completed timeframe
+            timestamp,
+            //the event reads of a normal tick get their own pre-build budget; they write the subscriptions manager only
+            //after it resolves, so a read abandoned here cannot change the manager when it answers late. A full
+            //reload is exempt from it, and the tick that makes one builds nothing (N-1)
+            reads => withPreBuildDeadline(reads, subscriptionEventsTimeoutMessage)
+        )
+        if (!actions) {
+            logger.info({msg: 'Subscriptions reloaded from the contract; this tick builds nothing', ...this.__contractInfo, timestamp})
+            return false
+        }
+        const {events, charges, eventHexHashes, syncData, root, rootHex} = actions
 
         let chargeTimestamp = timestamp
 
@@ -132,7 +139,7 @@ class SubscriptionsRunner extends RunnerBase {
                 maxTime
             })
 
-            const txResponse = await this.__buildAndSubmitTransaction(
+            const {response: txResponse} = await this.__buildAndSubmitTransaction(
                 updateTxBuilder,
                 sourceAccount,
                 baseFee,
@@ -325,8 +332,16 @@ class SubscriptionsRunner extends RunnerBase {
         return 60000
     }
 
+    /**
+     * The next tick, one timeframe on. A worker that overran by more than a timeframe - a full reload after boot can
+     * take minutes (N-1) - resumes at the latest tick whose start time has already passed, instead of replaying every
+     * tick it missed back to back
+     * @param {number} currentTimestamp - tick that just ran
+     * @returns {number}
+     */
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + this.__timeframe
+        const latestStarted = normalizeTimestamp(Date.now() - this.__delay, this.__timeframe)
+        return Math.max(currentTimestamp + this.__timeframe, latestStarted)
     }
 
     get __delay() {

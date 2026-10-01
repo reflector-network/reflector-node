@@ -110,11 +110,12 @@ class RunnerManager {
      * @param {string} contractId - contract id
      */
     remove(contractId) {
-        if (!this.runners.has(contractId))
-            return
         const runner = this.runners.get(contractId)
-        runner.stop()
+        if (!runner)
+            return
+        //detach first, then stop: stop() rejects the transaction in flight, and nothing may reach the runner after that
         this.runners.delete(contractId)
+        runner.stop()
     }
 
     all() {

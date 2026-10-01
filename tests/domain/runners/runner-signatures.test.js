@@ -50,6 +50,24 @@ function futureMaxTime() {
 }
 
 /**
+ * Runners made by the current test. A test may leave a transaction pending, and its timeout rejects about a minute
+ * later - after the run, as an unhandled rejection that kills the process when jest is not force-exited.
+ * @type {TestRunner[]}
+ */
+const runners = []
+
+/**
+ * Stops every runner the test made: stop() clears the pending transaction and settles it, which also clears its
+ * timeout. The rejection is expected, so it is handled here rather than left unhandled.
+ */
+function releaseRunners() {
+    for (const runner of runners.splice(0)) {
+        runner.__pendingTransaction?.submitPromise.catch(() => {})
+        runner.stop()
+    }
+}
+
+/**
  * @param {Keypair[]} [cluster] - node set the runner sees
  * @returns {TestRunner} a runner with the container wired and submission stubbed out
  */
@@ -63,10 +81,15 @@ function makeRunner(cluster = [ownKp, ...peerKps]) {
     runner.isRunning = true
     runner.__payloadMajorityData = {resolve: jest.fn()}
     runner.__trySubmitTransaction = jest.fn()
+    runners.push(runner)
     return runner
 }
 
 describe('RunnerBase.addSignature', () => {
+    afterEach(() => {
+        releaseRunners()
+    })
+
     test('a peer that repeats its own valid signature never reaches majority alone', () => {
         const runner = makeRunner()
         const tx = makeTx()

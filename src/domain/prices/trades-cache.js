@@ -28,6 +28,9 @@ const assetOverheadBytes = 96 //the asset object, its code string and the row pa
 const entryOverheadBytes = 136 //the entry object, two BigInts and the source string, before their contents
 const stringBytesPerChar = 2 //the most V8 stores per character of a string
 const defaultPriceHeartbeat = 2 * 60 * 60 * 1000 //the default SettingsManager.getPriceHeartbeat falls back to
+//the upper bound reflector-shared puts on priceHeartbeat, repeated here for a config an older library
+//validated: a huge finite heartbeat switches every bound off as surely as Infinity does (review N-4)
+const maxRetentionHeartbeat = 7 * 24 * 60 * 60 * 1000
 
 /**
  * The heartbeat every cache bound is derived from. The shared config accepts Infinity (JSON 1e400), and a non-finite
@@ -37,7 +40,7 @@ const defaultPriceHeartbeat = 2 * 60 * 60 * 1000 //the default SettingsManager.g
  */
 function getRetentionHeartbeat() {
     const heartbeat = Number(container.settingsManager.getPriceHeartbeat())
-    return Number.isFinite(heartbeat) && heartbeat > 0 ? heartbeat : defaultPriceHeartbeat
+    return Number.isFinite(heartbeat) && heartbeat > 0 ? Math.min(heartbeat, maxRetentionHeartbeat) : defaultPriceHeartbeat
 }
 
 /**
