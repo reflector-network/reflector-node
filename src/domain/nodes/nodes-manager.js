@@ -49,13 +49,14 @@ class NodesManager {
     }
 
     /**
-     * Add new connection
+     * Add a new validated incoming connection. Unvalidated or unknown connections are closed and the
+     * existing channel is left untouched.
      * @param {IncomingChannel} connection - new connection
      */
     addConnection(connection) {
         const node = this.__nodes.get(connection.pubkey)
-        if (!node) {
-            connection.close(1001, 'Unauthorized')
+        if (!node || !connection.isValidated) {
+            connection.close(1008, 'Unauthorized', true)
             return
         }
         node.assignIncommingWebSocket(connection)

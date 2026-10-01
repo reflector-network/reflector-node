@@ -77,19 +77,24 @@ describe('RunnerBase', () => {
         runner.start()
 
         //add a pending signature with a timestamp in the past
-        runner.__pendingSignatures['stale-hash'] = {
+        runner.__pendingSignatures.set('stale-hash', {
             timestamp: Date.now() - 120000,
-            signatures: []
-        }
-        runner.__pendingSignatures['fresh-hash'] = {
+            owner: 'peer-a',
+            signatures: new Map()
+        })
+        runner.__pendingSignatures.set('fresh-hash', {
             timestamp: Date.now(),
-            signatures: []
-        }
+            owner: 'peer-b',
+            signatures: new Map()
+        })
+        runner.__pendingSignaturesByPeer.set('peer-a', 1)
+        runner.__pendingSignaturesByPeer.set('peer-b', 1)
 
         jest.advanceTimersByTime(60000)
 
-        expect(runner.__pendingSignatures['stale-hash']).toBeUndefined()
-        expect(runner.__pendingSignatures['fresh-hash']).toBeDefined()
+        expect(runner.__pendingSignatures.has('stale-hash')).toBe(false)
+        expect(runner.__pendingSignatures.has('fresh-hash')).toBe(true)
+        expect(runner.__pendingSignaturesByPeer.get('peer-a')).toBeUndefined()
 
         runner.stop()
     })

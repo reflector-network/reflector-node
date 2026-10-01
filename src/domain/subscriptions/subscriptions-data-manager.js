@@ -138,6 +138,68 @@ async function loadLastEvents(contractId, lastProcessedLedger, sorobanRpc) {
     return {events, lastLedger}
 }
 
+const minSyncDataEntries = 4096
+const maxSyncDataSignatures = 128
+const maxSignatureLength = 128 //base64 of a 64-byte ed25519 signature is 88 characters; 128 leaves room and bounds the string
+const pubkeyLength = 56 //ed25519 strkey
+const decimalPattern = /^(0|[1-9][0-9]{0,39})$/
+const pricePattern = /^(0|[1-9][0-9]*)$/
+const maxSyncDataLookahead = 60 * 1000 //one subscriptions timeframe
+
+/**
+ * Validates the shape of a peer-supplied SYNC payload and rebuilds it with exactly the fields the hash covers, so
+ * padding a payload cannot change its hash and a malformed one never reaches shared state.
+ * @param {any} rawSyncData - payload from the SYNC message
+ * @param {number} maxEntries - ceiling on the number of syncData keys the caller is prepared to hold
+ * @returns {{data: {syncData: Object.<string, {lastNotification: number, lastPrice: string}>, timestamp: number}, signatures: {pubkey: string, signature: string}[]}}
+ */
+function parseRawSyncData(rawSyncData, maxEntries) {
+    if (!rawSyncData || typeof rawSyncData !== 'object')
+        throw new Error('sync data is required')
+    const {data, signatures} = rawSyncData
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+        throw new Error('sync data payload must be an object')
+    if (!Number.isSafeInteger(data.timestamp) || data.timestamp <= 0)
+        throw new Error('sync data timestamp must be a positive integer')
+    const {syncData} = data
+    if (!syncData || typeof syncData !== 'object' || Array.isArray(syncData))
+        throw new Error('syncData must be an object')
+    const ids = Object.keys(syncData)
+    if (ids.length > maxEntries)
+        throw new Error(`syncData holds more than ${maxEntries} entries`)
+    const normalizedSyncData = {}
+    for (const id of ids) {
+        if (!decimalPattern.test(id))
+            throw new Error('syncData key must be a decimal subscription id')
+        const entry = syncData[id]
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+            throw new Error('syncData entry must be an object')
+        if (Object.keys(entry).length !== 2)
+            throw new Error('syncData entry must hold exactly lastNotification and lastPrice')
+        if (!Number.isSafeInteger(entry.lastNotification) || entry.lastNotification < 0)
+            throw new Error('lastNotification must be a non-negative integer')
+        if (typeof entry.lastPrice !== 'string' || !pricePattern.test(entry.lastPrice))
+            throw new Error('lastPrice must be a decimal integer string')
+        normalizedSyncData[id] = {lastNotification: entry.lastNotification, lastPrice: entry.lastPrice}
+    }
+    if (!Array.isArray(signatures))
+        throw new Error('signatures must be an array')
+    if (signatures.length > maxSyncDataSignatures)
+        throw new Error('too many signatures')
+    //rebuilt field by field for the same reason the data is: an entry a peer padded is re-broadcast verbatim by
+    //toPlainObject(), so only the two fields the cluster agreed on survive
+    const normalizedSignatures = signatures.map(signature => {
+        if (!signature || typeof signature !== 'object' || Array.isArray(signature))
+            throw new Error('signature entry must be an object')
+        if (typeof signature.pubkey !== 'string' || signature.pubkey.length !== pubkeyLength)
+            throw new Error('signature pubkey must be a 56-character strkey')
+        if (typeof signature.signature !== 'string' || signature.signature.length === 0 || signature.signature.length > maxSignatureLength)
+            throw new Error('signature must be a bounded base64 string')
+        return {pubkey: signature.pubkey, signature: signature.signature}
+    })
+    return {data: {syncData: normalizedSyncData, timestamp: data.timestamp}, signatures: normalizedSignatures}
+}
+
 class SubscriptionContractManager {
 
     constructor(contractId) {
@@ -318,23 +380,47 @@ class SubscriptionContractManager {
         await this.__ensureWebhooksDecrypted()
     }
 
-    async trySetRawSyncData(rawSyncData) {
+    /**
+     * @param {any} rawSyncData - payload from the SYNC message
+     * @param {string} sender - public key of the authenticated peer that sent it
+     */
+    async trySetRawSyncData(rawSyncData, sender) {
         try {
-            const {data, signatures} = rawSyncData
+            //syncData accumulates one entry per subscription that has ever triggered and is never pruned, so the cap is
+            //derived from the set the cluster has already agreed on rather than from the live subscription count, which
+            //churn leaves far behind. __lastSyncData only advances on a majority-signed item, so a peer cannot ratchet
+            //the cap on its own; the headroom is the live count because only a live subscription can newly trigger this
+            //tick (subscriptions-processor.js:169), which bounds honest growth exactly
+            const maxEntries = Math.max(minSyncDataEntries, (this.__lastSyncData?.size || 0) + this.__subscriptions.size)
+            const {data, signatures} = parseRawSyncData(rawSyncData, maxEntries)
             const newSyncData = new SubscriptionsSyncData(data)
             await newSyncData.calculateHash()
             newSyncData.tryAddSignature(signatures)
-            this.trySetSyncData(newSyncData)
+            this.trySetSyncData(newSyncData, sender)
         } catch (e) {
-            logger.error({msg: 'Error processing raw sync data', contract: this.contractId, err: e.message})
+            //warn, not debug: a rejection is the only signal an operator gets that peer sync has stopped merging
+            logger.warn({msg: 'Rejected raw sync data', contract: this.contractId, err: e.message})
         }
     }
 
     /**
      * @param {SubscriptionsSyncData} newSyncData - sync data
+     * @param {string} sender - public key of the node it came from, charged for any pending entry it opens
      */
-    trySetSyncData(newSyncData) {
-        const syncItem = this.__pendingSyncData.push(newSyncData)
+    trySetSyncData(newSyncData, sender) {
+        //a payload dated in the future would pin __lastSyncData for the life of the process, because adoption requires
+        //a non-decreasing timestamp. There is no lower bound: a restarted node recovers old state from peers.
+        if (newSyncData.timestamp > Date.now() + maxSyncDataLookahead) {
+            logger.debug({msg: 'Sync data timestamp is too far ahead', contract: this.contractId, timestamp: newSyncData.timestamp})
+            return
+        }
+        //an adopted item has left the pending cache, so a later copy of it adds its signatures here instead of opening a
+        //pending entry of its own - what the cache did while adopted items stayed in it
+        if (this.__lastSyncData && newSyncData.hashBase64 === this.__lastSyncData.hashBase64) {
+            this.__lastSyncData.merge(newSyncData)
+            return
+        }
+        const syncItem = this.__pendingSyncData.push(newSyncData, sender)
         const lastTimestamp = this.__lastSyncData?.timestamp || 0
         if (syncItem.isVerified && syncItem.timestamp >= lastTimestamp) {
             this.__lastSyncData = syncItem

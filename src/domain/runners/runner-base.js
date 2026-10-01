@@ -124,6 +124,17 @@ function createMajorityPromiseData() {
 const maxSubmitAttempts = 3
 const firstAttemptTimeout = 30_000 //attempt 0 budget (ms) — covers worker + build + signature collection + RPC + Stellar lookahead
 const retryAttemptTimeout = 15_000 //per-retry budget (ms) — relies on fee escalation to land
+const txHashPattern = /^[0-9a-f]{64}$/
+//A bucket is opened only by an authenticated cluster peer, and every peer is capped at maxPendingHashesPerPeer, so
+//filling this bound takes 256 / 16 = 16 distinct peers each holding a full quota inside the 60 s TTL. A majority is
+//floor(n / 2) + 1, so 16 peers are a minority only from 32 nodes upwards: below that no minority can reach the bound,
+//and honest traffic cannot either - the same envelope that sizes the per-peer cap puts an honest peer at ~6 live
+//buckets. It is therefore a fixed memory bound (runners x 256 buckets), not the flood defence; the per-peer cap is.
+//Kept as a constant rather than derived from the live node count, because 16 x nodeCount is exactly the sum of the
+//per-peer quotas and would never bind. When the bound is reached the refusal is global, including for the hash this
+//runner is about to build, so a cluster of 32 nodes or more should evict the oldest bucket instead.
+const maxPendingHashes = 256 //distinct transaction hashes buffered per runner
+const maxPendingHashesPerPeer = 16 //3 attempts x 2 ticks inside the 60 s TTL, doubled for clock skew
 
 class RunnerBase {
 
@@ -142,24 +153,56 @@ class RunnerBase {
     syncTimeframe = 1000 * 5 //5 seconds
 
     /**
-     * @param {string} txHash - transaction hash
+     * @param {string} txHash - transaction hash, 64 lowercase hex characters
      * @param {DecoratedSignature} signature - transaction signature
-     * @param {string} from - node public key
+     * @param {string} from - node public key of the peer that sent it
      */
     addSignature(txHash, signature, from) {
-        //if the transaction is not the pending transaction, add the signature to the pending signatures list
-        if (this.__pendingTransaction?.tx.hashHex !== txHash) {
-            /**@type {timestamp: number, signatures: DecoratedSignature[]} */
-            const signaturesData =
-                this.__pendingSignatures[txHash] = this.__pendingSignatures[txHash] || {timestamp: Date.now(), signatures: []}
-            if (!signaturesData.signatures.find(s => s.hint.equals(signature.hint)))
-                signaturesData.signatures.push(signature)
-            logger.debug({msg: 'Signature added to the pending signatures.', ...this.__contractInfo, node: from, txHash})
+        if (typeof txHash !== 'string' || !txHashPattern.test(txHash)) {
+            //a peer-supplied string is never used as a plain-object key
+            logger.debug({msg: 'Signature with a malformed transaction hash ignored.', ...this.__contractInfo, node: from})
             return
         }
-        this.__pendingTransaction.tx.addSignature(signature)
-        logger.debug({msg: 'Signature added to the pending transaction.', ...this.__contractInfo, node: from, txType: this.__pendingTransaction.tx.type, txHash: this.__pendingTransaction.tx.hashHex})
+        if (this.__pendingTransaction?.tx.hashHex !== txHash) {
+            this.__bufferSignature(txHash, signature, from)
+            return
+        }
+        //the shared model verifies the hint and the signature against the sender and counts one signature per signer
+        if (!this.__pendingTransaction.tx.addSignature(signature, from)) {
+            logger.debug({msg: 'Signature rejected by the pending transaction.', ...this.__contractInfo, node: from, txHash})
+            return
+        }
+        logger.debug({msg: 'Signature added to the pending transaction.', ...this.__contractInfo, node: from, txType: this.__pendingTransaction.tx.type, txHash})
         this.__trySubmitTransaction()
+    }
+
+    /**
+     * Buffers a signature for a transaction this runner has not built yet. The buffer is bounded per peer and in
+     * total, so a peer streaming random hashes cannot grow it.
+     * @param {string} txHash - transaction hash, already validated
+     * @param {DecoratedSignature} signature - transaction signature
+     * @param {string} from - node public key of the peer that sent it
+     */
+    __bufferSignature(txHash, signature, from) {
+        let signaturesData = this.__pendingSignatures.get(txHash)
+        if (!signaturesData) {
+            if (this.__pendingSignatures.size >= maxPendingHashes) {
+                logger.debug({msg: 'Pending signature buffer is full.', ...this.__contractInfo, node: from, txHash})
+                return
+            }
+            const peerHashes = this.__pendingSignaturesByPeer.get(from) || 0
+            if (peerHashes >= maxPendingHashesPerPeer) {
+                logger.debug({msg: 'Peer reached its pending signature quota.', ...this.__contractInfo, node: from, txHash})
+                return
+            }
+            this.__pendingSignaturesByPeer.set(from, peerHashes + 1)
+            signaturesData = {timestamp: Date.now(), owner: from, signatures: new Map()}
+            this.__pendingSignatures.set(txHash, signaturesData)
+        }
+        if (signaturesData.signatures.has(from))
+            return
+        signaturesData.signatures.set(from, signature)
+        logger.debug({msg: 'Signature added to the pending signatures.', ...this.__contractInfo, node: from, txHash})
     }
 
     /**
@@ -185,9 +228,16 @@ class RunnerBase {
     __pendingTransaction = null
 
     /**
-     * @type {{[hash: string]: {timestamp: number, signatures: DecoratedSignature[]}}}
+     * Out-of-order peer signatures keyed by transaction hash; each bucket holds one signature per peer
+     * @type {Map<string, {timestamp: number, owner: string, signatures: Map<string, DecoratedSignature>}>}
      */
-    __pendingSignatures = {}
+    __pendingSignatures = new Map()
+
+    /**
+     * Number of buffered hashes each peer has opened, so a bucket can be charged back when it is dropped
+     * @type {Map<string, number>}
+     */
+    __pendingSignaturesByPeer = new Map()
 
     /**
      * @param {number} timestamp - timestamp
@@ -231,12 +281,28 @@ class RunnerBase {
      * @param {PendingTransactionBase} pendingTx - pending transaction
      */
     __assignPendingSignatures(hash, pendingTx) {
-        //add pending signatures if any
-        const signaturesData = this.__pendingSignatures[hash]
+        //add pending signatures if any; each is re-verified against the peer that buffered it
+        const signaturesData = this.__pendingSignatures.get(hash)
         if (signaturesData)
-            for (const signature of signaturesData.signatures)
-                pendingTx.addSignature(signature)
-        delete this.__pendingSignatures[hash]
+            for (const [pubkey, signature] of signaturesData.signatures)
+                pendingTx.addSignature(signature, pubkey)
+        this.__dropPendingSignatures(hash)
+    }
+
+    /**
+     * Removes one buffered hash and releases the quota of the peer that opened it
+     * @param {string} hash - transaction hash
+     */
+    __dropPendingSignatures(hash) {
+        const signaturesData = this.__pendingSignatures.get(hash)
+        if (!signaturesData)
+            return
+        this.__pendingSignatures.delete(hash)
+        const peerHashes = this.__pendingSignaturesByPeer.get(signaturesData.owner) || 0
+        if (peerHashes <= 1)
+            this.__pendingSignaturesByPeer.delete(signaturesData.owner)
+        else
+            this.__pendingSignaturesByPeer.set(signaturesData.owner, peerHashes - 1)
     }
 
     /**
@@ -253,10 +319,16 @@ class RunnerBase {
             reject(new Error('Pending transaction wasn\'t submitted'))
         }
 
-        const keypair = container.settingsManager.appConfig.keypair
+        const {keypair, publicKey} = container.settingsManager.appConfig
 
-        const signature = keypair.signDecorated(tx.hash)
-        tx.addSignature(signature)
+        //only the cluster as it stands when the transaction is built may sign it
+        tx.setAllowedSigners([...container.settingsManager.nodes.keys()])
+        //addSignature returns false rather than throwing when the signer is outside the allowed set. If this node has
+        //just been removed from the cluster, an unchecked false leaves tx.signatures empty and the very next line -
+        //broadcastSignature -> getSignatureMessage -> tx.signatures[0].toXdr('hex') - throws a bare TypeError on every
+        //tick, burning all three submit attempts and the fee escalation. Fail with a sentence instead.
+        if (!tx.addSignature(keypair.signDecorated(tx.hash), publicKey))
+            throw new Error('This node is not in the current cluster node set; not signing')
 
         this.__pendingTransaction = createPendingTransactionObject(tx, maxTime)
 
@@ -272,12 +344,9 @@ class RunnerBase {
 
     __clearPendingSignatures() {
         try {
-            const allHashes = Object.keys(this.__pendingSignatures)
-            for (const hash of allHashes) {
-                const signaturesData = this.__pendingSignatures[hash]
-                if (signaturesData && Date.now() - signaturesData.timestamp > 60000) //1 minute
-                    delete this.__pendingSignatures[hash]
-            }
+            for (const [hash, signaturesData] of [...this.__pendingSignatures])
+                if (Date.now() - signaturesData.timestamp > 60000) //1 minute
+                    this.__dropPendingSignatures(hash)
         } catch (err) {
             logger.error({err}, 'Error in __clearPendingSignatures')
         } finally {

@@ -146,7 +146,7 @@ class SubscriptionsRunner extends RunnerBase {
             sourceAccount.incrementSequenceNumber()
 
             //set notification timestamp for processed events
-            subscriptionsContractManager.trySetSyncData(syncData)
+            subscriptionsContractManager.trySetSyncData(syncData, settingsManager.appConfig.publicKey)
 
             //broadcast sync data without waiting
             __broadcastSyncData(this.contractId, syncData)

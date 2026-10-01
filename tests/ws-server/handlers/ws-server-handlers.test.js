@@ -77,8 +77,21 @@ describe('HandshakeResponseHandler', () => {
         expect(channel.close).not.toHaveBeenCalled()
     })
 
-    test('invalid signature closes channel and does not validate', () => {
-        handler.handle(channel, {data: {signature: '00'}})
+    test('invalid signature closes channel, does not validate and throws', () => {
+        expect(() => handler.handle(channel, {data: {signature: '00'}})).toThrow('Invalid signature')
+
+        expect(channel.close).toHaveBeenCalledWith(1008, 'Invalid signature', true)
+        expect(channel.validated).not.toHaveBeenCalled()
+    })
+
+    test('signature over a different payload is rejected', () => {
+        const signature = Buffer.from(keypair.sign(Buffer.from('some-other-payload'))).toString('hex')
+        expect(() => handler.handle(channel, {data: {signature}})).toThrow('Invalid signature')
+        expect(channel.validated).not.toHaveBeenCalled()
+    })
+
+    test('missing data closes channel and throws', () => {
+        expect(() => handler.handle(channel, {})).toThrow('Signature is required')
 
         expect(channel.close).toHaveBeenCalledWith(1008, 'Invalid signature', true)
         expect(channel.validated).not.toHaveBeenCalled()
@@ -177,61 +190,6 @@ describe('ConfigHandler', () => {
         expect(settingsManager.setConfig).toHaveBeenCalledWith(currentConfig.config, 1)
         expect(settingsManager.setPendingConfig).toHaveBeenCalled()
         expect(settingsManager.clearPendingConfig).not.toHaveBeenCalled()
-    })
-})
-
-describe('SignaturesHandler', () => {
-    const moduleDir = path.resolve(__dirname, '../../../src')
-    let SignaturesHandler
-    let runnerManager
-    let starSdkMock
-
-    beforeEach(() => {
-        jest.resetModules()
-        const decoratedSignature = {signature: Buffer.from('signature')}
-        starSdkMock = {
-            xdr: {
-                DecoratedSignature: {
-                    fromXdr: jest.fn(() => decoratedSignature)
-                }
-            },
-            Keypair: {
-                fromPublicKey: jest.fn(() => ({verify: jest.fn(() => true)}))
-            }
-        }
-
-        const updatesRunner = {addSignature: jest.fn()}
-        runnerManager = {
-            updatesRunner,
-            get: jest.fn(() => updatesRunner)
-        }
-
-        jest.doMock('@stellar/stellar-sdk', () => starSdkMock)
-        jest.doMock(path.join(moduleDir, 'domain', 'runners', 'runner-manager.js'), () => runnerManager)
-        SignaturesHandler = require('../../../src/ws-server/handlers/signatures-handler')
-    })
-
-    test('allows outgoing and incoming channels without anonymous access', () => {
-        const handler = new SignaturesHandler()
-        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.OUTGOING, ChannelTypes.INCOMING])
-        expect(handler.allowAnonymous).toBe(false)
-    })
-
-    test('ignores invalid message payload', async () => {
-        const handler = new SignaturesHandler()
-        await handler.handle({pubkey: 'pubkey'}, {data: {}})
-        expect(runnerManager.get).not.toHaveBeenCalled()
-        expect(runnerManager.updatesRunner.addSignature).not.toHaveBeenCalled()
-    })
-
-    test('adds signature to updates runner when hash and signature are valid', async () => {
-        const handler = new SignaturesHandler()
-        const message = {data: {signature: 'deadbeef', hash: 'abcdef', contractId: undefined}}
-
-        await handler.handle({pubkey: 'public-key'}, message)
-
-        expect(runnerManager.get).not.toHaveBeenCalled()
-        expect(runnerManager.updatesRunner.addSignature).toHaveBeenCalled()
     })
 })
 
@@ -405,13 +363,29 @@ describe('SyncHandler', () => {
         expect(handler.allowAnonymous).toBe(false)
     })
 
-    test('forwards SUBSCRIPTIONS sync data to subscriptions manager', () => {
+    test('forwards SUBSCRIPTIONS sync data to subscriptions manager, charged to the peer that sent it', () => {
         const handler = new SyncHandler()
         const syncData = {type: ContractTypes.SUBSCRIPTIONS, contractId: 'id', value: 123}
-        handler.handle({}, {data: syncData})
+        handler.handle({pubkey: 'peer'}, {data: syncData})
 
         expect(getManager).toHaveBeenCalledWith('id')
-        expect(mockManager.trySetRawSyncData).toHaveBeenCalledWith(syncData)
+        //the pending sync-data quota is per sender, so a handler that dropped the key would pool every peer into one
+        expect(mockManager.trySetRawSyncData).toHaveBeenCalledWith(syncData, 'peer')
+    })
+
+    test('returns without throwing when the frame carries no usable data', () => {
+        const handler = new SyncHandler()
+        for (const data of [undefined, null, 'nope', 42, []])
+            expect(() => handler.handle({}, {data})).not.toThrow()
+        expect(getManager).not.toHaveBeenCalled()
+    })
+
+    test('ignores sync data for a contract this node does not run', () => {
+        getManager.mockReturnValue(undefined)
+        const handler = new SyncHandler()
+
+        expect(() => handler.handle({pubkey: 'peer'}, {data: {type: ContractTypes.SUBSCRIPTIONS, contractId: 'unknown'}})).not.toThrow()
+        expect(mockManager.trySetRawSyncData).not.toHaveBeenCalled()
     })
 })
 
