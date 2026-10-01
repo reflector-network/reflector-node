@@ -696,7 +696,7 @@ describe('trySetRawSyncData payload shape', () => {
             await expect(manager.trySetRawSyncData(payload)).resolves.toBeUndefined()
 
             expect(SubscriptionsSyncData).not.toHaveBeenCalled()
-            //__lastSyncData is initialised to null (subscriptions-data-manager.js:167) and the getter returns it
+            //__lastSyncData is initialised to null (the field declaration in SubscriptionContractManager) and the getter returns it
             //verbatim, so toBeUndefined() would fail against a correct implementation
             expect(manager.lastSyncData).toBeNull()
         })

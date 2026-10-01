@@ -218,6 +218,20 @@ describe('SettingsManager.setGateways', () => {
         expect(logger.error.mock.calls[0][0].msg).toBe('Every configured gateway url was rejected; webhook notifications will not be sent rather than go direct')
     })
 
+    test.each([
+        ['every url rejected', ['https://10.20.30.40', 'https://[fd12:3456:789a::1]']],
+        ['part of the list rejected', ['https://10.20.30.40', 'https://[fd12:3456:789a::1]', 'https://good.example.com']]
+    ])('the rejected hosts are logged masked when %s', (_, urls) => {
+        const logger = require('../../src/logger')
+        logger.error.mockClear()
+        makeGatewayManager().setGateways({urls, challenge: CHALLENGE}, false)
+        const {rejected} = logger.error.mock.calls[0][0]
+        expect(rejected).toEqual([
+            'Gateway URL points at a private address: 10.***.***.40',
+            'Gateway URL points at a private address: fd12:***:1'
+        ])
+    })
+
     test('the configured list is what is reported and persisted, not the validated subset', () => {
         const manager = makeGatewayManager()
         manager.setGateways({urls: ['ftp://gateway.example.com', 'https://good.example.com'], challenge: CHALLENGE}, false)

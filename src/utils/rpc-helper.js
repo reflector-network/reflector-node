@@ -1,6 +1,7 @@
 const {Transaction, rpc, xdr} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../logger')
+const {safeUrl} = require('./log-redaction')
 
 /**
  * @typedef {import('@stellar/stellar-sdk').Account} Account
@@ -132,7 +133,8 @@ async function makeServerRequest(sorobanRpc, requestFn) {
                     rememberGoodUrl(sorobanRpc, serverRpc)
                     return result
                 } catch (e) {
-                    errAggr.push({url: serverRpc, err: e})
+                    //the url as it may be logged: a provider key can sit in its path
+                    errAggr.push({url: safeUrl(serverRpc) || 'invalid url', err: e})
                 }
             }
             throw new Error('Failed to invoke RPC method on all provided URLs', {cause: {errAggr}})

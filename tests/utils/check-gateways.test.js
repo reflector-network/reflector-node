@@ -38,6 +38,16 @@ describe('checkGateways, the release pre-flight over gateways.json', () => {
         expect(checkGateways(file({urls: ['http://203.0.114.7:8080', 'https://gw.example.com'], challenge}))).toEqual({state: 'usable', problems: []})
     })
 
+    //an editor on Windows may save the file with a UTF-8 byte-order mark. The node reads it as text and trims it
+    //(SettingsManager.init), which drops the mark, so the file is usable there; the pre-flight must say the same
+    test('a byte-order mark before the JSON is read past, as the node reads it', () => {
+        const bom = String.fromCharCode(0xfeff)
+        const content = file({urls: ['https://gw.example.com'], challenge})
+        expect(checkGateways(`${bom}${content}`)).toEqual({state: 'usable', problems: []})
+        expect(checkGateways(`${bom}${file({urls: [], challenge})}`)).toEqual({state: 'none', problems: []})
+        expect(`${bom}${content}`.trim()).toBe(content)
+    })
+
     test('ten urls are allowed', () => {
         const urls = Array.from({length: 10}, (_, i) => `https://gw${i}.example.com`)
         expect(checkGateways(file({urls, challenge}))).toEqual({state: 'usable', problems: []})
@@ -115,6 +125,14 @@ describe('check-gateways.js on the command line', () => {
         expect(JSON.parse(result.stdout)).toEqual({file: good, state: 'usable', problems: []})
     })
 
+    test('a file saved with a UTF-8 byte-order mark exits 0 as usable', () => {
+        const target = path.join(dir, 'bom.json')
+        fs.writeFileSync(target, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(file({urls: ['https://gw.example.com'], challenge}))]))
+        const result = run([target])
+        expect(result.status).toBe(0)
+        expect(JSON.parse(result.stdout)).toEqual({file: target, state: 'usable', problems: []})
+    })
+
     test('an empty list exits 0 as no gateways configured', () => {
         const empty = write('empty.json', file({urls: [], challenge}))
         const result = run([empty])
@@ -165,7 +183,7 @@ describe('check-gateways.js on the command line', () => {
     })
 
     test('a path that does not exist fails with a warning unless --missing-ok says the node has no gateways.json', () => {
-        const missing = path.join(dir, 'absent', 'gateways.json')
+        const missing = path.join(dir, 'gateways.json')
         const refused = run([missing])
         expect(refused.status).toBe(1)
         expect(refused.stdout).toBe('')
@@ -175,6 +193,21 @@ describe('check-gateways.js on the command line', () => {
             const accepted = run(args)
             expect(accepted.status).toBe(0)
             expect(JSON.parse(accepted.stdout)).toEqual({file: missing, state: 'none', problems: []})
+        }
+    })
+
+    //a pre-flight loop passes --missing-ok for every node, so a mistyped home must not pass as "no gateways"
+    test('--missing-ok still fails when the home the path names does not exist or is not a directory', () => {
+        const typoHome = path.join(dir, 'no-such-home')
+        const notADirectory = write('app.config.json', '{}')
+        for (const home of [typoHome, notADirectory]) {
+            const target = path.join(home, 'gateways.json')
+            for (const args of [['--missing-ok', target], [target, '--missing-ok']]) {
+                const result = run(args)
+                expect(result.status).toBe(1)
+                expect(result.stdout).toBe('')
+                expect(result.stderr).toBe(`${home} is not a node home: it does not exist or is not a directory\n`)
+            }
         }
     })
 

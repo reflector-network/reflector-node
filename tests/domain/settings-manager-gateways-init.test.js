@@ -33,6 +33,7 @@ const dataSourcesManager = require('../../src/domain/data-sources-manager')
 const {makeRequest} = require('../../src/utils/requests-helper')
 const SettingsManager = require('../../src/domain/settings-manager')
 const SubscriptionsRunner = require('../../src/domain/runners/subscriptions-runner')
+const {checkGateways} = require('../../src/utils/check-gateways')
 
 const gatewaysPath = path.join(container.homeDir, 'gateways.json')
 const appConfigPath = path.join(container.homeDir, 'app.config.json')
@@ -164,6 +165,21 @@ describe('SettingsManager.init with a gateways.json it cannot use', () => {
         const runner = await routeOneTrigger(manager)
         expect(runner.__postNotificationsViaGateway).toHaveBeenCalledTimes(1)
         expect(runner.__postNotifications).not.toHaveBeenCalled()
+    })
+
+    //the release pre-flight (check-gateways.js) must judge a file as the node does; an editor on Windows may save it
+    //with a UTF-8 byte-order mark, which the node's trim drops
+    test('a file saved with a byte-order mark is applied, as the release pre-flight judges it', async () => {
+        const content = JSON.stringify({urls: ['https://gw.example.com'], challenge: CHALLENGE})
+        fs.writeFileSync(gatewaysPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(content)]))
+        const manager = new SettingsManager()
+
+        await manager.init()
+
+        expect(manager.gateways.urls).toEqual(['https://gw.example.com'])
+        expect(manager.gateways.challenge).toBe(CHALLENGE)
+        expect(logger.error).not.toHaveBeenCalled()
+        expect(checkGateways(fs.readFileSync(gatewaysPath, 'utf8'))).toEqual({state: 'usable', problems: []})
     })
 
     test('a saved list is the configured one, so a state-3 list reads back as state 3 on the next boot', async () => {

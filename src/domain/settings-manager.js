@@ -8,6 +8,7 @@ const nonceManager = require('../ws-server/nonce-manager')
 const {isDebugging} = require('../utils')
 const {validateGatewayUrl, maxGatewayUrls} = require('../utils/ssrf-validator')
 const {writeFileAtomic} = require('../utils/fs-helper')
+const {redactString} = require('../utils/log-redaction')
 const runnerManager = require('./runners/runner-manager')
 const nodesManager = require('./nodes/nodes-manager')
 const container = require('./container')
@@ -486,6 +487,8 @@ class SettingsManager {
             try {
                 validUrls.push(validateGatewayUrl(url))
             } catch (err) {
+                //the validator names the host it refused, and a private one is network detail the log must not carry;
+                //the logger redacts only msg and err, so these messages go through its redaction where they are logged
                 rejected.push(err.message)
             }
         }
@@ -495,11 +498,20 @@ class SettingsManager {
         } else if (validUrls.length === 0) {
             //fail closed. Going direct would reveal the node address, which is the one thing gateways exist to
             //prevent, so an empty array here means "no route" and the webhook is simply not sent
-            logger.error({msg: 'Every configured gateway url was rejected; webhook notifications will not be sent rather than go direct', configured: configuredUrls.length, rejected})
+            logger.error({
+                msg: 'Every configured gateway url was rejected; webhook notifications will not be sent rather than go direct',
+                configured: configuredUrls.length,
+                rejected: rejected.map(redactString)
+            })
             routableUrls = []
         } else {
             if (rejected.length > 0) //the orchestrator pushed a signed list; say plainly that part of it is unused
-                logger.error({msg: 'Gateway list partially rejected; the routing set is smaller than the list pushed', configured: configuredUrls.length, accepted: validUrls.length, rejected})
+                logger.error({
+                    msg: 'Gateway list partially rejected; the routing set is smaller than the list pushed',
+                    configured: configuredUrls.length,
+                    accepted: validUrls.length,
+                    rejected: rejected.map(redactString)
+                })
             routableUrls = validUrls
         }
         this.__applyGateways(routableUrls, configuredUrls, challenge, save)

@@ -1,19 +1,13 @@
 const fs = require('fs')
 const path = require('path')
-const execSync = require('child_process').execSync
-
-const srcDir = path.resolve(__dirname, 'src')
-const distDir = path.resolve(__dirname, 'dist')
-const distAppDir = path.resolve(distDir, 'app')
+const {execSync} = require('child_process')
 
 const directoriesToIgnore = ['tests', 'home', 'node_modules']
 
-if (fs.existsSync(distDir)) {
-    fs.rmSync(distDir, {recursive: true})
-}
-
-fs.mkdirSync(distDir, {recursive: true})
-
+/**
+ * @param {string} source - directory to copy
+ * @param {string} target - destination directory
+ */
 function copyDirectoryRecursive(source, target) {
     if (!fs.existsSync(target)) {
         fs.mkdirSync(target, {recursive: true})
@@ -35,10 +29,34 @@ function copyDirectoryRecursive(source, target) {
     }
 }
 
-copyDirectoryRecursive(srcDir, distAppDir)
+/**
+ * Builds dist/ from a clean slate. The lockfile goes with package.json and `npm ci` installs exactly what it records,
+ * so two builds of one commit install the same dependency trees and a moved git tag cannot change the image
+ * @param {{rootDir: string, exec: function(string, object): void}} [options] - repository root and command runner
+ */
+function build({rootDir = __dirname, exec = execSync} = {}) {
+    const srcDir = path.resolve(rootDir, 'src')
+    const distDir = path.resolve(rootDir, 'dist')
+    const lockfile = path.resolve(rootDir, 'package-lock.json')
+    if (!fs.existsSync(lockfile))
+        throw new Error('package-lock.json is required: the release build installs exactly what it records')
 
-fs.copyFileSync(path.resolve(__dirname, 'package.json'), path.resolve(distDir, 'package.json'))
+    if (fs.existsSync(distDir)) {
+        fs.rmSync(distDir, {recursive: true})
+    }
+    fs.mkdirSync(distDir, {recursive: true})
 
-execSync('npm install --omit=dev', {cwd: distDir, stdio: 'inherit'})
+    copyDirectoryRecursive(srcDir, path.resolve(distDir, 'app'))
 
-console.log('Build completed successfully!')
+    fs.copyFileSync(path.resolve(rootDir, 'package.json'), path.resolve(distDir, 'package.json'))
+    fs.copyFileSync(lockfile, path.resolve(distDir, 'package-lock.json'))
+
+    exec('npm ci --omit=dev', {cwd: distDir, stdio: 'inherit'})
+}
+
+if (require.main === module) {
+    build()
+    console.log('Build completed successfully!')
+}
+
+module.exports = {build}

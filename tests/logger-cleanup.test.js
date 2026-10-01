@@ -103,4 +103,31 @@ describe('logger cleanup', () => {
         expect(cleanup({})).toEqual({})
         expect(cleanup([])).toEqual([])
     })
+
+    it('masks a stellar secret seed and keeps a public key', () => {
+        const {Keypair} = require('@stellar/stellar-sdk')
+        const kp = Keypair.random()
+        const result = cleanup(`seed ${kp.secret()} of ${kp.publicKey()}`)
+        expect(result).not.toContain(kp.secret())
+        expect(result).toContain(kp.publicKey())
+    })
+
+    it('masks rsa key material, in PEM and in the base64 DER form clusterSecret uses', () => {
+        const {privateKey} = require('crypto').generateKeyPairSync('rsa', {modulusLength: 2048})
+        const der = privateKey.export({type: 'pkcs8', format: 'der'}).toString('base64')
+        const pem = privateKey.export({type: 'pkcs8', format: 'pem'}).trim()
+        expect(cleanup(`secret ${der} end`)).toBe('secret [redacted] end')
+        expect(cleanup(`secret ${pem} end`)).toBe('secret [redacted] end')
+    })
+
+    it('masks credentials, api keys in a query string and the body of an ipv6 address', () => {
+        expect(cleanup('authorization: Bearer abc.def-ghi')).toBe('authorization: [redacted]')
+        //a url loses its path and query altogether; a query string on its own keeps what is not a key
+        expect(cleanup('GET https://api.example.com/v1?apiKey=SUPERSECRET&symbol=BTC failed')).toBe('GET https://api.example.com failed')
+        const query = cleanup('query ?apiKey=SUPERSECRET&symbol=BTC&access_key=SECRET2&key=SECRET3')
+        expect(query).toBe('query ?apiKey=[redacted]&symbol=BTC&access_key=[redacted]&key=[redacted]')
+        const ipv6 = cleanup('peer 2001:db8:85a3::8a2e:370:7334 connected')
+        expect(ipv6).toContain('2001:***:7334')
+        expect(ipv6).not.toContain('85a3')
+    })
 })

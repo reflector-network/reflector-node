@@ -1,5 +1,18 @@
 const fs = require('fs')
+const path = require('path')
 const {validateGatewayUrl, maxGatewayUrls, unbracketHost} = require('./ssrf-validator')
+
+/**
+ * @param {string} dir - path to test
+ * @returns {boolean} whether it exists and is a directory
+ */
+function isDirectory(dir) {
+    try {
+        return fs.statSync(dir).isDirectory()
+    } catch (err) {
+        return false
+    }
+}
 
 /**
  * @param {any} url - one entry of the list
@@ -88,6 +101,13 @@ function main(args) {
     //a mistyped path must not pass the pre-flight as "no gateways configured"
     if (!missingOk && !exists) {
         console.error(`${filePath} does not exist; pass --missing-ok for a node that has no gateways.json`)
+        return 1
+    }
+    //--missing-ok excuses a missing file, not a missing home: a pre-flight loop passes it for every node, and a typo in
+    //the home path must still fail
+    const home = path.dirname(filePath)
+    if (!exists && !isDirectory(home)) {
+        console.error(`${home} is not a node home: it does not exist or is not a directory`)
         return 1
     }
     let result = null
