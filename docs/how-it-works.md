@@ -13,7 +13,7 @@ transaction won't make it into the ledger. This way Reflector utilizes Stellar p
 uncomplicated yet robust consensus, which guarantees reliability, fault tolerance and regular price feed updates.
 
 For on-chain Stellar assets price feed data retrieval Reflector relies on a quorum of nodes connected to Stellar validators.
-Each node fetches trades information directly from the Stellar Core database. Price feeds for generic tokens get updated in a
+Each node reads Stellar trades and liquidity pool reserves from Soroban RPC. Price feeds for generic tokens get updated in a
 similar fashion, but nodes have to agree on information pulled from external sources (CEX/DEX API, price aggregators,
 stock exchanges, derivative platforms, etc.)
 

@@ -65,6 +65,46 @@ download the config, as it might generate a new secret, not compatible with the 
    ![Sign Config](new-node-sign-config.jpg)  
 4. Your node should be up and running now.
 
+### How a node decides to trust its very first cluster config
+
+A node that has never adopted a cluster config has nothing of its own to check an incoming one against, so it will not
+take the orchestrator's word for it. It adopts its first config only when one of the following holds.
+
+- **The config carries your own signature.** This is what step 3 above produces, and it is the normal route: as soon as
+  you sign the live cluster config in the dashboard, the orchestrator pushes the config back to every node, your
+  signature is in it, and your node adopts it. Nothing else is needed.
+- **The config hash matches `clusterConfigHash` in `app.config.json`.** Use this when you want the node to come up
+  before you sign, or when you prefer to pin the exact config the node may join:
+  ```json
+  {
+    "secret": "SA5G...1DKG",
+    "clusterConfigHash": "9f2c…64 hex characters…1ab7",
+    "dataSources": { "...": {} }
+  }
+  ```
+  The hash is the `hash` field of `currentConfig` returned by the orchestrator's `GET /config` endpoint when called
+  with an authenticated node key, and it is also printed by the node itself (see below). `clusterConfigHash` is
+  optional; it is consulted only while the node holds no cluster config, and is ignored from then on. A malformed value
+  stops the node at startup with a config issue.
+- **You placed `.config.json` in the home directory yourself.** The node loads and adopts it at startup with no network
+  involvement at all. If that file is present but fails validation the node stops with an error instead of
+  continuing as if it were a fresh install.
+
+When none of these holds, the node logs an error naming both remedies together with the hash it received, for example:
+
+```
+Refusing the first cluster config: it carries no accepting signature from this node and its hash is not the
+clusterConfigHash configured in app.config.json ... receivedHash=9f2c...1ab7 configuredHash=null
+```
+
+Confirm that hash out of band — against `GET /config`, or with another operator — before copying it into
+`app.config.json`. It arrived over the same channel the check exists to constrain, so it is a convenience for finding
+the right value, not evidence that the value is right.
+
+This only ever affects a node with no config loaded. Once a node holds a cluster config, updates are adopted exactly as
+before: a majority of the *current* node set must have signed the new config, your own vote is not required, and a
+config whose signatures all predate the one the node already holds is refused as a rollback.
+
 ## Updating cluster settings
 
 ### Adding new node
