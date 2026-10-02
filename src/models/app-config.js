@@ -4,8 +4,19 @@ const DataSource = require('./data-source')
 const defaultDbSyncDelay = 15_000
 const configHashPattern = /^[0-9a-fA-F]{64}$/
 //STATISTICS_REQUEST is unsigned and a node trusts whatever answers on this url, so TLS is what authenticates the
-//orchestrator
+//orchestrator. Plain http and ws are accepted only on loopback, for a local cluster
 const orchestratorProtocols = ['wss:', 'https:']
+const loopbackOrchestratorProtocols = ['ws:', 'http:']
+
+function isLoopbackHost(hostname) {
+    return hostname === 'localhost' || hostname === '[::1]' || /^127(\.\d{1,3}){3}$/.test(hostname)
+}
+
+function isAllowedOrchestratorUrl({protocol, hostname}) {
+    if (orchestratorProtocols.includes(protocol))
+        return true
+    return loopbackOrchestratorProtocols.includes(protocol) && isLoopbackHost(hostname)
+}
 
 function getNormalizedDbSyncDelay(dbSyncDelay) {
     if (dbSyncDelay === defaultDbSyncDelay)
@@ -126,8 +137,8 @@ class AppConfig extends IssuesContainer {
             } catch (e) {
                 throw new Error('must be a valid url')
             }
-            if (!orchestratorProtocols.includes(parsed.protocol))
-                throw new Error(`must use wss:// or https://, got ${parsed.protocol}`)
+            if (!isAllowedOrchestratorUrl(parsed))
+                throw new Error(`must use wss:// or https://, or ws:// or http:// on loopback, got ${parsed.protocol}//${parsed.hostname}`)
             this.orchestratorUrl = orchestratorUrl
         } catch (e) {
             this.__addIssue(`orchestratorUrl: ${e.message}`)

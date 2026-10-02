@@ -49,8 +49,24 @@ describe('AppConfig.orchestratorUrl', () => {
     })
 
     test.each([
+        'http://localhost:12274',
+        'ws://localhost:12274/ws',
+        'http://127.0.0.1:12274',
+        'ws://127.1.2.3:12274',
+        'http://[::1]:12274'
+    ])('accepts %s: plain http and ws only on loopback', url => {
+        const config = appConfig({orchestratorUrl: url})
+        expect(config.isValid).toBe(true)
+        expect(config.orchestratorUrl).toBe(url)
+    })
+
+    test.each([
         'http://192.168.0.21:12274',
         'ws://orchestrator.example.com',
+        'http://localhost.example.com',
+        'ws://127.0.0.1.example.com',
+        'http://0.0.0.0:12274',
+        'ftp://localhost',
         'ftp://orchestrator.example.com',
         'orchestrator.example.com'
     ])('refuses %s, which stops the boot', url => {

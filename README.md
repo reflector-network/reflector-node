@@ -39,8 +39,9 @@ Where:
   [Default ports](#default-ports)
 - `trace` (true|false) - [optional] detailed events tracing (false). A toggle from the admin dashboard is stored in
   `.state.json` in the home directory and takes precedence
-- `orchestratorUrl` (string) - [optional] orchestrator endpoint, `https://` or `wss://` only
-  (`https://orchestrator.reflector.network`). Any other scheme stops the node at boot: the orchestrator is authenticated
+- `orchestratorUrl` (string) - [optional] orchestrator endpoint, `https://` or `wss://`
+  (`https://orchestrator.reflector.network`); `http://` and `ws://` only on loopback (`localhost`, `127.x.x.x`,
+  `[::1]`), for a local cluster. Any other scheme or host stops the node at boot: the orchestrator is authenticated
   by TLS alone. Prefer `https://` with no path: the Docker image derives promtail's log push URL from this value
   (mapping `wss://` to `https://` and keeping any path)
 - `handshakeTimeout` (number) - [optional] timeout to drop hanging incoming node connections
