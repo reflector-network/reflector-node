@@ -54,8 +54,11 @@ async function getPricesForContract(contractId, timestamp) {
     )
     //aggregate trades data
     const tradesData = aggrTradesData(assets.length, concensusData)
-    if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
-        throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
+    if (!tradesData.some(v => v.length !== 0)) { //if all volumes are empty
+        const error = new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
+        error.code = 'TRADES_DATA_NOT_FOUND' //RunnerBase.tradesDataNotFoundCode
+        throw error
+    }
 
     //compute price
     const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))

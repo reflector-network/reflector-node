@@ -151,7 +151,11 @@ const txHashPattern = /^[0-9a-f]{64}$/
 const maxPendingHashes = 256 //distinct transaction hashes buffered per runner
 const maxPendingHashesPerPeer = 16 //3 attempts x 2 ticks inside the 60 s TTL, doubled for clock skew
 const runnerStoppedMessage = 'Runner stopped'
-const maxTimerDelay = 2 ** 31 - 1 //Node replaces any longer delay with 1 ms
+//a long wait re-reads the clock this often, so a paused host or a stepped clock delays a tick by at most this much; it
+//also keeps every delay far inside the timer range (Node replaces a delay over 2^31 - 1 ms with 1 ms)
+const rescheduleStep = 60000
+const tickSkippedMessage = 'Tick skipped: its submission deadlines passed before the round started'
+const tradesDataNotFoundCode = 'TRADES_DATA_NOT_FOUND' //set by price-manager when no consensus trades data exists
 
 /**
  * A deadline that expired is logged as one line; anything else is logged as a full error object. A build deadline
@@ -313,17 +317,18 @@ class RunnerBase {
     }
 
     /**
-     * Arms the worker for a tick. A delay past the timer range - a cluster update scheduled more than about 24.8 days
-     * ahead, or an operator dbSyncDelay that long - would be replaced by 1 ms and re-enter the worker about once per
-     * millisecond. Such a delay is waited out in steps of the
-     * largest delay the timer takes, and the worker runs only once its tick is due
+     * Arms the worker for a tick. A wait longer than one step is taken in steps, each re-reading the clock: a host that
+     * was paused, or a clock stepped forward, then delays the tick by at most one step, and no delay ever leaves the
+     * timer range (a cluster update scheduled weeks ahead would otherwise become a 1 ms timer)
      * @param {number} timestamp - tick to run the worker for
+     * @param {boolean} [rearm] - a later step of the same wait, not logged again
      */
-    __scheduleWorker(timestamp) {
+    __scheduleWorker(timestamp, rearm = false) {
         const timeout = this.__getWorkerTimeout(timestamp)
-        logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
-        if (timeout > maxTimerDelay) {
-            this.__workerTimeout = setTimeout(() => this.__scheduleWorker(timestamp), maxTimerDelay)
+        if (!rearm)
+            logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
+        if (timeout > rescheduleStep) {
+            this.__workerTimeout = setTimeout(() => this.__scheduleWorker(timestamp, true), rescheduleStep)
             return
         }
         this.__workerTimeout = setTimeout(() => this.__runWorker(timestamp), Math.max(1, timeout))
@@ -341,7 +346,13 @@ class RunnerBase {
             if (isTxProcessed && !this.__isRestoreSubstitution && this.contractId)
                 statisticsManager.setLastProcessedTimestamp(this.contractId, this.__contractType, timestamp)
         } catch (err) {
-            logger.error({err, msg: 'Error in worker', ...this.__contractInfo, timestamp})
+            if (err?.message === tickSkippedMessage)
+                logger.warn({msg: tickSkippedMessage, ...this.__contractInfo, timestamp})
+            else if (err?.code === tradesDataNotFoundCode && process.uptime() * 1000 < 2 * this.__timeframe)
+                //a node that just started has not gathered its peers' trades data yet
+                logger.warn({msg: 'No trades data yet after the start', ...this.__contractInfo, timestamp, reason: err.message})
+            else
+                logger.error({err, msg: 'Error in worker', ...this.__contractInfo, timestamp})
         } finally {
             //TODO: improve resolve logic for other runners
             //only subscriptions runner should resolve the promise every run
@@ -487,6 +498,10 @@ class RunnerBase {
         const {settingsManager} = container
 
         const syncTimestamp = timestamp + syncDelay
+        //a round that starts after its last deadline - a late wake-up, or a tick a new runner catches up with - cannot
+        //land; it is skipped as a whole instead of failing every attempt
+        if (this.__isTxExpired(timestamp, syncDelay))
+            throw new Error(tickSkippedMessage)
 
         for (let submitAttempt = 0; submitAttempt < maxSubmitAttempts; submitAttempt++) {
             if (!this.isRunning) { //stopped or removed mid-flight
@@ -595,6 +610,8 @@ class RunnerBase {
 
 module.exports = RunnerBase
 module.exports.runnerStoppedMessage = runnerStoppedMessage
+module.exports.tickSkippedMessage = tickSkippedMessage
+module.exports.tradesDataNotFoundCode = tradesDataNotFoundCode
 module.exports.withPreBuildDeadline = withPreBuildDeadline
 //the submit schedule node-orchestrator derives the update hash from (tests/cross-repo/update-schedule-parity.test.js)
 module.exports.getMaxTime = getMaxTime
