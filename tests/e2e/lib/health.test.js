@@ -135,6 +135,15 @@ describe('evaluateHealth', () => {
         expect(evaluateHealth(input({errorLines, clusterStarts: [now - 20000]})).problems).toEqual([])
     })
 
+    test('the startup window lasts until a node has a full oracle timeframe of trades data', () => {
+        //O1 prices from five minutes of trades: a node that started three minutes ago cannot agree with its peers yet
+        const nodeStarts = {0: now - 3600000, 2: now - 170000}
+        const errorLines = [{index: 2, entry: {level: 'error', time: new Date(now - 1000).toISOString(), msg: 'Tx timed out.'}}]
+        expect(evaluateHealth(input({nodeStarts, errorLines})).problems).toEqual([])
+        const late = {0: now - 3600000, 2: now - 8 * 60000}
+        expect(evaluateHealth(input({nodeStarts: late, errorLines})).problems).toEqual(['node2 error: Tx timed out.'])
+    })
+
     test('the same startup error long after a start is reported', () => {
         const errorLines = [{index: 0, entry: {level: 'error', time: new Date(now - 1000).toISOString(), msg: 'Tx timed out.'}}]
         expect(evaluateHealth(input({errorLines})).problems).toEqual(['node0 error: Tx timed out.'])

@@ -47,8 +47,11 @@ function evaluateHealth(input) {
     const oracles = Object.entries(config.contracts).filter(([, c]) => c.type === 'oracle')
     const pubnetOracles = new Set(oracles.filter(([, c]) => c.dataSource === 'pubnet').map(([id]) => id))
     const starts = [...Object.values(nodeStarts), ...clusterStarts]
-    //a start is recorded once docker returns, after the node was already stopped for it
-    const startWindows = starts.map(start => ({from: start - stopMarginMs, to: start + startGraceMs}))
+    //a node that just started prices from fewer minutes than its peers until it holds a full oracle timeframe of trades
+    //data, so its first ticks can disagree with the majority; a start is recorded once docker returns, after the node
+    //was already stopped for it
+    const startGrace = Math.max(0, ...oracles.map(([, c]) => c.timeframe)) + startGraceMs
+    const startWindows = starts.map(start => ({from: start - stopMarginMs, to: start + startGrace}))
 
     for (const pubkey of stoppedMembers)
         problems.push(`${short(pubkey)} is a member but not running`)
