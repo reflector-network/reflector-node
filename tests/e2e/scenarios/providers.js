@@ -64,10 +64,12 @@ async function minorityChange(ctx, dataSource, providers) {
 module.exports = [
     {
         id: 'P1',
-        title: 'One node drops an exchanges provider',
+        title: 'One node keeps a single exchanges provider',
         timeoutMs: 40 * 60000,
         requires: requireSource('exchanges'),
-        run: ctx => minorityChange(ctx, 'exchanges', exchanges.filter(p => p !== 'okx')),
+        //one provider instead of five: whether a single dropped exchange contributes to these pairs depends on the
+        //market at the time, but four missing ones always change this node's volumes
+        run: ctx => minorityChange(ctx, 'exchanges', ['coinbase']),
         restore: restoreProviders
     },
     {
