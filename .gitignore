@@ -25,3 +25,7 @@ collected-logs.json
 # incident-debugging scripts, not part of the node
 /scripts/
 *.stackdump
+
+# cluster end-to-end runner output and locally built contract binaries
+/tests/e2e/reports/
+/tests/e2e/wasm/
