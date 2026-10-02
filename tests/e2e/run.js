@@ -6,6 +6,7 @@ const chain = require('./lib/chain')
 const nodes = require('./lib/nodes')
 const flow = require('./lib/flow')
 const {NonceStore, OrchestratorClient} = require('./lib/orchestrator')
+const orchestratorProcess = require('./lib/orchestrator-process')
 const {until, cancellableSleep} = require('./lib/wait')
 const {checkHealth} = require('./lib/health')
 const {selectScenarios, runAll} = require('./lib/runner')
@@ -18,6 +19,8 @@ function parseArgs(argv) {
         const arg = argv[i]
         if (arg === 'bootstrap')
             args.command = 'bootstrap'
+        else if (arg === 'stop-orchestrator')
+            args.command = 'stop-orchestrator'
         else if (arg === '--list')
             args.command = 'list'
         else if (arg === '--reset')
@@ -104,6 +107,10 @@ async function main() {
             console.log(`${s.id.padEnd(4)} ${s.title}`)
         return 0
     }
+    if (args.command === 'stop-orchestrator') {
+        await orchestratorProcess.stop()
+        return 0
+    }
     const ctx = createContext()
     const image = imageCheck()
     if (args.command === 'bootstrap') {
@@ -111,6 +118,7 @@ async function main() {
         return 0
     }
     const selected = selectScenarios(catalogue, args)
+    await orchestratorProcess.ensureRunning(ctx.log)
     const edited = nodes.editedHomes()
     if (edited.length) {
         if (!args.restoreEdited) {

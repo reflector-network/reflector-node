@@ -8,7 +8,10 @@ per scenario to `tests/e2e/reports/`.
 
 - Docker Desktop with host networking enabled (Settings → Resources → Network).
 - The image built from the code under test: `npm run build && npm run build-docker-image`.
-- node-orchestrator running on `http://localhost:12274` with its MongoDB.
+- A node-orchestrator checkout at `../node-orchestrator` with its dependencies installed and a `home/app.config.json`,
+  and its MongoDB running. The runner starts its own orchestrator from that checkout on `http://localhost:12274`, in
+  a working directory under `tests/cluster/clusterData/e2e/orchestrator`, with a copy of that config pointed at a
+  database of its own; nothing else may answer on the port.
 - A pubnet Soroban RPC on `http://localhost:8003` for the `pubnet` data source.
 - For U8: `node tests/e2e/build-wasm.js` once (needs `../reflector-contract`, the Stellar CLI and the `wasm32v1-none`
   Rust target).
@@ -17,8 +20,9 @@ per scenario to `tests/e2e/reports/`.
 
 | Command | What it does |
 |---|---|
-| `node tests/e2e/run.js bootstrap` | Points the cluster at localhost, posts its config to an empty orchestrator, starts the containers on the host network |
-| `node tests/e2e/run.js bootstrap --reset` | The same after dropping the orchestrator database; restart the orchestrator when asked |
+| `node tests/e2e/run.js bootstrap` | Starts the runner's orchestrator if needed, points the cluster at localhost, posts its config as the first one, starts the containers on the host network |
+| `node tests/e2e/run.js bootstrap --reset` | The same on a database no earlier run used |
+| `node tests/e2e/run.js stop-orchestrator` | Stops the runner's orchestrator |
 | `node tests/e2e/run.js` | Every scenario, in catalogue order (several hours) |
 | `node tests/e2e/run.js N1 U3` | Only these |
 | `node tests/e2e/run.js --from U4` | From U4 on |

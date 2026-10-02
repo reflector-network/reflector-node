@@ -3,19 +3,32 @@ const fs = require('fs')
 const env = require('./env')
 const configs = require('./config')
 const {checkHealth} = require('./health')
+const orchestrator = require('./orchestrator-process')
 
 const minute = 60000
 
-async function resetOrchestrator(ctx, keypair) {
-    const mongoose = require(path.join(env.settings.orchestratorDir, 'node_modules', 'mongoose'))
-    await mongoose.connect(env.settings.orchestratorDb)
-    await mongoose.connection.dropDatabase()
-    await mongoose.disconnect()
-    ctx.log('Dropped the orchestrator database. Restart the orchestrator now; waiting for it to come back empty')
-    await ctx.wait(async () => {
-        const res = await ctx.orch.getConfig(keypair)
-        return !res.currentConfig
-    }, {timeout: 30 * minute, every: 5000, describe: 'the orchestrator to restart with an empty database'})
+/**
+ * Moves the runner's orchestrator to a database no run has used, so it starts empty
+ * @param {object} ctx - runner context
+ * @param {string} firstPubkey - the key that posts the first config
+ */
+async function resetOrchestrator(ctx, firstPubkey) {
+    await orchestrator.stop()
+    orchestrator.prepare({dbName: orchestrator.newDatabaseName(), defaultNodes: [firstPubkey]})
+    await orchestrator.start(ctx.log)
+}
+
+/**
+ * Starts the runner's orchestrator if nothing answers, writing its config on the first start
+ * @param {object} ctx - runner context
+ * @param {string} firstPubkey - the key that posts the first config
+ */
+async function ensureOrchestrator(ctx, firstPubkey) {
+    if (await orchestrator.isUp())
+        return
+    if (!orchestrator.state().dbName)
+        orchestrator.prepare({dbName: orchestrator.newDatabaseName(), defaultNodes: [firstPubkey]})
+    await orchestrator.start(ctx.log)
 }
 
 /**
@@ -34,7 +47,9 @@ async function bootstrap(ctx, {reset}) {
         throw new Error(`Expected at least three member homes in ${env.clusterDir}, found ${members.length}`)
     const first = members[0]
     if (reset)
-        await resetOrchestrator(ctx, first.keypair)
+        await resetOrchestrator(ctx, first.pubkey)
+    else
+        await ensureOrchestrator(ctx, first.pubkey)
 
     for (const node of members) {
         const appConfig = ctx.nodes.readAppConfig(node.index)

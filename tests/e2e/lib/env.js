@@ -7,7 +7,6 @@ const stateDir = path.join(clusterDir, 'e2e')
 
 const settings = {
     orchestratorUrl: process.env.E2E_ORCHESTRATOR_URL || 'http://localhost:12274',
-    orchestratorDb: 'mongodb://127.0.0.1:27017/reflector-orchestrator-test-suit',
     orchestratorDir: path.resolve(__dirname, '..', '..', '..', '..', 'node-orchestrator'),
     contractRepo: path.resolve(__dirname, '..', '..', '..', '..', 'reflector-contract'),
     image: process.env.E2E_IMAGE || 'reflector-node-dev',
