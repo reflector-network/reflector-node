@@ -89,6 +89,11 @@ describeWithOrchestrator('the node and the orchestrator derive the same update s
         jest.doMock(orch('domain/nonce-provider.js'), () => ({}))
         jest.doMock(orch('domain/notification-provider.js'), () => ({notify: () => {}}))
         jest.doMock(orch('domain/subscription-data-provider.js'), () => ({setManagers: () => {}}))
+        //the orchestrator resolves reflector-shared from its own node_modules; a separate install there is a separate
+        //module the mock above does not reach, so the same mock is registered under that path too
+        const orchestratorShared = require.resolve('@reflector/reflector-shared', {paths: [orch('domain')]})
+        if (orchestratorShared !== require.resolve('@reflector/reflector-shared'))
+            jest.doMock(orchestratorShared, () => jest.requireMock('@reflector/reflector-shared'))
         schedule = require(orch('domain/update-schedule.js'))
         provider = require(orch('domain/blockchain-data-provider.js'))
         ;({getTimestamp} = require(orch('domain/config-manager.js')))
