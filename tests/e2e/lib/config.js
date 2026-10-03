@@ -74,6 +74,12 @@ const mutations = {
             throw new Error(`Contract ${id} has no fee config to change`)
         c.contracts[id].feeConfig = {token: current.token, fee: toggle(current.fee, '100', '200')}
     }),
+    setFeeToken: (raw, id, token) => edit(raw, c => {
+        const current = c.contracts[id].feeConfig
+        if (!current)
+            throw new Error(`Contract ${id} has no fee config to change`)
+        c.contracts[id].feeConfig = {token, fee: current.fee}
+    }),
     toggleCacheSize: (raw, id) => edit(raw, c => {
         c.contracts[id].cacheSize = toggle(c.contracts[id].cacheSize, 5, 10)
     }),

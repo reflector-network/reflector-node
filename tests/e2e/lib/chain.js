@@ -1,5 +1,5 @@
 const {createHash} = require('crypto')
-const {rpc, xdr, Account, Address, Keypair, Operation, TransactionBuilder, FeeBumpTransaction, scValToNative} = require('@stellar/stellar-sdk')
+const {rpc, xdr, Account, Address, Asset, Keypair, Operation, TransactionBuilder, FeeBumpTransaction, scValToNative} = require('@stellar/stellar-sdk')
 const {getContractState, getContractInstance, getNativeStorage} = require('@reflector/reflector-shared')
 const {settings} = require('./env')
 
@@ -176,6 +176,33 @@ async function uploadWasm(keypair, wasm) {
     return createHash('sha256').update(wasm).digest('hex')
 }
 
+async function classic(keypair, operation) {
+    const tx = new TransactionBuilder(await server().getAccount(keypair.publicKey()), {fee: '1000000', networkPassphrase: settings.passphrase})
+        .setTimeout(60)
+        .addOperation(operation)
+        .build()
+    return tx
+}
+
+/**
+ * Issues a new token: a funded issuer, the Stellar Asset Contract of its asset and a holder the issuer paid. A contract
+ * cannot burn from the issuer, so whatever burns fees pays from the holder
+ * @param {string} code - asset code
+ * @param {string} amount - amount the holder receives, in whole units
+ * @returns {Promise<{issuer: Keypair, holder: Keypair, tokenId: string}>}
+ */
+async function createToken(code, amount = '1000') {
+    const issuer = Keypair.random()
+    const holder = Keypair.random()
+    await fundAccount(issuer.publicKey())
+    await fundAccount(holder.publicKey())
+    const asset = new Asset(code, issuer.publicKey())
+    await submit(await server().prepareTransaction(await classic(issuer, Operation.createStellarAssetContract({asset}))), issuer)
+    await submit(await classic(holder, Operation.changeTrust({asset})), holder)
+    await submit(await classic(issuer, Operation.payment({destination: holder.publicKey(), asset, amount})), issuer)
+    return {issuer, holder, tokenId: asset.contractId(settings.passphrase)}
+}
+
 /**
  * @param {string} pubkey - account
  * @returns {Promise<Account>} the account at its current sequence
@@ -219,5 +246,6 @@ module.exports = {
     wasmExists,
     uploadWasm,
     account,
-    submit
+    submit,
+    createToken
 }

@@ -57,6 +57,7 @@ describe('config mutations', () => {
         ['toggleFeeConfig', r => mutations.toggleFeeConfig(r, ids.oracle), ['oracle_fee_config']],
         ['toggleCacheSize', r => mutations.toggleCacheSize(r, ids.oracle), ['oracle_cache_size']],
         ['toggleFeeConfig on a beam', r => mutations.toggleFeeConfig(r, ids.beam), ['oracle_fee_config']],
+        ['setFeeToken on a beam', r => mutations.setFeeToken(r, ids.beam, contractId()), ['oracle_fee_config']],
         ['toggleSubscriptionFee', r => mutations.toggleSubscriptionFee(r, ids.subscriptions), ['subscriptions_fee']],
         ['toggleDaoDeposits', r => mutations.toggleDaoDeposits(r, ids.dao), ['dao_deposits']],
         ['setWasm', r => mutations.setWasm(r, 'oracle', 'b'.repeat(64)), ['wasm']],
@@ -71,6 +72,12 @@ describe('config mutations', () => {
 
     test('no mutation sets beam invocation costs: no contract supports them', () => {
         expect(mutations.toggleInvocationCosts).toBeUndefined()
+    })
+
+    test('setFeeToken changes the token and keeps the fee', () => {
+        const other = contractId()
+        const next = mutations.setFeeToken(raw, ids.beam, other)
+        expect(next.contracts[ids.beam].feeConfig).toEqual({token: other, fee: raw.contracts[ids.beam].feeConfig.fee})
     })
 
     test('removeNode from four nodes is a nodes update', () => {
