@@ -97,7 +97,22 @@ async function propose(ctx, nextRaw, {initiator, voters, rejecters = [], timesta
 }
 
 /**
- * Withdraws the proposal this run opened, if it is still open
+ * Whether the orchestrator refused a vote change because a round of the PENDING update is in flight; the same vote is
+ * accepted once the round is over
+ * @param {Error} err - submit error
+ * @returns {boolean}
+ */
+function isRoundRefusal(err) {
+    return /An update round is in progress/.test(err?.message || '')
+}
+
+const roundRetryDelay = 20000
+//a round and the lead time before it span 76 s of every 2-minute tick
+const maxRoundRetries = 6
+
+/**
+ * Withdraws the proposal this run opened, if it is still open. A withdrawal refused while a round is in flight is sent
+ * again after it
  * @param {object} ctx - runner context
  * @returns {Promise<boolean>} whether a withdrawal was sent
  */
@@ -106,12 +121,21 @@ async function withdraw(ctx) {
     ctx.openProposal = null
     if (!open)
         return false
-    const {pending} = await current(ctx)
-    if (!pending || pending.hash !== configs.hashOf(open.raw))
-        return false
-    await ctx.orch.submit(open.initiator.keypair, open.raw, {rejected: true, timestamp: pending.item.timestamp})
-    ctx.log(`withdrew proposal ${short(pending.hash)}`)
-    return true
+    for (let attempt = 0; ; attempt++) {
+        const {pending} = await current(ctx)
+        if (!pending || pending.hash !== configs.hashOf(open.raw))
+            return false
+        try {
+            await ctx.orch.submit(open.initiator.keypair, open.raw, {rejected: true, timestamp: pending.item.timestamp})
+            ctx.log(`withdrew proposal ${short(pending.hash)}`)
+            return true
+        } catch (err) {
+            if (!isRoundRefusal(err) || attempt >= maxRoundRetries)
+                throw err
+            ctx.log(`withdrawal of ${short(pending.hash)} refused during a round; retrying`)
+            await ctx.sleep(roundRetryDelay)
+        }
+    }
 }
 
 function waitPending(ctx, hash) {
@@ -279,6 +303,7 @@ module.exports = {
     vote,
     propose,
     withdraw,
+    isRoundRefusal,
     waitPending,
     waitApplied,
     waitNodesOn,

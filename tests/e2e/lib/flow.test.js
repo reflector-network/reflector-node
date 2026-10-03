@@ -99,6 +99,34 @@ describe('flow', () => {
         expect(timestamps).toEqual([0, 1_800_000_120_000, 1_800_000_120_000, 1_800_000_120_000])
     })
 
+    test('a withdrawal refused while a round is in flight is sent again after the round', async () => {
+        const ctx = context(() => ({currentConfig: item(raw(1)), pendingConfig: item(raw(2), {status: 'pending', timestamp: 5})}))
+        ctx.openProposal = {raw: raw(2), initiator: {keypair: env.keys[0]}}
+        ctx.sleep = jest.fn(() => Promise.resolve())
+        const original = ctx.orch.submit
+        let refusals = 2
+        ctx.orch.submit = (keypair, next, options) => {
+            if (refusals-- > 0)
+                return Promise.reject(new Error('POST /config failed with 400: An update round is in progress, try again in a minute'))
+            return original(keypair, next, options)
+        }
+
+        expect(await flow.withdraw(ctx)).toBe(true)
+
+        expect(ctx.submitted).toEqual([{pubkey: env.keys[0].publicKey(), v: 2, rejected: true}])
+        expect(ctx.sleep).toHaveBeenCalledTimes(2)
+    })
+
+    test('a withdrawal refused for another reason is not retried', async () => {
+        const ctx = context(() => ({currentConfig: item(raw(1)), pendingConfig: item(raw(2), {status: 'pending', timestamp: 5})}))
+        ctx.openProposal = {raw: raw(2), initiator: {keypair: env.keys[0]}}
+        ctx.sleep = jest.fn(() => Promise.resolve())
+        ctx.orch.submit = () => Promise.reject(new Error('POST /config failed with 400: Invalid signature'))
+
+        await expect(flow.withdraw(ctx)).rejects.toThrow('Invalid signature')
+        expect(ctx.sleep).not.toHaveBeenCalled()
+    })
+
     test('withdraw leaves a proposal it did not open alone', async () => {
         const ctx = context(() => ({currentConfig: item(raw(1)), pendingConfig: item(raw(9), {status: 'pending'})}))
         ctx.openProposal = {raw: raw(2), initiator: {keypair: env.keys[0]}}
