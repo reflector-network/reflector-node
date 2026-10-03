@@ -168,21 +168,42 @@ async function wasmExists(hash) {
 async function uploadWasm(keypair, wasm) {
     const rpcServer = server()
     const account = await rpcServer.getAccount(keypair.publicKey())
-    let tx = new TransactionBuilder(account, {fee: '1000000', networkPassphrase: settings.passphrase})
+    const tx = new TransactionBuilder(account, {fee: '1000000', networkPassphrase: settings.passphrase})
         .setTimeout(60)
         .addOperation(Operation.uploadContractWasm({wasm}))
         .build()
-    tx = await rpcServer.prepareTransaction(tx)
+    await submit(await rpcServer.prepareTransaction(tx), keypair)
+    return createHash('sha256').update(wasm).digest('hex')
+}
+
+/**
+ * @param {string} pubkey - account
+ * @returns {Promise<Account>} the account at its current sequence
+ */
+function account(pubkey) {
+    return server().getAccount(pubkey)
+}
+
+/**
+ * Signs a prepared transaction, sends it and waits for its result
+ * @param {Transaction} tx - transaction with its Soroban data already assembled
+ * @param {Keypair} keypair - signer
+ * @returns {Promise<{hash: string, returnValue: any}>} the hash and the native return value of a contract call
+ */
+async function submit(tx, keypair) {
+    const rpcServer = server()
     tx.sign(keypair)
     const sent = await rpcServer.sendTransaction(tx)
+    if (sent.status === 'ERROR')
+        throw new Error(`Transaction ${sent.hash} refused: ${sent.errorResult?.result().switch().name || 'error'}`)
     let result = await rpcServer.getTransaction(sent.hash)
     while (result.status === 'NOT_FOUND') {
         await sleep(1000)
         result = await rpcServer.getTransaction(sent.hash)
     }
     if (result.status !== 'SUCCESS')
-        throw new Error(`Wasm upload failed: ${result.status}`)
-    return createHash('sha256').update(wasm).digest('hex')
+        throw new Error(`Transaction ${sent.hash} failed: ${result.status}`)
+    return {hash: sent.hash, returnValue: result.returnValue ? scValToNative(result.returnValue) : undefined}
 }
 
 module.exports = {
@@ -196,5 +217,7 @@ module.exports = {
     simulate,
     fundAccount,
     wasmExists,
-    uploadWasm
+    uploadWasm,
+    account,
+    submit
 }

@@ -15,6 +15,8 @@ per scenario to `tests/e2e/reports/`.
 - A pubnet Soroban RPC on `http://localhost:8003` for the `pubnet` data source.
 - For U8: `node tests/e2e/build-wasm.js` once (needs `../reflector-contract`, the Stellar CLI and the `wasm32v1-none`
   Rust target).
+- S1 creates a subscription whose webhook is a new [webhook.site](https://webhook.site) endpoint: nodes refuse webhook
+  urls on loopback and private addresses, so the endpoint must be public. The subscription is cancelled afterwards.
 
 ## Commands
 

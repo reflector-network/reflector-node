@@ -3,6 +3,7 @@ module.exports = [
     ...require('./nodes'),
     ...require('./updates'),
     ...require('./upgrade'),
+    ...require('./subscriptions'),
     ...require('./local'),
     ...require('./governance'),
     ...require('./resilience'),
