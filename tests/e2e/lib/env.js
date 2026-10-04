@@ -9,6 +9,7 @@ const settings = {
     orchestratorUrl: process.env.E2E_ORCHESTRATOR_URL || 'http://localhost:12274',
     orchestratorDir: path.resolve(__dirname, '..', '..', '..', '..', 'node-orchestrator'),
     contractRepo: path.resolve(__dirname, '..', '..', '..', '..', 'reflector-contract'),
+    subscriptionContractRepo: path.resolve(__dirname, '..', '..', '..', '..', 'reflector-subscription-contract'),
     image: process.env.E2E_IMAGE || 'reflector-node-dev',
     passphrase: 'Test SDF Network ; September 2015',
     sorobanRpc: ['https://soroban-testnet.stellar.org'],

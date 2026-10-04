@@ -13,8 +13,9 @@ per scenario to `tests/e2e/reports/`.
   a working directory under `tests/cluster/clusterData/e2e/orchestrator`, with a copy of that config pointed at a
   database of its own; nothing else may answer on the port.
 - A pubnet Soroban RPC on `http://localhost:8003` for the `pubnet` data source.
-- For U8: `node tests/e2e/build-wasm.js` once (needs `../reflector-contract`, the Stellar CLI and the `wasm32v1-none`
-  Rust target).
+- For U8: `node tests/e2e/build-wasm.js` once (needs `../reflector-contract`, `../reflector-subscription-contract`,
+  the Stellar CLI and the `wasm32v1-none` Rust target). U8 moves the price oracles and the beams between two pinned
+  builds, and takes the subscriptions contract down to v1.0.0 and back to `tests/cluster/reflector_subscriptions.wasm`.
 - B1 switches the beam's fee token, through governance, to a token it issues, pays one day of one feed with it and
   switches the token back, also when it fails.
 - S1 creates a subscription whose webhook is a new [webhook.site](https://webhook.site) endpoint: nodes refuse webhook
