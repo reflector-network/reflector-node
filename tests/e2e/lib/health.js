@@ -13,7 +13,8 @@ function matches(entry, patterns) {
 }
 
 /**
- * Errors that only say the pubnet data source's RPC did not answer: the test environment, not the change under test.
+ * Errors that only say the pubnet data source's RPC, or a price provider's API, did not answer: the test environment,
+ * not the change under test.
  * The same words from the node's own network path or about another oracle stay problems
  * @param {object} entry - log entry
  * @param {Set<string>} pubnetOracles - contract ids of the oracles priced from pubnet
@@ -25,12 +26,16 @@ function isEnvironmentError(entry, pubnetOracles) {
         return true
     if (entry.msg === 'Error loading prices for source')
         return entry.source === 'pubnet'
+    //a price provider's own API did not answer; the provider names the request it made
+    if (entry.msg === 'Error getting trade data')
+        return /^Request to \S+ failed/.test(entry.error || '')
     const missing = /^Trades data not found for contract (\w+)/.exec(message)
     return !!missing && pubnetOracles.has(missing[1])
 }
 
 function describe(entry) {
-    return `${entry.msg}${entry.err?.message ? ` (${entry.err.message})` : ''}`
+    const reason = entry.err?.message || entry.error
+    return `${entry.msg}${reason ? ` (${reason})` : ''}`
 }
 
 /**

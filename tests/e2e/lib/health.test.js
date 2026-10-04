@@ -202,6 +202,17 @@ describe('evaluateHealth, review fixes', () => {
         expect(result.notes).toEqual(['node0 environment: Error in worker (Trades data not found for contract P1 for timestamp 1)'])
     })
 
+    test('a price provider whose upstream request failed is an environment note; any other provider error is a problem', () => {
+        const provider = (name, error) => ({level: 'error', time: at, msg: 'Error getting trade data', provider: name, error})
+        const errorLines = [
+            {index: 0, entry: provider('ecb', 'Request to data-api.ecb.europa.eu failed: ERR_CANCELED')},
+            {index: 1, entry: provider('binance', 'Unexpected response shape')}
+        ]
+        const result = evaluateHealth(input({config: pubnetConfig, oracleStates: fresh, errorLines}))
+        expect(result.notes).toEqual(['node0 environment: Error getting trade data (Request to data-api.ecb.europa.eu failed: ERR_CANCELED)'])
+        expect(result.problems).toEqual(['node1 error: Error getting trade data'])
+    })
+
     test('a declared window may allow further patterns', () => {
         const errorLines = [{index: 1, entry: worker('Trades data not found for contract O1 for timestamp 1')}]
         const graceWindows = [{from: now - 60000, to: now, patterns: [/^Trades data not found for contract/]}]
