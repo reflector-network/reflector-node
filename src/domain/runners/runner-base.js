@@ -324,6 +324,8 @@ class RunnerBase {
      * @param {boolean} [rearm] - a later step of the same wait, not logged again
      */
     __scheduleWorker(timestamp, rearm = false) {
+        if (rearm)
+            timestamp = this.__retarget(timestamp)
         const timeout = this.__getWorkerTimeout(timestamp)
         if (!rearm)
             logger.debug({msg: 'Worker timeout', timeout, ...this.__contractInfo})
@@ -332,6 +334,16 @@ class RunnerBase {
             return
         }
         this.__workerTimeout = setTimeout(() => this.__runWorker(timestamp), Math.max(1, timeout))
+    }
+
+    /**
+     * The tick a long wait aims for, re-read at every step of it. A runner whose next tick depends on state that can
+     * change while it waits brings the tick forward here
+     * @param {number} timestamp - tick the wait was armed for
+     * @returns {number}
+     */
+    __retarget(timestamp) {
+        return timestamp
     }
 
     async worker(timestamp) {

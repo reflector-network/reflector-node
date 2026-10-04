@@ -121,6 +121,16 @@ class ClusterRunner extends RunnerBase {
         return pendingConfig.timestamp
     }
 
+    /**
+     * A wait for a switch time ends early when its update is cleared, or replaced by one due sooner: the next tick is
+     * the earlier of the one armed and the one the current pending config calls for
+     * @param {number} timestamp - tick the wait was armed for
+     * @returns {number}
+     */
+    __retarget(timestamp) {
+        return Math.min(timestamp, this.__getNextTimestamp(normalizeTimestamp(Date.now(), idleWorkerTimeframe)))
+    }
+
     get __timeframe() {
         return idleWorkerTimeframe
     }
