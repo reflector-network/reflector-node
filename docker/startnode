@@ -64,10 +64,10 @@ PUBLIC_KEY=$(node /reflector-node/app/utils/get-pubkey.js "$CONFIG_FILE") || {
 
 echo "Public Key: $PUBLIC_KEY"
 
-# promtail pushes to <orchestrator>/loki-proxy over https; orchestratorUrl may be wss://, which promtail
+# promtail pushes to <orchestrator>/loki-proxy over http(s); orchestratorUrl may be wss:// or ws://, which promtail
 # cannot push to, so the scheme is mapped, in any letter case as the node reads it. A path in orchestratorUrl is kept, so
 # https:// with no path is recommended
-LOKI_BASE_URL=$(printf '%s' "$ORCHESTRATOR_URL" | sed 's|^[Ww][Ss][Ss]://|https://|')
+LOKI_BASE_URL=$(printf '%s' "$ORCHESTRATOR_URL" | sed -e 's|^[Ww][Ss][Ss]://|https://|' -e 's|^[Ww][Ss]://|http://|')
 
 # Replace the placeholder in the template and create the final config file
 sed "s|__ORCHESTRATOR_URL__|${LOKI_BASE_URL}|g" "$PROMTAIL_TEMPLATE" | sed "s|__PUBLIC_KEY__|${PUBLIC_KEY}|g" > "$PROMTAIL_CONFIG"

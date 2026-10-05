@@ -52,20 +52,35 @@ describe('AppConfig.orchestratorUrl', () => {
         'http://localhost:12274',
         'ws://localhost:12274/ws',
         'http://127.0.0.1:12274',
-        'ws://127.1.2.3:12274',
-        'http://[::1]:12274'
-    ])('accepts %s: plain http and ws only on loopback', url => {
+        'http://[::1]:12274',
+        'http://37.27.4.105:12274',
+        'ws://orchestrator.example.com'
+    ])('accepts %s: plain http and ws on any host', url => {
         const config = appConfig({orchestratorUrl: url})
         expect(config.isValid).toBe(true)
         expect(config.orchestratorUrl).toBe(url)
     })
 
+    test('plain http or ws to another host is accepted with a warning: the cluster secret travels unencrypted', () => {
+        const logger = require('../../src/logger')
+        logger.warn.mockClear()
+
+        appConfig({orchestratorUrl: 'http://37.27.4.105:12274'})
+
+        expect(logger.warn).toHaveBeenCalledTimes(1)
+        expect(JSON.stringify(logger.warn.mock.calls[0])).toContain('unencrypted')
+    })
+
+    test.each(['https://orchestrator.example.com', 'http://localhost:12274', 'ws://127.1.2.3:12274'])('%s logs no warning', url => {
+        const logger = require('../../src/logger')
+        logger.warn.mockClear()
+
+        appConfig({orchestratorUrl: url})
+
+        expect(logger.warn).not.toHaveBeenCalled()
+    })
+
     test.each([
-        'http://192.168.0.21:12274',
-        'ws://orchestrator.example.com',
-        'http://localhost.example.com',
-        'ws://127.0.0.1.example.com',
-        'http://0.0.0.0:12274',
         'ftp://localhost',
         'ftp://orchestrator.example.com',
         'orchestrator.example.com'

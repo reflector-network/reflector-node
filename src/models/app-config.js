@@ -1,21 +1,17 @@
 const {Keypair, StrKey} = require('@stellar/stellar-sdk')
 const {IssuesContainer, mapToPlainObject} = require('@reflector/reflector-shared')
+const logger = require('../logger')
 const DataSource = require('./data-source')
 const defaultDbSyncDelay = 15_000
 const configHashPattern = /^[0-9a-fA-F]{64}$/
 //STATISTICS_REQUEST is unsigned and a node trusts whatever answers on this url, so TLS is what authenticates the
-//orchestrator. Plain http and ws are accepted only on loopback, for a local cluster
-const orchestratorProtocols = ['wss:', 'https:']
-const loopbackOrchestratorProtocols = ['ws:', 'http:']
+//orchestrator. Plain http and ws are accepted too, for a local or staging cluster without a certificate, with a warning
+//when the host is not this machine: the orchestrator then reaches the node, cluster secret included, unencrypted
+const encryptedOrchestratorProtocols = ['wss:', 'https:']
+const plainOrchestratorProtocols = ['ws:', 'http:']
 
 function isLoopbackHost(hostname) {
     return hostname === 'localhost' || hostname === '[::1]' || /^127(\.\d{1,3}){3}$/.test(hostname)
-}
-
-function isAllowedOrchestratorUrl({protocol, hostname}) {
-    if (orchestratorProtocols.includes(protocol))
-        return true
-    return loopbackOrchestratorProtocols.includes(protocol) && isLoopbackHost(hostname)
 }
 
 function getNormalizedDbSyncDelay(dbSyncDelay) {
@@ -137,8 +133,11 @@ class AppConfig extends IssuesContainer {
             } catch (e) {
                 throw new Error('must be a valid url')
             }
-            if (!isAllowedOrchestratorUrl(parsed))
-                throw new Error(`must use wss:// or https://, or ws:// or http:// on loopback, got ${parsed.protocol}//${parsed.hostname}`)
+            const {protocol, hostname} = parsed
+            if (!encryptedOrchestratorProtocols.includes(protocol) && !plainOrchestratorProtocols.includes(protocol))
+                throw new Error(`must use wss://, https://, ws:// or http://, got ${protocol}//${hostname}`)
+            if (plainOrchestratorProtocols.includes(protocol) && !isLoopbackHost(hostname))
+                logger.warn({msg: 'orchestratorUrl uses plain http or ws to another host: the orchestrator is not authenticated and the cluster secret travels unencrypted', host: hostname})
             this.orchestratorUrl = orchestratorUrl
         } catch (e) {
             this.__addIssue(`orchestratorUrl: ${e.message}`)

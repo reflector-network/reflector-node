@@ -40,9 +40,9 @@ Where:
 - `trace` (true|false) - [optional] detailed events tracing (false). A toggle from the admin dashboard is stored in
   `.state.json` in the home directory and takes precedence
 - `orchestratorUrl` (string) - [optional] orchestrator endpoint, `https://` or `wss://`
-  (`https://orchestrator.reflector.network`); `http://` and `ws://` only on loopback (`localhost`, `127.x.x.x`,
-  `[::1]`), for a local cluster. Any other scheme or host stops the node at boot: the orchestrator is authenticated
-  by TLS alone. Prefer `https://` with no path: the Docker image derives promtail's log push URL from this value
+  (`https://orchestrator.reflector.network`). `http://` and `ws://` are accepted for a local or staging cluster;
+  to any host but this machine they are logged as a warning at boot, because the orchestrator is authenticated by TLS
+  alone and it sends the node the cluster secret. Any other scheme stops the node at boot. Prefer `https://` with no path: the Docker image derives promtail's log push URL from this value
   (mapping `wss://` to `https://` and keeping any path)
 - `handshakeTimeout` (number) - [optional] timeout to drop hanging incoming node connections
 - `clusterConfigHash` (string) - [optional] 64-character hex hash of the cluster config this node may adopt while it

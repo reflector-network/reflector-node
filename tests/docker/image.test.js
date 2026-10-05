@@ -94,9 +94,9 @@ describe('the node image keeps the seed off command lines and drops root', () =>
         expect(startnode).toContain('must be writable and chown-able by root')
     })
 
-    test('promtail pushes over https even when orchestratorUrl is wss', () => {
+    test('promtail pushes over http(s) even when orchestratorUrl is wss or ws', () => {
         const startnode = read('docker/startnode')
-        expect(startnode).toContain("LOKI_BASE_URL=$(printf '%s' \"$ORCHESTRATOR_URL\" | sed 's|^[Ww][Ss][Ss]://|https://|')")
+        expect(startnode).toContain("LOKI_BASE_URL=$(printf '%s' \"$ORCHESTRATOR_URL\" | sed -e 's|^[Ww][Ss][Ss]://|https://|' -e 's|^[Ww][Ss]://|http://|')")
         expect(startnode).toContain('s|__ORCHESTRATOR_URL__|${LOKI_BASE_URL}|g')
     })
 
@@ -213,7 +213,9 @@ describeWithBash('docker/startnode, run with stand-ins for the image tools', () 
     test.each([
         ['WSS://orchestrator.example.com', 'https://orchestrator.example.com'],
         ['https://orchestrator.example.com', 'https://orchestrator.example.com'],
-        ['https://orchestrator.example.com/base', 'https://orchestrator.example.com/base']
+        ['https://orchestrator.example.com/base', 'https://orchestrator.example.com/base'],
+        ['ws://37.27.4.105:12274', 'http://37.27.4.105:12274'],
+        ['http://37.27.4.105:12274', 'http://37.27.4.105:12274']
     ])('orchestratorUrl %s pushes to %s', (orchestratorUrl, base) => {
         writeConfig(JSON.stringify({secret: Keypair.random().secret(), orchestratorUrl}))
         expect(start().status).toBe(0)
