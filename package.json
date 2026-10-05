@@ -31,7 +31,7 @@
     "@reflector/oracle-client": "github:reflector-network/oracle-client#v7.2.0-rc2",
     "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v2.1.0-rc1",
     "@reflector/reflector-fx-connector": "github:reflector-network/reflector-fx-connector#v3.1.0-rc1",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v7.2.0-rc2",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v7.2.0-rc3",
     "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v4.3.0-rc2",
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
     "@stellar/stellar-sdk": "17.0.1",
