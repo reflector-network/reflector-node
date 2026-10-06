@@ -102,7 +102,7 @@ describe('an update cancelled before its switch time after a bare-majority node-
 //after E (T + 61 s > E), so a round started at T fits before E; a round that fails is retried at the next 2-minute grid
 //tick, T + 2 min, where the orchestrator finds E passed, rejects the update and notifies the nodes a second later
 //(config-manager.js processPendingConfig, updateItems). The orchestrator sends E beside the pending envelope, and the
-//node builds a round only when endsBeforeExpiration(tick, E) holds (update-schedule.js, the orchestrator's own rule);
+//node builds a round only when endsBeforeExpiration(tick, E) holds (the shared update schedule, the orchestrator's own rule);
 //applyPendingUpdate adopts the envelope the round was built from when the pending config was cleared under it. A node
 //that holds no E - one paired with an orchestrator that sends none - retries every tick, which the last case pins.
 describe('a node skips a round that would end after the pending config expires, and adopts an update that landed after it was cleared', () => {

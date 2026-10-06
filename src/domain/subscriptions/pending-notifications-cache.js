@@ -8,8 +8,8 @@ const retentionMs = 2 * 60 * 1000 //2 minutes
 //A slot is held only by an item still short of a majority here, from its first receipt until it is verified or
 //retentionMs passes; a merge into an existing entry never needs one. An honest node opens slots with two kinds of item,
 //at most one of each per round. Its own round's item is sent once, after its trigger tx lands
-//(subscriptions-runner.js:149-152), between T + delay and the last attempt's maxTime, T + delay + 60 s (runner-base.js
-//getMaxTime: 30 s + 2 x 15 s), so own items of rounds up to 120 + 60 = 180 s apart can land inside one retention
+//(subscriptions-runner.js:149-152), between T + delay and the last attempt's maxTime, T + delay + 60 s (getMaxTime in
+//reflector-shared: a subscriptions round is 60 s long), so own items of rounds up to 120 + 60 = 180 s apart can land inside one retention
 //window: 180 / 60 + 1 = 4 rounds. The item it adopted is re-sent every tick (:80) and on a peer's READY
 //(state-handler.js:19); it is majority-signed, so it takes a slot only while this node counts it against a different
 //node set, and it differs from the own item only in a round the sender was outvoted in. Allowing it the same 4 rounds

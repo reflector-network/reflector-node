@@ -1,6 +1,7 @@
 /*eslint-disable no-undef */
 
 jest.mock('@reflector/reflector-shared', () => ({
+    ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
     buildUpdateTransaction: jest.fn(async () => null),
     normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf,
     areAllSignaturesPresent: jest.fn(() => false)

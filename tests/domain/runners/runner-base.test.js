@@ -17,6 +17,7 @@ jest.mock('../../../src/domain/statistics-manager', () => ({
 }))
 
 jest.mock('@reflector/reflector-shared', () => ({
+    ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
     normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf
 }))
 

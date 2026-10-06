@@ -610,8 +610,8 @@ class TradesManager {
      */
     __getOrAddTimestampSync(key, timestamp) {
         //sync auto-resolves at T + dbSyncDelay + 25s so it finishes well before
-        //the oracle attempt-0 envelope (T + oracleSyncDelay 20s + firstAttemptTimeout 30s
-        //= T + 50s), leaving at least 25s for the worker to build and submit.
+        //the oracle attempt-1 envelope (T + oracleSyncDelay 20s + firstAttemptTimeout 40s
+        //= T + 60s), leaving at least 35s for the worker to build and submit.
         //Pre-fix 35s collided with the pre-fix 15s attempt-0 window and left the
         //worker no room after a sync timeout.
         const maxTime = timestamp

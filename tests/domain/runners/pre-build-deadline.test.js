@@ -189,25 +189,25 @@ describe('a transaction build that never settles ends at the build deadline', ()
         await jest.advanceTimersByTimeAsync(14_999)
         expect(build).toHaveBeenCalledTimes(1)
         await jest.advanceTimersByTimeAsync(2)
-        expect(build).toHaveBeenCalledTimes(2) //attempt 0 gave up at 15 s and attempt 1 started
-        await jest.advanceTimersByTimeAsync(30_000)
-        expect(build).toHaveBeenCalledTimes(3)
+        expect(build).toHaveBeenCalledTimes(2) //attempt 1 gave up at 15 s and attempt 2 started
+        await jest.advanceTimersByTimeAsync(15_001)
+        expect(build).toHaveBeenCalledTimes(2)
         expect(outcome).toBe('Failed to submit transaction. See logs for details.')
         //an expired deadline reads as a timeout: one line per attempt, not a full error object
-        expect(logger.error.mock.calls).toEqual([['Transaction build timed out.'], ['Transaction build timed out.'], ['Transaction build timed out.']])
+        expect(logger.error.mock.calls).toEqual([['Transaction build timed out.'], ['Transaction build timed out.']])
         expect(nodesManager.broadcast).not.toHaveBeenCalled()
     })
 
     test('the build deadline never outlasts what is left of the attempt envelope', async () => {
-        //attempt 0's envelope ends 30 s after the sync timestamp, so 25 s in only 5 s of it is left
-        jest.setSystemTime(TICK + 25_000)
+        //attempt 1's envelope ends 40 s after the sync timestamp, so 35 s in only 5 s of it is left
+        jest.setSystemTime(TICK + 35_000)
         const build = jest.fn(hang)
         makeRunner().__buildAndSubmitTransaction(build, account, 100, TICK).catch(() => {})
         await jest.advanceTimersByTimeAsync(4_999)
         expect(build).toHaveBeenCalledTimes(1)
         await jest.advanceTimersByTimeAsync(2)
         expect(build).toHaveBeenCalledTimes(2)
-        //the fee escalates 8x per attempt, so the second call is attempt 1, not a repeat of attempt 0
+        //the retry pays 8x, so the second call is attempt 2, not a repeat of attempt 1
         expect(build.mock.calls.map(([, fee]) => fee)).toEqual([100, 800])
     })
 

@@ -2,7 +2,10 @@
 jest.mock('../../../src/domain/container', () => ({settingsManager: {appConfig: {keypair: {signDecorated: jest.fn()}}, nodes: new Map()}}))
 jest.mock('../../../src/domain/nodes/nodes-manager', () => ({broadcast: jest.fn(), sendTo: jest.fn()}))
 jest.mock('../../../src/domain/statistics-manager', () => ({setLastProcessedTimestamp: jest.fn()}))
-jest.mock('@reflector/reflector-shared', () => ({normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf}))
+jest.mock('@reflector/reflector-shared', () => ({
+    ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
+    normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf
+}))
 
 const logger = require('../../../src/logger')
 const RunnerBase = require('../../../src/domain/runners/runner-base')

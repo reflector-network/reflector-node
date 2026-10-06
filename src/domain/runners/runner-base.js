@@ -1,6 +1,9 @@
 /*eslint-disable class-methods-use-this */
 const {Account, Transaction, xdr} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
+//the submit schedule of every runner, from reflector-shared: node-orchestrator derives the cluster update hash from the
+//same module
+const {FEE_MULTIPLIER: feeMultiplier, maxSubmitAttempts, getMaxTime} = require('@reflector/reflector-shared')
 const logger = require('../../logger')
 const container = require('../container')
 const MessageTypes = require('../../ws-server/handlers/message-types')
@@ -8,9 +11,6 @@ const nodesManager = require('../nodes/nodes-manager')
 const {submitTransaction, txTimeoutMessage, withDeadline} = require('../../utils')
 const statisticsManager = require('../statistics-manager')
 const {runWithContext} = require('../../async-storage')
-//the submit schedule of every runner. update-schedule.js is a byte-identical copy of node-orchestrator's module, which
-//derives the cluster update hash from the same values (tests/cross-repo/update-schedule-parity.test.js)
-const {FEE_MULTIPLIER: feeMultiplier, maxSubmitAttempts, __getMaxTime: getMaxTime} = require('./update-schedule')
 
 /**
  * @typedef {import('@reflector/reflector-shared').PendingTransactionBase} PendingTransactionBase
@@ -117,18 +117,17 @@ function createMajorityPromiseData() {
     return majorityPromiseData
 }
 
-//getMaxTime gives attempt 0 firstAttemptTimeout (30 s: worker, build, signature collection, rpc and the Stellar
-//lookahead) and each retry retryAttemptTimeout more (15 s). Decoupling the two keeps the happy-path window generous
-//(cluster signature collection is the bottleneck) while retries rely on the fee, escalated feeMultiplier (8) times per
-//retry so a retry outbids the prior attempt decisively, rather than on long envelopes
+//getMaxTime (reflector-shared) gives attempt 1 firstAttemptTimeout (40 s: worker, build, signature collection, rpc and
+//the Stellar lookahead) and attempt 2 the rest of the round, until the next round's sync (__roundLength). The retry pays
+//feeMultiplier (8) times the base fee, so it outbids the first attempt decisively
 //defence in depth: worker() awaits __workerFn, so a build that never settles would suppress every later tick
 const buildTimeout = 15_000
 const buildTimeoutMessage = 'Transaction build timed out.'
 //one budget for the reads a worker makes before it builds. They sit outside the build deadline, and makeServerRequest
 //retries 3 x N urls with a 300 ms sleep between rounds, so the 15 s per-request deadline still allows ~135 s per call
-//on three dead urls - longer than the whole transaction envelope (60 s from syncTimestamp). Ruling 6
+//on three dead urls - longer than the shortest transaction envelope (60 s from syncTimestamp). Ruling 6
 //Sizing: the shortest oracle timeframe is 60 s (OracleConfig: a whole number of minutes), and an oracle worker has
-//60 s from its start to the end of the last attempt's envelope. Pre-build reads (20 s), the price-history load
+//one timeframe, at least 60 s, from its start to the end of attempt 2. Pre-build reads (20 s), the price-history load
 //(20 s, the same budget) and the build (15 s) take at most 20 + 20 + 15 = 55 s of it. With a hung first rpc url the
 //node abstains for the first tick rather than failing over within it: every request of that tick pays the 15 s
 //per-request deadline on the hung url first, and three pre-build requests (45 s) cannot fit in 20 s. Each rpc helper
@@ -143,13 +142,13 @@ const txHashPattern = /^[0-9a-f]{64}$/
 //A bucket is opened only by an authenticated cluster peer, and every peer is capped at maxPendingHashesPerPeer, so
 //filling this bound takes 256 / 16 = 16 distinct peers each holding a full quota inside the 60 s TTL. A majority is
 //floor(n / 2) + 1, so 16 peers are a minority only from 32 nodes upwards: below that no minority can reach the bound,
-//and honest traffic cannot either - the same envelope that sizes the per-peer cap puts an honest peer at ~6 live
+//and honest traffic cannot either - the same envelope that sizes the per-peer cap puts an honest peer at ~4 live
 //buckets. It is therefore a fixed memory bound (runners x 256 buckets), not the flood defence; the per-peer cap is.
 //Kept as a constant rather than derived from the live node count, because 16 x nodeCount is exactly the sum of the
 //per-peer quotas and would never bind. When the bound is reached the refusal is global, including for the hash this
 //runner is about to build, so a cluster of 32 nodes or more should evict the oldest bucket instead.
 const maxPendingHashes = 256 //distinct transaction hashes buffered per runner
-const maxPendingHashesPerPeer = 16 //3 attempts x 2 ticks inside the 60 s TTL, doubled for clock skew
+const maxPendingHashesPerPeer = 16 //2 attempts x 2 ticks inside the 60 s TTL, doubled for clock skew, with room to spare
 const runnerStoppedMessage = 'Runner stopped'
 //a long wait re-reads the clock this often, so a paused host or a stepped clock delays a tick by at most this much; it
 //also keeps every delay far inside the timer range (Node replaces a delay over 2^31 - 1 ms with 1 ms)
@@ -425,7 +424,7 @@ class RunnerBase {
         //addSignature returns false rather than throwing when the signer is outside the allowed set. If this node has
         //just been removed from the cluster, an unchecked false leaves tx.signatures empty and the very next line -
         //broadcastSignature -> getSignatureMessage -> tx.signatures[0].toXdr('hex') - throws a bare TypeError on every
-        //tick, burning all three submit attempts and the fee escalation. Fail with a sentence instead.
+        //tick, burning both submit attempts and the fee escalation. Fail with a sentence instead.
         if (!tx.addSignature(keypair.signDecorated(tx.hash), publicKey))
             throw new Error('This node is not in the current cluster node set; not signing')
 
@@ -510,6 +509,7 @@ class RunnerBase {
         const {settingsManager} = container
 
         const syncTimestamp = timestamp + syncDelay
+        const roundLength = this.__roundLength
         //a round that starts after its last deadline - a late wake-up, or a tick a new runner catches up with - cannot
         //land; it is skipped as a whole instead of failing every attempt
         if (this.__isTxExpired(timestamp, syncDelay))
@@ -524,7 +524,7 @@ class RunnerBase {
                 //per attempt: a response an earlier attempt left behind must never pair with this attempt's tx (N-4)
                 let response = null
                 const fee = baseFee * Math.pow(feeMultiplier, submitAttempt)
-                const maxTime = getMaxTime(syncTimestamp, submitAttempt + 1)
+                const maxTime = getMaxTime(syncTimestamp, submitAttempt, roundLength)
                 logger.debug({msg: 'Build transaction.', ...this.__contractInfo, syncTimestamp, submitAttempt, maxTime, currentTime: normalizeTimestamp(Date.now(), 1000) / 1000, fee, baseFee})
 
                 if (maxTime * 1000 < Date.now()) //if the max time is already passed
@@ -581,7 +581,7 @@ class RunnerBase {
 
     __isTxExpired(timestamp, syncDelay) {
         const syncTimestamp = timestamp + syncDelay
-        return getMaxTime(syncTimestamp, maxSubmitAttempts) * 1000 < Date.now()
+        return getMaxTime(syncTimestamp, maxSubmitAttempts - 1, this.__roundLength) * 1000 < Date.now()
     }
 
     __getNextTimestamp(currentTimestamp) {
@@ -594,6 +594,16 @@ class RunnerBase {
 
     get __delay() {
         return 0
+    }
+
+    /**
+     * Milliseconds from a round's sync timestamp to the end of its last attempt: by default the next round starts one
+     * timeframe later, and attempt 2 runs until then. It bounds every transaction the round signs, so it must be the
+     * same on every node: derived from the contract config and chain state, never from the clock
+     * @type {number}
+     */
+    get __roundLength() {
+        return this.__timeframe
     }
 
     get __contractType() {
@@ -625,7 +635,3 @@ module.exports.runnerStoppedMessage = runnerStoppedMessage
 module.exports.tickSkippedMessage = tickSkippedMessage
 module.exports.tradesDataNotFoundCode = tradesDataNotFoundCode
 module.exports.withPreBuildDeadline = withPreBuildDeadline
-//the submit schedule node-orchestrator derives the update hash from (tests/cross-repo/update-schedule-parity.test.js)
-module.exports.getMaxTime = getMaxTime
-module.exports.feeMultiplier = feeMultiplier
-module.exports.maxSubmitAttempts = maxSubmitAttempts

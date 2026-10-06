@@ -18,14 +18,14 @@ jest.mock('../../../src/domain/nodes/nodes-manager', () => ({
     getConnectedNodes: jest.fn(() => [])
 }))
 
+const {firstAttemptTimeout: FIRST_ATTEMPT_TIMEOUT} = require('@reflector/reflector-shared')
 const logger = require('../../../src/logger')
 const nodesManager = require('../../../src/domain/nodes/nodes-manager')
 const {TimestampSyncItem} = require('../../../src/domain/prices/trades-manager')
 
-//Mirrors runner-base.js constants: OracleRunner.__delay=20s + firstAttemptTimeout=30s.
+//Mirrors the oracle round: OracleRunner.__delay=20s + firstAttemptTimeout (reflector-shared).
 const ORACLE_DELAY = 20_000
-const FIRST_ATTEMPT_TIMEOUT = 30_000
-const ATTEMPT_0_MAX_TIME_MS = ORACLE_DELAY + FIRST_ATTEMPT_TIMEOUT //T + 50s
+const ATTEMPT_0_MAX_TIME_MS = ORACLE_DELAY + FIRST_ATTEMPT_TIMEOUT //T + 60s
 
 //Pre-fix and post-fix TimestampSyncItem timeouts, relative to T.
 const LEGACY_SYNC_TIMEOUT = 35_000

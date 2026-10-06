@@ -1,7 +1,7 @@
 /*eslint-disable no-undef */
 /*
  * The tests are pure-math assertions against the constants in
- * src/domain/runners/runner-base.js and src/domain/runners/oracle-runner.js —
+ * the shared submit schedule (reflector-shared utils/update-schedule.js) and src/domain/runners/runner-base.js —
  * they do not exercise the network, but they mechanically reproduce the
  * `sendTransaction <-> maxTime` race that produced the txTooLate errors.
  */
@@ -9,11 +9,11 @@
 //legacy single-knob model (pre-fix). retained to demonstrate the bug.
 const LEGACY_MAX_SUBMIT_TIMEOUT = 15000 //value after cc008e6 that caused the incident
 
-//post-fix decoupled model.
-const FIRST_ATTEMPT_TIMEOUT = 30000
-const RETRY_ATTEMPT_TIMEOUT = 15000
-const MAX_SUBMIT_ATTEMPTS = 3
+//the two-attempt model: attempt 1 has 40 s from the sync, attempt 2 the rest of the round
+const FIRST_ATTEMPT_TIMEOUT = 40000
+const MAX_SUBMIT_ATTEMPTS = 2
 const ORACLE_SYNC_DELAY = 20000
+const {getMaxTime} = require('@reflector/reflector-shared')
 
 /**
  * Legacy (pre-fix) getMaxTime: single knob times iteration.
@@ -24,18 +24,6 @@ const ORACLE_SYNC_DELAY = 20000
  */
 function getMaxTimeLegacy(syncTimestampMs, iteration, maxSubmitTimeout) {
     return (syncTimestampMs + maxSubmitTimeout * iteration) / 1000
-}
-
-/**
- * Current (post-fix) getMaxTime: decoupled first-attempt and retry budgets.
- * Mirrors getMaxTime in src/domain/runners/runner-base.js.
- * @param {number} syncTimestampMs - syncTimestamp in ms
- * @param {number} iteration - 1-based iteration (attempt 0 = iteration 1)
- * @returns {number} - maxTime in Stellar envelope seconds
- */
-function getMaxTime(syncTimestampMs, iteration) {
-    const budget = FIRST_ATTEMPT_TIMEOUT + RETRY_ATTEMPT_TIMEOUT * (iteration - 1)
-    return (syncTimestampMs + budget) / 1000
 }
 
 /**
@@ -121,7 +109,7 @@ describe('Submit-timing budget', () => {
         })
     })
 
-    describe('post-fix 30s attempt-0 budget', () => {
+    describe('the 40 s attempt-1 budget', () => {
         test('same latency now has safe margin', () => {
             const remaining = timeRemainingBeforeMaxTime({
                 attempt: 0,
@@ -134,22 +122,21 @@ describe('Submit-timing budget', () => {
                 attemptBudgetMs: FIRST_ATTEMPT_TIMEOUT,
                 syncDelay: ORACLE_SYNC_DELAY
             })
-            //+15s over the legacy constant moves this well past the lookahead buffer.
-            expect(remaining).toBeGreaterThan(16000)
+            //+25s over the legacy constant moves this well past the lookahead buffer.
+            expect(remaining).toBeGreaterThan(26000)
         })
     })
 
-    describe('retries under the new split model', () => {
-        test('attempt 1 uses retry budget stacked on the first-attempt window', () => {
+    describe('the retry in the two-attempt model', () => {
+        test('attempt 2 runs until the next round: one round length after the sync', () => {
             const syncTimestamp = 1_000_000
-            const maxTimeSec = getMaxTime(syncTimestamp, 2)
-            expect(maxTimeSec).toBe((syncTimestamp + 45000) / 1000)
+            expect(getMaxTime(syncTimestamp, 1, 60000)).toBe((syncTimestamp + 60000) / 1000)
+            expect(getMaxTime(syncTimestamp, 1, 300000)).toBe((syncTimestamp + 300000) / 1000)
         })
 
-        test('attempt 2 uses two retry budgets', () => {
+        test('attempt 1 keeps the 40 s window whatever the round length', () => {
             const syncTimestamp = 1_000_000
-            const maxTimeSec = getMaxTime(syncTimestamp, 3)
-            expect(maxTimeSec).toBe((syncTimestamp + 60000) / 1000)
+            expect(getMaxTime(syncTimestamp, 0, 300000)).toBe((syncTimestamp + FIRST_ATTEMPT_TIMEOUT) / 1000)
         })
 
         test('legacy model coupled retry spacing to attempt budget (contrast)', () => {
@@ -169,57 +156,34 @@ describe('Submit-timing budget', () => {
          */
         const feeOf = (baseFee, attempt) => baseFee * Math.pow(8, attempt)
 
-        test('escalates 8x per attempt (was 4x pre-fix)', () => {
+        test('the retry pays 8x', () => {
             expect(feeOf(100, 0)).toBe(100)
             expect(feeOf(100, 1)).toBe(800)
-            expect(feeOf(100, 2)).toBe(6400)
         })
     })
 
-    //the schedule lives in update-schedule.js, a byte-identical copy of node-orchestrator's module,
-    //and runner-base.js builds with it
-    describe('constants currently in the submit schedule (update-schedule.js, used by runner-base.js)', () => {
-        const readSource = file => require('fs').readFileSync(
-            require('path').join(__dirname, '../../../src/domain/runners', file),
-            'utf8'
-        )
-        const src = readSource('update-schedule.js')
-        const runnerSrc = readSource('runner-base.js')
+    describe('the submit schedule comes from reflector-shared', () => {
+        const fs = require('fs')
+        const path = require('path')
+        const runnersDir = path.join(__dirname, '../../../src/domain/runners')
+        const runnerSrc = fs.readFileSync(path.join(runnersDir, 'runner-base.js'), 'utf8')
+        const schedule = require('@reflector/reflector-shared')
 
-        test('runner-base.js takes the schedule from update-schedule.js and keeps no copy of its own', () => {
-            expect(runnerSrc).toMatch(/require\('\.\/update-schedule'\)/)
+        test('runner-base.js takes it from reflector-shared and keeps no copy of its own', () => {
+            expect(runnerSrc).toMatch(/\bmaxSubmitAttempts, getMaxTime\} = require\('@reflector\/reflector-shared'\)/)
             expect(runnerSrc).not.toMatch(/const (firstAttemptTimeout|retryAttemptTimeout|maxSubmitAttempts|feeMultiplier) =/)
             expect(runnerSrc).not.toMatch(/function getMaxTime\(/)
+            expect(fs.existsSync(path.join(runnersDir, 'update-schedule.js'))).toBe(false)
         })
 
-        test('firstAttemptTimeout is 30000', () => {
-            const match = src.match(/const firstAttemptTimeout = (\d[\d_]*)/)
-            expect(match).not.toBeNull()
-            expect(Number(match[1].replace(/_/g, ''))).toBe(FIRST_ATTEMPT_TIMEOUT)
-        })
-
-        test('retryAttemptTimeout is 15000', () => {
-            const match = src.match(/const retryAttemptTimeout = (\d[\d_]*)/)
-            expect(match).not.toBeNull()
-            expect(Number(match[1].replace(/_/g, ''))).toBe(RETRY_ATTEMPT_TIMEOUT)
-        })
-
-        test('maxSubmitAttempts is 3', () => {
-            const match = src.match(/const maxSubmitAttempts = (\d+)/)
-            expect(match).not.toBeNull()
-            expect(Number(match[1])).toBe(MAX_SUBMIT_ATTEMPTS)
-        })
-
-        test('fee escalation base is 8', () => {
-            //the multiplier is a named constant, exported for the schedule parity test
+        test('two attempts, the first with 40 s, the retry at 8x', () => {
+            expect(schedule.maxSubmitAttempts).toBe(MAX_SUBMIT_ATTEMPTS)
+            expect(schedule.firstAttemptTimeout).toBe(FIRST_ATTEMPT_TIMEOUT)
+            expect(schedule.FEE_MULTIPLIER).toBe(8)
             expect(runnerSrc).toMatch(/Math\.pow\(feeMultiplier,\s*submitAttempt\)/)
-            const match = src.match(/const FEE_MULTIPLIER = (\d+)/)
-            expect(match).not.toBeNull()
-            expect(Number(match[1])).toBe(8)
         })
 
         test('legacy single-knob constant is gone', () => {
-            expect(src).not.toMatch(/const maxSubmitTimeout\s*=/)
             expect(runnerSrc).not.toMatch(/const maxSubmitTimeout\s*=/)
         })
     })

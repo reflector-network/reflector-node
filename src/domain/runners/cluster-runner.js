@@ -1,10 +1,9 @@
-const {buildUpdateTransaction, normalizeTimestamp, areAllSignaturesPresent} = require('@reflector/reflector-shared')
+const {buildUpdateTransaction, normalizeTimestamp, areAllSignaturesPresent, isUpdateTimeReached, endsBeforeExpiration, clusterRoundLength} = require('@reflector/reflector-shared')
 const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const nonceManager = require('../../ws-server/nonce-manager')
 const RunnerBase = require('./runner-base')
-const {isUpdateTimeReached, endsBeforeExpiration} = require('./update-schedule')
 const {withPreBuildDeadline} = RunnerBase
 
 const idleWorkerTimeframe = 1000 * 60 * 2 //2 minute
@@ -20,7 +19,7 @@ class ClusterRunner extends RunnerBase {
     async __workerFn(timestamp) {
         const {settingsManager} = container
         const {pendingConfig, config, pendingExpirationDate} = settingsManager
-        //inclusive, and decided by the rule node-orchestrator applies (domain/update-schedule.js): both build the update
+        //inclusive, and decided by the rule node-orchestrator applies (the shared update schedule): both build the update
         //at the tick equal to its switch time, or they build different transactions for one envelope and the
         //orchestrator never confirms the update
         const updateTimeReached = !!pendingConfig && isUpdateTimeReached(pendingConfig.timestamp, timestamp)
@@ -30,7 +29,7 @@ class ClusterRunner extends RunnerBase {
         //the orchestrator rejects the update once its expiration date has passed, and does not watch a round it has
         //rejected, so a round that would still be running then is not built: a retry that landed after the rejection
         //left the chain on the new config and the cluster on the old one. The same rule the orchestrator
-        //applies to the switch time (update-schedule.js), judged on the tick, never the clock. The date is unsigned
+        //applies to the switch time (the shared update schedule), judged on the tick, never the clock. The date is unsigned
         //orchestrator metadata beside the envelope and never reaches the payload, so a wrong one can only make this node
         //abstain, which the orchestrator can already make it do by withholding the update; without one, every due
         //round is built as before
@@ -129,6 +128,15 @@ class ClusterRunner extends RunnerBase {
      */
     __retarget(timestamp) {
         return Math.min(timestamp, this.__getNextTimestamp(normalizeTimestamp(Date.now(), idleWorkerTimeframe)))
+    }
+
+    /**
+     * A cluster round lasts 60 s whatever the idle grid, so the orchestrator has a window between rounds in which a vote
+     * can change
+     * @type {number}
+     */
+    get __roundLength() {
+        return clusterRoundLength
     }
 
     get __timeframe() {

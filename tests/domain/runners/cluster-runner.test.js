@@ -1,6 +1,7 @@
 /*eslint-disable no-undef */
 
 jest.mock('@reflector/reflector-shared', () => ({
+    ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
     buildUpdateTransaction: jest.fn(async () => null),
     normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf,
     areAllSignaturesPresent: jest.fn(() => false)
@@ -51,7 +52,13 @@ describe('ClusterRunner switch time', () => {
         jest.restoreAllMocks()
     })
 
-    //the node and node-orchestrator decide the switch with one rule (domain/update-schedule.js on both sides, compared by
+    test('a cluster round lasts 60 s on the 120 s idle grid', () => {
+        const runner = new ClusterRunner()
+        expect(runner.__roundLength).toBe(60_000)
+        expect(runner.__timeframe).toBe(120_000)
+    })
+
+    //the node and node-orchestrator decide the switch with one rule (the shared update schedule, checked end to end by
     //tests/cross-repo/update-schedule-parity.test.js), so both build the update at the tick equal to its switch time
     test('the tick that fires exactly at the switch time builds and applies the update with that tick', async () => {
         installSettings(switchTime)
