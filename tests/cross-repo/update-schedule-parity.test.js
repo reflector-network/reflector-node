@@ -116,6 +116,15 @@ describeWithOrchestrator('the node and the orchestrator derive the same update s
         expect(schedule.endsBeforeExpiration(T, T + 60_999)).toBe(false)
     })
 
+    //the orchestrator side of the walks below runs through this node's mocked reflector-shared, so the two installs are
+    //compared here: another schedule on either side would derive other hashes for the same round
+    test('the node and the orchestrator install the same reflector-shared schedule', () => {
+        const module = '@reflector/reflector-shared/utils/update-schedule'
+        const own = fs.readFileSync(require.resolve(module), 'utf8')
+        const theirs = fs.readFileSync(require.resolve(module, {paths: [orch('domain')]}), 'utf8')
+        expect(theirs.replace(/\r\n/g, '\n')).toBe(own.replace(/\r\n/g, '\n'))
+    })
+
     test('the node builds with the orchestrator constants: attempts, fee, maxTime and the sync grid', () => {
         expect(ClusterRunner.baseUpdateFee).toBe(10_000_000)
         expect(ClusterRunner.baseUpdateFee).toBe(provider.baseUpdateFee)
