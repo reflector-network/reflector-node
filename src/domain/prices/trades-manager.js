@@ -8,6 +8,7 @@ const MessageTypes = require('../../ws-server/handlers/message-types')
 const wsConstants = require('../../ws-server/contstants')
 const {runWithContext} = require('../../async-storage')
 const {withDeadline} = require('../../utils')
+const {priceSyncDelay} = require('../sync-delays')
 const TradesCache = require('./trades-cache')
 const {getRetentionHeartbeat} = require('./trades-cache')
 const AssetsMap = require('./assets-map')
@@ -390,11 +391,11 @@ class TimestampSyncItem {
         this.__createdAt = Date.now()
 
         const rawTimeout = this.maxTime - Date.now()
-        //a non-numeric dbSyncDelay makes maxTime NaN; setTimeout would clamp that to 1 ms and resolve every item
+        //a non-numeric maxTime makes the delay NaN; setTimeout would clamp that to 1 ms and resolve every item
         //through the timeout path instead of peer presentation. A deadline already past - a peer's
         //backfill for a minute whose sync window has closed - still fires at once, as setTimeout would make it,
-        //without the TimeoutNegativeWarning Node prints for a negative delay. A delay past the timer range - an
-        //operator dbSyncDelay above about 24.8 days - would be replaced with 1 ms too, so it is capped at the range.
+        //without the TimeoutNegativeWarning Node prints for a negative delay. A delay past the timer range - a
+        //deadline more than about 24.8 days ahead - would be replaced with 1 ms too, so it is capped at the range.
         const timeout = Number.isFinite(rawTimeout) ? Math.min(maxTimerDelay, Math.max(1, rawTimeout)) : defaultSyncWait
         //an entry opened after its own deadline - a peer's backfill for a minute whose sync window has closed - waited for
         //nothing, so its resolution is no operator signal; one PRICE_SYNC can open such an entry for every minute of the
@@ -609,14 +610,12 @@ class TradesManager {
      * @returns {TimestampSyncItem}
      */
     __getOrAddTimestampSync(key, timestamp) {
-        //sync auto-resolves at T + dbSyncDelay + 25s so it finishes well before
-        //the oracle attempt-1 envelope (T + oracleSyncDelay 20s + firstAttemptTimeout 40s
-        //= T + 60s), leaving at least 35s for the worker to build and submit.
+        //sync auto-resolves at T + priceSyncDelay 15s + 25s = T + 40s, so it finishes well before
+        //the oracle attempt-1 envelope (T + roundSyncDelay 20s + firstAttemptTimeout 40s
+        //= T + 60s), leaving at least 20s for the worker to build and submit.
         //Pre-fix 35s collided with the pre-fix 15s attempt-0 window and left the
         //worker no room after a sync timeout.
-        const maxTime = timestamp
-            + container.settingsManager.appConfig.dbSyncDelay //add db sync delay
-            + defaultSyncWait
+        const maxTime = timestamp + priceSyncDelay + defaultSyncWait
 
         let timestampSyncData = this.__timestamps.get(timestamp)
         if (!timestampSyncData) {

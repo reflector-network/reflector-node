@@ -5,6 +5,7 @@ const {getPricesForContract} = require('../prices/price-manager')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const {getPriceDiff} = require('../../utils/price-utils')
+const {roundSyncDelay} = require('../sync-delays')
 const RunnerBase = require('./runner-base')
 const {withPreBuildDeadline} = RunnerBase
 
@@ -326,7 +327,7 @@ class OracleRunner extends RunnerBase {
     }
 
     get __delay() {
-        return 20 * 1000
+        return roundSyncDelay
     }
 
     get __contractType() {

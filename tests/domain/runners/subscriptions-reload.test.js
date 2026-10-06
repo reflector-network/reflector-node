@@ -36,10 +36,11 @@ const {getPricesForPair} = require('../../../src/domain/prices/price-manager')
 const container = require('../../../src/domain/container')
 const {getManager} = require('../../../src/domain/subscriptions/subscriptions-data-manager')
 const SubscriptionsRunner = require('../../../src/domain/runners/subscriptions-runner')
+const {roundSyncDelay} = require('../../../src/domain/sync-delays')
 
 const CONTRACT_ID = 'CBIJBDNZNF4X35BJ4FFZWCDBSCKOP5NB4PLG4SNENRMLAPYG4P5FM6VN'
 const TICK = 1_700_000_100_000 //a whole minute
-const DELAY = 1000 //dbSyncDelay 3000 - 2000
+const DELAY = roundSyncDelay //the subscriptions round starts with the oracle's
 const CREATED_AT = 1_700_000_171 //seconds, as the rpc reports a landed transaction
 const runners = []
 

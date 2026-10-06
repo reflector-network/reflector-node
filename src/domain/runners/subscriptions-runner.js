@@ -16,6 +16,7 @@ const statisticsManager = require('../statistics-manager')
 const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
 const SubscriptionProcessor = require('../subscriptions/subscriptions-processor')
+const {roundSyncDelay} = require('../sync-delays')
 const RunnerBase = require('./runner-base')
 const {withPreBuildDeadline} = RunnerBase
 
@@ -345,11 +346,8 @@ class SubscriptionsRunner extends RunnerBase {
     }
 
     get __delay() {
-        //try to load subscriptions eyrlier than price worker, to have time to process events
-        const syncDelay = container.settingsManager.appConfig.dbSyncDelay - 2000
-        if (syncDelay >= 0)
-            return syncDelay
-        return container.settingsManager.appConfig.dbSyncDelay
+        //the oracle's delay: the trigger round's timebounds count from it, so it is the same on every node
+        return roundSyncDelay
     }
 
     stop() {
