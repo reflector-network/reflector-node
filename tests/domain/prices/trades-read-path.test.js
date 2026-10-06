@@ -142,7 +142,7 @@ describe('the node\'s own rows on the local path', () => {
         nowSpy = jest.spyOn(Date, 'now').mockReturnValue(T0 + 24 * 1000) //inside T0's sync window
         const pubkeys = [self, peerA, peerB]
         container.settingsManager = {
-            appConfig: {publicKey: self, dbSyncDelay: 0},
+            appConfig: {publicKey: self},
             //one oracle on exchanges/USD makes it a key this node reads, so peers register on arrival
             config: {
                 nodes: new Map(pubkeys.map(p => [p, {pubkey: p}])),

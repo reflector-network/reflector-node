@@ -10,7 +10,7 @@ const logger = require('../../../src/logger')
 stopTradesManagersAfterEach(TradesManager)
 
 const minute = 60 * 1000
-//inside the newest fixture minute's sync window (ts + dbSyncDelay + 25 s), as consensus-mask.test.js pins it: sync
+//inside the newest fixture minute's sync window (ts + priceSyncDelay 15 s + 25 s), as consensus-mask.test.js pins it: sync
 //items then resolve through peer presentation, and a broken presentation stalls a test instead of passing it through
 //a 1 ms timeout
 const now = 15 * minute + 10 * 1000
@@ -60,7 +60,7 @@ function makeNodes(count) {
  */
 function setupContainer(pubkeys, self) {
     container.settingsManager = {
-        appConfig: {publicKey: self, dbSyncDelay: 0},
+        appConfig: {publicKey: self},
         //one oracle on the fixture key makes it a key this node reads, so peers register on arrival
         config: {
             nodes: new Map(pubkeys.map(p => [p, {pubkey: p}])),

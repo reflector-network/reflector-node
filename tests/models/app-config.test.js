@@ -96,3 +96,25 @@ describe('AppConfig.orchestratorUrl', () => {
         expect(config.orchestratorUrl).toBeUndefined()
     })
 })
+
+describe('AppConfig without dbSyncDelay', () => {
+    const logger = require('../../src/logger')
+
+    beforeEach(() => logger.warn.mockClear())
+
+    test('the sync delays are not part of the node config', () => {
+        const config = appConfig()
+        expect(config.dbSyncDelay).toBeUndefined()
+        expect(config.toPlainObject()).not.toHaveProperty('dbSyncDelay')
+        expect(logger.warn).not.toHaveBeenCalled()
+    })
+
+    test('an old config that still sets dbSyncDelay boots, ignores it and says so once', () => {
+        const config = appConfig({dbSyncDelay: 30})
+        expect(config.isValid).toBe(true)
+        expect(config.dbSyncDelay).toBeUndefined()
+        expect(config.toPlainObject()).not.toHaveProperty('dbSyncDelay')
+        expect(logger.warn).toHaveBeenCalledTimes(1)
+        expect(JSON.stringify(logger.warn.mock.calls[0])).toContain('dbSyncDelay is no longer read')
+    })
+})

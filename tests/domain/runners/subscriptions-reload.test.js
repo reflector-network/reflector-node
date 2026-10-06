@@ -104,7 +104,7 @@ beforeEach(() => {
     jest.clearAllMocks()
     const keypair = Keypair.random()
     container.settingsManager = {
-        appConfig: {keypair, publicKey: keypair.publicKey(), dbSyncDelay: 3000},
+        appConfig: {keypair, publicKey: keypair.publicKey()},
         config: {nodes: new Map([[keypair.publicKey(), {pubkey: keypair.publicKey()}]])},
         clusterSecretObject: null,
         getContractConfig: () => ({contractId: CONTRACT_ID, admin: keypair.publicKey(), fee: 100}),

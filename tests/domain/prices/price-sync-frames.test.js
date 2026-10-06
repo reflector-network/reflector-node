@@ -234,7 +234,7 @@ describe('a receiver merges PRICE_SYNC frames as it merged the single message', 
     beforeEach(() => {
         nowSpy = jest.spyOn(Date, 'now').mockReturnValue(T + 30_000)
         container.settingsManager = {
-            appConfig: {publicKey: self, dbSyncDelay: 0},
+            appConfig: {publicKey: self},
             config: {
                 nodes: new Map([[self, {pubkey: self}], [peer, {pubkey: peer}]]),
                 contracts: new Map([['oracle', {contractId: 'oracle', type: ContractTypes.ORACLE, dataSource: 'exchanges', baseAsset: new Asset(2, 'USD')}]])
@@ -328,7 +328,7 @@ describe('the per-tick broadcast goes out in frames too', () => {
     beforeEach(() => {
         nowSpy = jest.spyOn(Date, 'now').mockReturnValue(T + 24_000)
         container.settingsManager = {
-            appConfig: {publicKey: self, dbSyncDelay: 0},
+            appConfig: {publicKey: self},
             config: {
                 nodes: new Map([[self, {pubkey: self}]]),
                 contracts: new Map([['oracle', {contractId: 'oracle', type: ContractTypes.ORACLE, dataSource: 'exchanges', baseAsset: usd}]])

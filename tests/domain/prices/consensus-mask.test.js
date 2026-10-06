@@ -11,7 +11,7 @@ const logger = require('../../../src/logger')
 stopTradesManagersAfterEach(TradesManager)
 
 const minute = 60 * 1000
-//inside the newest fixture minute's sync window (ts + dbSyncDelay + 25 s), as getConsensusData.test.js pins it: sync
+//inside the newest fixture minute's sync window (ts + priceSyncDelay 15 s + 25 s), as getConsensusData.test.js pins it: sync
 //items then resolve through peer presentation, and a broken presentation would stall a test instead of passing it
 //through a 1 ms timeout
 const now = 15 * minute + 10 * 1000
@@ -49,7 +49,7 @@ function makeNodes(count) {
  */
 function setupContainer(pubkeys, self) {
     container.settingsManager = {
-        appConfig: {publicKey: self, dbSyncDelay: 0},
+        appConfig: {publicKey: self},
         //the fixture key has to be one this node reads, or addSyncData registers no sync entry for it
         config: {
             nodes: new Map(pubkeys.map(p => [p, {pubkey: p}])),

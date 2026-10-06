@@ -17,7 +17,7 @@ beforeEach(() => {
     //TradesManager arms a recurring cleanup timer and every sync item arms its own; keep them all off the real clock
     jest.useFakeTimers()
     container.settingsManager = {
-        appConfig: {publicKey: self, dbSyncDelay: 0},
+        appConfig: {publicKey: self},
         config: {nodes: new Map([[self, {pubkey: self}], [peer, {pubkey: peer}]])},
         nodes: new Map([[self, {pubkey: self}], [peer, {pubkey: peer}]]),
         getPriceHeartbeat: () => heartbeat
@@ -252,9 +252,9 @@ describe('cache bounds', () => {
     })
 
     test('the cleanup worker resolves an entry before it drops it', () => {
-        jest.useFakeTimers({now: 500 * minute})
-        //a long dbSyncDelay keeps the item's own timeout from resolving it before the worker runs
-        container.settingsManager.appConfig.dbSyncDelay = 10 * minute
+        //the item's own deadline is its minute + 40 s (priceSyncDelay + the sync wait): opened 30 s before its minute,
+        //it is still waiting when the worker runs a minute after the manager starts, 20 s before that deadline
+        jest.useFakeTimers({now: 498 * minute - 30_000})
         const tm = new TradesManager()
         container.tradesManager = tm
         tm.__trades.push(self, 'exchanges_USD', makeMap('USD'), 499 * minute, row())

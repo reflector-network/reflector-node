@@ -2,7 +2,6 @@ const {Keypair, StrKey} = require('@stellar/stellar-sdk')
 const {IssuesContainer, mapToPlainObject} = require('@reflector/reflector-shared')
 const logger = require('../logger')
 const DataSource = require('./data-source')
-const defaultDbSyncDelay = 15_000
 const configHashPattern = /^[0-9a-fA-F]{64}$/
 //STATISTICS_REQUEST is unsigned and a node trusts whatever answers on this url, so TLS is what authenticates the
 //orchestrator. Plain http and ws are accepted too, for a local or staging cluster without a certificate, with a warning
@@ -12,12 +11,6 @@ const plainOrchestratorProtocols = ['ws:', 'http:']
 
 function isLoopbackHost(hostname) {
     return hostname === 'localhost' || hostname === '[::1]' || /^127(\.\d{1,3}){3}$/.test(hostname)
-}
-
-function getNormalizedDbSyncDelay(dbSyncDelay) {
-    if (dbSyncDelay === defaultDbSyncDelay)
-        return undefined
-    return dbSyncDelay / 1000
 }
 
 class AppConfig extends IssuesContainer {
@@ -34,7 +27,10 @@ class AppConfig extends IssuesContainer {
         this.__assignKeypair(config.secret)
         this.__assignDataSources(config.dataSources)
         this.__assignOrchestratorUrl(config.orchestratorUrl)
-        this.__assignDbSyncDelay(config.dbSyncDelay)
+        //the sync delays are fixed for every node (src/domain/sync-delays.js): a node with its own would sign transactions
+        //its peers do not, so an old setting is ignored
+        if (config.dbSyncDelay !== undefined)
+            logger.warn({msg: 'dbSyncDelay is no longer read; the sync delays are fixed for every node'})
         this.__assignPort(config.port)
         this.__assignTrace(config.trace)
         this.__assignClusterConfigHash(config.clusterConfigHash)
@@ -59,11 +55,6 @@ class AppConfig extends IssuesContainer {
      * @type {Map<string, DataSource>}
      */
     dataSources = new Map()
-
-    /**
-     * @type {number}
-     */
-    dbSyncDelay
 
     /**
      * @type {number}
@@ -144,14 +135,6 @@ class AppConfig extends IssuesContainer {
         }
     }
 
-    __assignDbSyncDelay(dbSyncDelay) {
-        try {
-            this.dbSyncDelay = !dbSyncDelay || isNaN(dbSyncDelay) ? defaultDbSyncDelay : dbSyncDelay * 1000
-        } catch (e) {
-            this.__addIssue(`dbSyncDelay: ${e.message}`)
-        }
-    }
-
     __assignPort(port) {
         try {
             if (!port || isNaN(port))
@@ -181,7 +164,6 @@ class AppConfig extends IssuesContainer {
     toPlainObject() {
         return {
             dataSources: mapToPlainObject(this.dataSources),
-            dbSyncDelay: getNormalizedDbSyncDelay(this.dbSyncDelay),
             handshakeTimeout: this.handshakeTimeout,
             secret: this.secret,
             orchestratorUrl: this.orchestratorUrl,

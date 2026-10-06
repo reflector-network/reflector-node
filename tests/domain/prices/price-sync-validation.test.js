@@ -25,7 +25,7 @@ let nowSpy
 beforeEach(() => {
     nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
     container.settingsManager = {
-        appConfig: {publicKey: self, dbSyncDelay: 0},
+        appConfig: {publicKey: self},
         //one oracle on exchanges/USD makes it a key this node reads, so peers register on arrival
         config: {
             nodes: new Map([[self, {pubkey: self}], [peer, {pubkey: peer}]]),

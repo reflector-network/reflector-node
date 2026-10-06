@@ -9,7 +9,7 @@
 
 jest.mock('../../../src/domain/container', () => ({
     settingsManager: {
-        appConfig: {publicKey: 'self-pubkey', dbSyncDelay: 0},
+        appConfig: {publicKey: 'self-pubkey'},
         config: {nodes: new Map([['peer-A', {}], ['peer-B', {}]])}
     }
 }))
@@ -159,7 +159,7 @@ describe('TimestampSyncItem timing', () => {
         test('a deadline past the timer range waits the longest delay instead of 1 ms', () => {
             jest.useFakeTimers({now: 10 * 60000})
             const spy = jest.spyOn(global, 'setTimeout')
-            //an operator dbSyncDelay of about 24.9 days puts the deadline past 2^31 - 1 ms
+            //a deadline about 24.9 days out lies past 2^31 - 1 ms
             const item = new TimestampSyncItem('exchanges_USD', 10 * 60000, 10 * 60000 + 2 ** 31 + 1000)
 
             expect(spy).toHaveBeenCalledTimes(1)

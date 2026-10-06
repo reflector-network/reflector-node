@@ -47,7 +47,7 @@ const ASSET_CODES = ['BTC', 'ETH', 'XLM']
 function makeManager(publicKey) {
     const manager = new SettingsManager()
     const nodes = new Map(NODES.map(pubkey => [pubkey, {pubkey}]))
-    manager.appConfig = {publicKey, dbSyncDelay: 0}
+    manager.appConfig = {publicKey}
     manager.config = {
         nodes,
         contracts: new Map([[CONTRACT_ID, {

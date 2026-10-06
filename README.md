@@ -34,7 +34,8 @@ Where:
 - `dataSources` (settings[]) - price data sources configuration; a source's optional `providers` block chooses its
   providers and their settings (for a Stellar source, its pool providers: see the stellar-connector README "Pool
   providers"), and must be the same on every node
-- `dbSyncDelay` (number) - [optional] delay in seconds for database synchronization, should be identical for all nodes in the cluster (15)
+- `dbSyncDelay` - no longer read: the sync delays are the same for every node (trades gossip 15 s after each minute,
+  oracle and subscriptions rounds 20 s after their tick). A node whose config still has it logs a warning at boot.
 - `port` (number) - [optional] TCP port for inbound connections (30347); 1024 or above in the Docker image, see
   [Default ports](#default-ports)
 - `trace` (true|false) - [optional] detailed events tracing (false). A toggle from the admin dashboard is stored in

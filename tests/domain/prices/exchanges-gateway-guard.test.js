@@ -49,7 +49,7 @@ const noRouteMessage = 'Gateways are configured but none is usable; exchanges pr
  */
 function installGateways(configuredUrls) {
     const manager = new SettingsManager()
-    manager.appConfig = {publicKey: SELF, dbSyncDelay: 0, keypair: {sign: () => Buffer.alloc(64, 3)}}
+    manager.appConfig = {publicKey: SELF, keypair: {sign: () => Buffer.alloc(64, 3)}}
     manager.config = {nodes: new Map([[SELF, {pubkey: SELF}]]), contracts: new Map()}
     manager.getPriceHeartbeat = () => 2 * 60 * 60 * 1000
     manager.getSimSource = () => undefined

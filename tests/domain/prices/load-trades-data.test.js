@@ -220,7 +220,7 @@ describe('the local key list once expiry is evaluated at a tick', () => {
         const {Asset, ContractTypes} = require('@reflector/reflector-shared')
         const nodes = new Map([[self, {pubkey: self}], [peer, {pubkey: peer}]])
         return {
-            appConfig: {publicKey: self, dbSyncDelay: 0},
+            appConfig: {publicKey: self},
             config: {
                 nodes,
                 contracts: new Map([['oracle', {contractId: 'oracle', type: ContractTypes.ORACLE, dataSource: 'exchanges', baseAsset: new Asset(2, 'USD')}]])
@@ -624,7 +624,7 @@ describe('connector fetch budget', () => {
         const originalSettings = container.settingsManager
         const nodes = new Map([[self, {pubkey: self}]])
         container.settingsManager = {
-            appConfig: {publicKey: self, dbSyncDelay: 0},
+            appConfig: {publicKey: self},
             config: {nodes},
             nodes,
             gateways: {urls: null},
@@ -693,7 +693,7 @@ describe('connector fetch budget', () => {
         const originalSettings = container.settingsManager
         const nodes = new Map([[self, {pubkey: self}]])
         container.settingsManager = {
-            appConfig: {publicKey: self, dbSyncDelay: 0},
+            appConfig: {publicKey: self},
             config: {nodes},
             nodes,
             gateways: {urls: null},

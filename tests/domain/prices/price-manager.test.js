@@ -34,7 +34,7 @@ function normalizeTradeData(data, toString) {
 function setupContainer(pubkey) {
     const nodesMap = new Map(nodes.map(n => [n.pubkey, {pubkey: n.pubkey}]))
     container.settingsManager = {
-        appConfig: {publicKey: pubkey, dbSyncDelay: 0},
+        appConfig: {publicKey: pubkey},
         config: {
             nodes: new Set(nodes),
             decimals,

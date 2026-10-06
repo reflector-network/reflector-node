@@ -44,10 +44,7 @@ function buildTradesData(prices, source) {
 
 function setupContainer(currentNodeIndex) {
     container.settingsManager = {
-        //dbSyncDelay must be a number: TimestampSyncItem derives its timeout from it, and a missing value makes
-        //maxTime NaN, so every sync item auto-resolves after 1 ms through the timeout path instead of peer
-        //presentation - the suite's consensus assertions would then hold even if presentation were broken
-        appConfig: {publicKey: nodes[currentNodeIndex].pubkey, dbSyncDelay: 0},
+        appConfig: {publicKey: nodes[currentNodeIndex].pubkey},
         //one oracle on each fixture key makes them keys this node reads, so peers register on arrival
         config: {
             nodes: new Set(nodes),
@@ -132,8 +129,8 @@ let nowSpy
 
 beforeEach(() => {
     //addSyncData bounds peer timestamps against the local clock. Pin it inside the newest fixture minute's sync
-    //window (ts + dbSyncDelay + 25 s): that item's own timer is then still 15 s out, so if peer presentation broke,
-    //the consensus tests would wait on it and fail instead of passing through a 1 ms timeout, as they do at 16 min.
+    //window (ts + priceSyncDelay 15 s + 25 s): that item's own timer is then still 30 s out, so if peer presentation
+    //broke, the consensus tests would wait on it and fail instead of passing through a 1 ms timeout, as they do at 16 min.
     nowSpy = jest.spyOn(Date, 'now').mockReturnValue(15 * minute + 10 * 1000)
 })
 
