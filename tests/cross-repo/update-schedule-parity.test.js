@@ -5,15 +5,16 @@ const {Keypair} = require('@stellar/stellar-sdk')
 
 //node-orchestrator confirms a cluster update by deriving the hash the nodes build for it, so both sides must reach the
 //same schedule for one envelope: the ticks, the sync timestamp, and per attempt the fee, maxTime and account sequence.
-//This suite runs node-orchestrator's own modules from the sibling checkout - update-schedule.js, the real
-//getUpdateTxHash of blockchain-data-provider.js and the real getTimestamp of config-manager.js - against this node's
-//ClusterRunner and RunnerBase. Without the sibling checkout it fails unless
-//SKIP_CROSS_REPO=1 is set
+//This suite runs node-orchestrator's own modules from the sibling checkout - the real getUpdateTxHash of
+//blockchain-data-provider.js and the real getTimestamp of config-manager.js - against this node's ClusterRunner and
+//RunnerBase. Both sides take the schedule from reflector-shared; what this suite guards is that they apply it the same
+//way. Without the sibling checkout it fails unless SKIP_CROSS_REPO=1 is set
 
-//every build either side makes is recorded and refused, so all three attempts of a round run and nothing lands
+//every build either side makes is recorded and refused, so both attempts of a round run and nothing lands
 const mockChain = {sequence: '0', builds: []}
 
 jest.mock('@reflector/reflector-shared', () => ({
+    ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
     buildUpdateTransaction: params => {
         mockChain.builds.push(params)
         return Promise.reject(new Error('recorded, not submitted'))
@@ -35,7 +36,7 @@ jest.mock('../../src/ws-server/nonce-manager', () => ({getNonce: () => 0, setNon
 
 const {describeWithOrchestrator, orch} = require('./orchestrator-sibling')
 
-const orchestratorModules = ['domain/update-schedule.js', 'domain/blockchain-data-provider.js', 'domain/config-manager.js']
+const orchestratorModules = ['domain/blockchain-data-provider.js', 'domain/config-manager.js']
 
 const passphrase = 'Test SDF Network ; September 2015'
 const systemAccount = Keypair.random().publicKey()
@@ -77,7 +78,6 @@ describeWithOrchestrator('the node and the orchestrator derive the same update s
     let orchestratorSource
     let container
     let ClusterRunner
-    let RunnerBase
 
     beforeAll(() => {
         jest.doMock(orch('logger.js'), () => ({error: () => {}, warn: () => {}, info: () => {}, debug: () => {}, trace: () => {}}))
@@ -94,65 +94,34 @@ describeWithOrchestrator('the node and the orchestrator derive the same update s
         const orchestratorShared = require.resolve('@reflector/reflector-shared', {paths: [orch('domain')]})
         if (orchestratorShared !== require.resolve('@reflector/reflector-shared'))
             jest.doMock(orchestratorShared, () => jest.requireMock('@reflector/reflector-shared'))
-        schedule = require(orch('domain/update-schedule.js'))
+        schedule = require('@reflector/reflector-shared')
         provider = require(orch('domain/blockchain-data-provider.js'))
         ;({getTimestamp} = require(orch('domain/config-manager.js')))
         orchestratorSource = fs.readFileSync(orch('domain/config-manager.js'), 'utf8').replace(/\r\n/g, '\n')
         container = require('../../src/domain/container')
         ClusterRunner = require('../../src/domain/runners/cluster-runner')
-        RunnerBase = require('../../src/domain/runners/runner-base')
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
     })
 
-    test('the node keeps a byte-identical copy of the orchestrator schedule module', () => {
-        const own = fs.readFileSync(path.resolve(__dirname, '../../src/domain/runners/update-schedule.js'), 'utf8')
-        const theirs = fs.readFileSync(orch('domain/update-schedule.js'), 'utf8')
-        expect(own.replace(/\r\n/g, '\n')).toBe(theirs.replace(/\r\n/g, '\n'))
-    })
-
-    test('both decide the switch at the same ticks, and the tick equal to the switch time is due', () => {
-        const {isUpdateTimeReached} = require('../../src/domain/runners/update-schedule')
-        const offGrid = T + minute
-        for (const switchTime of [T, offGrid])
-            for (const tick of [switchTime - grid, switchTime - 1, switchTime, switchTime + 1, switchTime + minute])
-                expect(isUpdateTimeReached(switchTime, tick)).toBe(schedule.isUpdateTimeReached(switchTime, tick))
-        expect(isUpdateTimeReached(T, T)).toBe(true)
-        expect(isUpdateTimeReached(T, T - 1)).toBe(false)
-    })
-
-    //the node skips a round the orchestrator would reject before it ends, so both judge a round's end
-    //against the expiration date with one rule
-    test('both judge whether a round ends before the expiration date the same way', () => {
-        const {endsBeforeExpiration} = require('../../src/domain/runners/update-schedule')
-        const offGrid = T + minute
-        let agreed = 0
-        for (const tick of [T - grid, T, offGrid, T + grid, T + 30 * grid])
-            for (const offset of [-grid, 0, 1, 60_000, 60_999, 61_000, 61_001, 90_000, grid, 24 * 60 * minute]) {
-                const expirationDate = tick + offset
-                expect(endsBeforeExpiration(tick, expirationDate)).toBe(schedule.endsBeforeExpiration(tick, expirationDate))
-                expect(endsBeforeExpiration(tick, expirationDate)).toBe(offset >= 61_000)
-                agreed++
-            }
-        expect(agreed).toBe(50)
-        expect(endsBeforeExpiration(T, T + 61_000)).toBe(true)
-        expect(endsBeforeExpiration(T, T + 60_999)).toBe(false)
+    test('both sides take the switch rule and the expiry rule from reflector-shared', () => {
+        const nodeSource = fs.readFileSync(path.resolve(__dirname, '../../src/domain/runners/cluster-runner.js'), 'utf8')
+        expect(nodeSource).toMatch(/\bisUpdateTimeReached, endsBeforeExpiration, clusterRoundLength\} = require\('@reflector\/reflector-shared'\)/)
+        expect(fs.existsSync(path.resolve(__dirname, '../../src/domain/runners/update-schedule.js'))).toBe(false)
+        expect(fs.existsSync(orch('domain/update-schedule.js'))).toBe(false)
+        expect(schedule.isUpdateTimeReached(T, T)).toBe(true)
+        expect(schedule.endsBeforeExpiration(T, T + 61_000)).toBe(true)
+        expect(schedule.endsBeforeExpiration(T, T + 60_999)).toBe(false)
     })
 
     test('the node builds with the orchestrator constants: attempts, fee, maxTime and the sync grid', () => {
-        expect(RunnerBase.maxSubmitAttempts).toBe(3)
-        expect(RunnerBase.maxSubmitAttempts).toBe(schedule.maxSubmitAttempts)
-        expect(RunnerBase.feeMultiplier).toBe(8)
-        expect(RunnerBase.feeMultiplier).toBe(schedule.FEE_MULTIPLIER)
         expect(ClusterRunner.baseUpdateFee).toBe(10_000_000)
         expect(ClusterRunner.baseUpdateFee).toBe(provider.baseUpdateFee)
-        for (const syncTimestamp of [T, T + minute])
-            for (let iteration = 1; iteration <= schedule.maxSubmitAttempts; iteration++)
-                expect(RunnerBase.getMaxTime(syncTimestamp, iteration)).toBe(schedule.__getMaxTime(syncTimestamp, iteration))
-        expect([1, 2, 3].map(i => RunnerBase.getMaxTime(T, i) - T / 1000)).toEqual([30, 45, 60])
-        //the node's idle tick is the orchestrator's sync grid: both retry a failed round at its next tick
+        expect(provider.maxSubmitAttempts).toBe(schedule.maxSubmitAttempts)
+        //the node's cluster round is the orchestrator's: 60 s, on the 120 s idle tick both retry at
+        expect(new ClusterRunner().__roundLength).toBe(schedule.clusterRoundLength)
         expect(new ClusterRunner().__timeframe).toBe(grid)
         expect(new ClusterRunner().__timeframe).toBe(schedule.syncTimeframe)
     })
@@ -173,7 +142,7 @@ describeWithOrchestrator('the node and the orchestrator derive the same update s
             'return __pendingConfig.envelope.timestamp < Date.now()',
             'const updateIdleTimeframe = syncTimeframe',
             //the expiry rule is the shared one, and the pending envelope travels with the date it is judged against
-            'const {isUpdateTimeReached, syncTimeframe, endsBeforeExpiration} = require(\'./update-schedule\')',
+            'const {isUpdateTimeReached, syncTimeframe, endsBeforeExpiration} = require(\'@reflector/reflector-shared\')',
             'if (!endsBeforeExpiration(timestamp, configItem.expirationDate))',
             '? {...__pendingConfig.envelope.toPlainObject(), expirationDate: __pendingConfig.expirationDate}'
         ])
@@ -314,12 +283,13 @@ describeWithOrchestrator('the node and the orchestrator derive the same update s
     function expectRound(round, switchTime, syncTimestamp) {
         expect(round.built).toBe(true)
         expect(round.syncTimestamp).toBe(syncTimestamp)
-        expect(round.attempts.map(({fee}) => fee)).toEqual([10_000_000, 80_000_000, 640_000_000])
-        expect(round.attempts.map(({maxTime}) => maxTime * 1000 - syncTimestamp)).toEqual([30_000, 45_000, 60_000])
-        expect(round.attempts.map(({timestamp}) => timestamp)).toEqual([switchTime, switchTime, switchTime])
-        expect(round.attempts.map(({sequence}) => sequence)).toEqual(Array(3).fill(sequenceAt(syncTimestamp)))
-        expect(round.attempts.map(({account}) => account)).toEqual(Array(3).fill(systemAccount))
-        expect(round.attempts.map(({network}) => network)).toEqual(Array(3).fill(passphrase))
+        const attempts = schedule.maxSubmitAttempts
+        expect(round.attempts.map(({fee}) => fee)).toEqual([10_000_000, 80_000_000])
+        expect(round.attempts.map(({maxTime}) => maxTime * 1000 - syncTimestamp)).toEqual([40_000, 60_000])
+        expect(round.attempts.map(({timestamp}) => timestamp)).toEqual(Array(attempts).fill(switchTime))
+        expect(round.attempts.map(({sequence}) => sequence)).toEqual(Array(attempts).fill(sequenceAt(syncTimestamp)))
+        expect(round.attempts.map(({account}) => account)).toEqual(Array(attempts).fill(systemAccount))
+        expect(round.attempts.map(({network}) => network)).toEqual(Array(attempts).fill(passphrase))
     }
 
     test('a switch time on the grid: both build at it with it as the sync timestamp, and retry at the next tick', async () => {
