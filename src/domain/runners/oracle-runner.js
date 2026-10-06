@@ -11,6 +11,7 @@ const {withPreBuildDeadline} = RunnerBase
 const DEFAULT_CACHE_SIZE = 3
 //the contract keeps at most 255 price updates, so the history window is at most 255 timeframes
 const MAX_PRICES_CACHE_SIZE = 255
+const minute = 60 * 1000
 
 class OracleRunner extends RunnerBase {
     constructor(contractId, type) {
@@ -23,6 +24,12 @@ class OracleRunner extends RunnerBase {
     __lastLoadedEntries = new Map()
 
     __historyLoadFailed = false
+
+    /**
+     * Whether the last contract state this runner read showed the contract initialized; false until one is read
+     * @type {boolean}
+     */
+    __isInitialized = false
 
     async __workerFn(timestamp) {
         const contractConfig = this.__getCurrentContract()
@@ -51,6 +58,8 @@ class OracleRunner extends RunnerBase {
         })())
 
         const protocol = contractState.protocol || (contractState.version >= 6 ? 2 : 1)
+        //before the expiry check and the build below: both read the round length, which depends on it
+        this.__isInitialized = !!contractState.isInitialized
 
         logger.trace({msg: 'Contract state', lastTimestamp: Number(contractState.lastTimestamp), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastOracleData(
@@ -295,8 +304,25 @@ class OracleRunner extends RunnerBase {
         return timeframe
     }
 
+    /**
+     * An initialized contract is priced once per timeframe, at the next boundary of its grid; until it is initialized
+     * the runner retries every minute
+     * @param {number} currentTimestamp - tick that just ran
+     * @returns {number}
+     */
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + Math.min(1000 * 60, this.__timeframe) //1 minute or the timeframe (whichever is smaller)
+        if (!this.__isInitialized)
+            return currentTimestamp + minute
+        const timeframe = this.__timeframe
+        return normalizeTimestamp(currentTimestamp, timeframe) + timeframe
+    }
+
+    /**
+     * A price round runs until the next timeframe; an init round until the next minute tick
+     * @type {number}
+     */
+    get __roundLength() {
+        return this.__isInitialized ? this.__timeframe : minute
     }
 
     get __delay() {

@@ -60,15 +60,44 @@ describe('OracleRunner', () => {
         })
     })
 
-    describe('__getNextTimestamp', () => {
-        //`__getNextTimestamp(ts) = ts + min(60s, timeframe)`
-        test('advances by 1 minute when timeframe > 1 minutes', () => {
-            const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE_BEAM)
-            //__timeframe reads from the contract config (container-backed).
-            //Override it so this test stays hermetic.
-            Object.defineProperty(runner, '__timeframe', {value: TIMEFRAME_5M})
-            const t = 1_000_000_000_000
-            expect(runner.__getNextTimestamp(t)).toBe(t + 60 * 1000)
+    describe('__getNextTimestamp and __roundLength', () => {
+        const minute = 60 * 1000
+        const t = 1_800_000_000_000 //on the five-minute grid
+
+        function runnerWith(timeframe, isInitialized) {
+            const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE)
+            //__timeframe reads from the contract config (container-backed); override it so this test stays hermetic
+            Object.defineProperty(runner, '__timeframe', {value: timeframe})
+            if (isInitialized !== undefined)
+                runner.__isInitialized = isInitialized
+            return runner
+        }
+
+        test('an initialized contract ticks at the next boundary of its timeframe', () => {
+            const runner = runnerWith(TIMEFRAME_5M, true)
+            expect(runner.__getNextTimestamp(t)).toBe(t + TIMEFRAME_5M)
+            //an init that landed on a minute tick: the next tick is back on the timeframe grid
+            expect(runner.__getNextTimestamp(t + 3 * minute)).toBe(t + TIMEFRAME_5M)
+        })
+
+        test('a one-minute contract ticks every minute', () => {
+            expect(runnerWith(minute, true).__getNextTimestamp(t + minute)).toBe(t + 2 * minute)
+        })
+
+        test('an uninitialized contract ticks every minute, so an init is retried quickly', () => {
+            expect(runnerWith(TIMEFRAME_5M, false).__getNextTimestamp(t + 3 * minute)).toBe(t + 4 * minute)
+        })
+
+        test('a runner that has not read its contract yet ticks every minute', () => {
+            const runner = runnerWith(TIMEFRAME_5M)
+            expect(runner.__isInitialized).toBe(false)
+            expect(runner.__getNextTimestamp(t)).toBe(t + minute)
+        })
+
+        test('a round lasts the timeframe once the contract is initialized, one minute before', () => {
+            expect(runnerWith(TIMEFRAME_5M, true).__roundLength).toBe(TIMEFRAME_5M)
+            expect(runnerWith(TIMEFRAME_5M, false).__roundLength).toBe(minute)
+            expect(runnerWith(minute, true).__roundLength).toBe(minute)
         })
     })
 
