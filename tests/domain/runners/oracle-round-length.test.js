@@ -8,6 +8,7 @@ jest.mock('../../../src/utils', () => ({
     getAccount: jest.fn(() => Promise.resolve({}))
 }))
 jest.mock('../../../src/domain/statistics-manager', () => ({setLastOracleData: jest.fn()}))
+jest.mock('../../../src/domain/prices/price-manager', () => ({getPricesForContract: jest.fn(async () => [100n])}))
 
 const {ContractTypes, getOracleContractState} = require('@reflector/reflector-shared')
 const container = require('../../../src/domain/container')
@@ -23,8 +24,9 @@ beforeEach(() => {
         getContractConfig: () => ({contractId: CONTRACT_ID, timeframe: TIMEFRAME, admin: 'admin', fee: 100}),
         getBlockchainConnectorSettings: () => ({networkPassphrase: 'Test SDF Network ; September 2015', sorobanRpc: ['rpc']}),
         setAssetExpiration: jest.fn(),
-        getAssets: () => [],
-        getDecimals: () => 2
+        getAssets: () => [{code: 'BTC'}],
+        getDecimals: () => 2,
+        getPriceHeartbeat: () => 2 * 60 * minute
     }
 })
 
@@ -40,6 +42,10 @@ async function roundWith(state) {
     return runner
 }
 
+afterEach(() => {
+    jest.restoreAllMocks()
+})
+
 describe('the oracle round follows the contract state it read', () => {
     test('an uninitialized contract: the init round lasts a minute and the next tick is a minute on', async () => {
         const runner = await roundWith({isInitialized: false, lastTimestamp: 0n})
@@ -54,5 +60,18 @@ describe('the oracle round follows the contract state it read', () => {
         expect(runner.__isInitialized).toBe(true)
         expect(runner.__roundLength).toBe(TIMEFRAME)
         expect(runner.__getNextTimestamp(TICK)).toBe(TICK + TIMEFRAME)
+    })
+
+    //the round length decides whether the round is still live, so it has to follow the state this round read: a
+    //restarted node judged by a one-minute round would abstain for the rest of the timeframe
+    test('a node restarted three minutes into a five-minute round still prices that round', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(TICK + 3 * minute)
+        getOracleContractState.mockResolvedValue({protocol: 2, isInitialized: true, lastTimestamp: BigInt(TICK - TIMEFRAME)})
+        const runner = new OracleRunner(CONTRACT_ID, ContractTypes.ORACLE)
+        runner.__getPricesToUpdate = async prices => prices
+        runner.__buildAndSubmitTransaction = jest.fn(async () => ({response: null, tx: null}))
+        expect(await runner.__workerFn(TICK)).toBe(true)
+        expect(runner.__buildAndSubmitTransaction).toHaveBeenCalledTimes(1)
+        expect(runner.__roundLength).toBe(TIMEFRAME)
     })
 })
