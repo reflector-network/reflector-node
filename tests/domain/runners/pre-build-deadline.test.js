@@ -178,10 +178,14 @@ describe('a transaction build that never settles ends at the build deadline', ()
         return runner
     }
 
-    test('every attempt ends after 15 s, is logged as one line, and nothing is signed or broadcast', async () => {
+    test('every build ends after 15 s and is built again while its attempt lasts; each attempt is logged as one line, and nothing is signed or broadcast', async () => {
         jest.setSystemTime(TICK)
         logger.error.mockClear()
-        const build = jest.fn(hang)
+        const builtAt = []
+        const build = jest.fn(() => {
+            builtAt.push(Date.now() - TICK)
+            return hang()
+        })
         let outcome = 'pending'
         makeRunner().__buildAndSubmitTransaction(build, account, 100, TICK).catch(e => {
             outcome = e.message
@@ -189,9 +193,12 @@ describe('a transaction build that never settles ends at the build deadline', ()
         await jest.advanceTimersByTimeAsync(14_999)
         expect(build).toHaveBeenCalledTimes(1)
         await jest.advanceTimersByTimeAsync(2)
-        expect(build).toHaveBeenCalledTimes(2) //attempt 1 gave up at 15 s and attempt 2 started
-        await jest.advanceTimersByTimeAsync(15_001)
-        expect(build).toHaveBeenCalledTimes(2)
+        expect(build).toHaveBeenCalledTimes(1) //the first build gave up at 15 s; the attempt builds again after a 5 s pause
+        await jest.advanceTimersByTimeAsync(60_000)
+        //attempt 1 (until 40 s): 0 and 20 s; the second build ends at 35 s with no room for another pause, so attempt 2
+        //(until 60 s) starts at once: 35 s, then 55 s with a 5 s deadline, the rest of its envelope
+        expect(builtAt).toEqual([0, 20_000, 35_000, 55_000])
+        expect(build.mock.calls.map(([, fee]) => fee)).toEqual([100, 100, 800, 800])
         expect(outcome).toBe('Failed to submit transaction. See logs for details.')
         //an expired deadline reads as a timeout: one line per attempt, not a full error object
         expect(logger.error.mock.calls).toEqual([['Transaction build timed out.'], ['Transaction build timed out.']])

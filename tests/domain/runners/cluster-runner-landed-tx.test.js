@@ -48,15 +48,16 @@ function builtUpdate(label, hasMoreTxns) {
 }
 
 /**
- * Makes attempt 0's build finish only after its deadline, attempt 1's at once, and lands attempt 1 5 s later
- * @param {boolean} lateFlag - hasMoreTxns of the abandoned attempt 0 build, which finishes at 17 s
- * @param {boolean} landedFlag - hasMoreTxns of the attempt 1 build, the one that lands
+ * Makes the first build finish only after its 15 s deadline; the attempt builds again 5 s later, that build answers at
+ * once and lands 5 s after it
+ * @param {boolean} lateFlag - hasMoreTxns of the abandoned first build, which finishes at 17 s
+ * @param {boolean} landedFlag - hasMoreTxns of the second build, the one that lands
  * @returns {ClusterRunner}
  */
 function runnerWithSlowFirstBuild(lateFlag, landedFlag) {
     buildUpdateTransaction
-        .mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(builtUpdate('attempt-0', lateFlag)), 17_000)))
-        .mockImplementationOnce(() => Promise.resolve(builtUpdate('attempt-1', landedFlag)))
+        .mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(builtUpdate('first-build', lateFlag)), 17_000)))
+        .mockImplementationOnce(() => Promise.resolve(builtUpdate('second-build', landedFlag)))
     const runner = new ClusterRunner()
     runner.isRunning = true
     runner.__trySubmitTransaction = jest.fn()
@@ -91,14 +92,14 @@ describe('the pending config is applied from the transaction that landed, never 
         const runner = runnerWithSlowFirstBuild(false, true)
         const worker = runner.__workerFn(TICK)
 
-        await jest.advanceTimersByTimeAsync(15_000)
-        //attempt 0 gave up at its 15 s deadline and attempt 1 built and is waiting for the cluster
-        expect(runner.__setPendingTransaction.mock.calls.map(([tx]) => tx.label)).toEqual(['attempt-1'])
-        await jest.advanceTimersByTimeAsync(10_000) //attempt 0's build finishes at 17 s, attempt 1 lands at 20 s
+        await jest.advanceTimersByTimeAsync(20_000)
+        //the first build gave up at its 15 s deadline, and the attempt built again 5 s later and is waiting for the cluster
+        expect(runner.__setPendingTransaction.mock.calls.map(([tx]) => tx.label)).toEqual(['second-build'])
+        await jest.advanceTimersByTimeAsync(5_000) //the first build finished at 17 s, the second lands at 25 s
 
         await expect(worker).resolves.toBe(true)
         expect(buildUpdateTransaction).toHaveBeenCalledTimes(2)
-        //attempt 1 said more contracts remain; the late attempt 0 result must not override it
+        //the second build said more contracts remain; the late first build must not override it
         expect(container.settingsManager.applyPendingUpdate).not.toHaveBeenCalled()
     })
 
@@ -108,7 +109,7 @@ describe('the pending config is applied from the transaction that landed, never 
         await jest.advanceTimersByTimeAsync(25_000)
 
         await expect(worker).resolves.toBe(true)
-        expect(runner.__setPendingTransaction.mock.calls.map(([tx]) => tx.label)).toEqual(['attempt-1'])
+        expect(runner.__setPendingTransaction.mock.calls.map(([tx]) => tx.label)).toEqual(['second-build'])
         expect(container.settingsManager.applyPendingUpdate).toHaveBeenCalledTimes(1)
     })
 

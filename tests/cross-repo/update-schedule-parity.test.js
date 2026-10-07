@@ -10,14 +10,16 @@ const {Keypair} = require('@stellar/stellar-sdk')
 //RunnerBase. Both sides take the schedule from reflector-shared; what this suite guards is that they apply it the same
 //way. Without the sibling checkout it fails unless SKIP_CROSS_REPO=1 is set
 
-//every build either side makes is recorded and refused, so both attempts of a round run and nothing lands
+//every build either side makes is recorded and refused, so both attempts of a round run and nothing lands. The refusal
+//is a simulation rejection: a node builds again inside an attempt after any other failure, so each attempt here
+//builds once, and its parameters are the ones a rebuild would repeat
 const mockChain = {sequence: '0', builds: []}
 
 jest.mock('@reflector/reflector-shared', () => ({
     ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
     buildUpdateTransaction: params => {
         mockChain.builds.push(params)
-        return Promise.reject(new Error('recorded, not submitted'))
+        return Promise.reject(new Error('HostError: recorded, not submitted'))
     },
     normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf,
     areAllSignaturesPresent: () => true

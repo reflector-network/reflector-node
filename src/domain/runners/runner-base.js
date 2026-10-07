@@ -123,6 +123,12 @@ function createMajorityPromiseData() {
 //defence in depth: worker() awaits __workerFn, so a build that never settles would suppress every later tick
 const buildTimeout = 15_000
 const buildTimeoutMessage = 'Transaction build timed out.'
+//a failed build is built again after this pause, about one ledger, for as long as its attempt lasts: attempt 2 is the
+//last one, and a dropped connection or a briefly unavailable rpc would otherwise end the round
+const buildRetryPause = 5_000
+//the simulation answered and refused the transaction - InvalidTimestamp when the other nodes already landed the round.
+//oracle-client throws the rpc's simulation error string unchanged, and asking again gets the same answer
+const simulationRejectionPattern = /^HostError\b/
 //one budget for the reads a worker makes before it builds. They sit outside the build deadline, and makeServerRequest
 //retries 3 x N urls with a 300 ms sleep between rounds, so the 15 s per-request deadline still allows ~135 s per call
 //on three dead urls - longer than the shortest transaction envelope (60 s from syncTimestamp). Ruling 6
@@ -164,6 +170,14 @@ const tradesDataNotFoundCode = 'TRADES_DATA_NOT_FOUND' //set by price-manager wh
  */
 function isExpectedTimeout(e) {
     return e?.message === txTimeoutMessage || e?.message === buildTimeoutMessage
+}
+
+/**
+ * @param {Error} e - error raised by a build
+ * @returns {boolean} true when the simulation refused the transaction, so building it again cannot help
+ */
+function isSimulationRejection(e) {
+    return typeof e?.message === 'string' && simulationRejectionPattern.test(e.message)
 }
 
 /**
@@ -530,16 +544,7 @@ class RunnerBase {
                 if (maxTime * 1000 < Date.now()) //if the max time is already passed
                     throw new Error(txTimeoutMessage)
 
-                //build transaction under its own deadline, never longer than what is left of this attempt's envelope
-                const tx = await withDeadline(
-                    buildTxFn(
-                        new Account(account.accountId(), account.sequenceNumber()),
-                        fee,
-                        maxTime
-                    ),
-                    Math.min(buildTimeout, maxTime * 1000 - Date.now()),
-                    buildTimeoutMessage
-                )
+                const tx = await this.__buildTransaction(buildTxFn, account, fee, maxTime, {syncTimestamp, submitAttempt})
                 //oracle-client substitutes a footprint-restore transaction when the simulation demands one. The flag is
                 //non-enumerable and does not survive an xdr rebuild, so it is read here, before anything re-parses the tx.
                 const isRestore = !!tx?.transaction?.isRestore
@@ -577,6 +582,42 @@ class RunnerBase {
         for (const e of errors)
             logger.error(isExpectedTimeout(e) ? e.message : e)
         throw new Error('Failed to submit transaction. See logs for details.')
+    }
+
+    /**
+     * Builds one attempt's transaction, each build under its own deadline, never longer than what is left of the
+     * attempt's envelope. A failed build is built again after buildRetryPause while the attempt lasts, from the same
+     * account, fee and maxTime, so it carries the hash the other nodes signed; a simulation rejection is final
+     * @param {function} buildTxFn - build function
+     * @param {Account} account - account object
+     * @param {number} fee - this attempt's fee
+     * @param {number} maxTime - this attempt's max time, in seconds
+     * @param {{syncTimestamp: number, submitAttempt: number}} round - the round and attempt, for the log
+     * @returns {Promise<PendingTransactionBase|null>} the built transaction; rejects with the last build's error once
+     * the attempt has no time left for another
+     */
+    async __buildTransaction(buildTxFn, account, fee, maxTime, round) {
+        for (let build = 1; ; build++) {
+            try {
+                return await withDeadline(
+                    buildTxFn(
+                        new Account(account.accountId(), account.sequenceNumber()),
+                        fee,
+                        maxTime
+                    ),
+                    Math.min(buildTimeout, maxTime * 1000 - Date.now()),
+                    buildTimeoutMessage
+                )
+            } catch (e) {
+                const timeLeft = maxTime * 1000 - Date.now()
+                if (isSimulationRejection(e) || timeLeft <= buildRetryPause)
+                    throw e
+                logger.warn({msg: 'Transaction build failed; building it again', ...this.__contractInfo, ...round, build, reason: e?.message, retryIn: buildRetryPause, timeLeft})
+            }
+            await new Promise(resolve => setTimeout(resolve, buildRetryPause))
+            if (!this.isRunning)
+                throw new Error(runnerStoppedMessage)
+        }
     }
 
     __isTxExpired(timestamp, syncDelay) {
