@@ -127,7 +127,7 @@ describe('the pending config is applied from the transaction that landed, never 
 
 describe('a footprint restore that lands in place of the cluster update keeps the pending config', () => {
     /**
-     * A built cluster update whose simulation demanded a restore: oracle-client 7.2.0 hands back the restore
+     * A built cluster update whose simulation demanded a restore: reflector-shared's client hands back the restore
      * transaction flagged with a non-enumerable isRestore, and reflector-shared wraps it like any other update
      * @returns {object}
      */

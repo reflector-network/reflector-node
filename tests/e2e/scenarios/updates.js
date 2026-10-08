@@ -1,5 +1,5 @@
 const {nativeToScVal, xdr, Address, Keypair} = require('@stellar/stellar-sdk')
-const {OracleClient} = require('@reflector/oracle-client')
+const {OracleClient} = require('@reflector/reflector-shared')
 const flow = require('../lib/flow')
 const {contractOf, mutations} = require('../lib/config')
 const {toJson} = require('../lib/chain')

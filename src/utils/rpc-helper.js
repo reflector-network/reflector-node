@@ -17,9 +17,8 @@ const rpcTimeout = 15000
 
 //The url that answered last, per configured url list. Without it every request walked the list in configured order, so a
 //first url that hangs cost its whole deadline on every request and the node abstained on every tick until that url
-//recovered. The same helper lives in reflector-shared helpers/entries-helper.js and oracle-client
-//src/rpc-helper.js. Each node already reads from its own configured urls, so the preference changes which of them
-//answers, not what a payload is built from
+//recovered. The same helper lives in reflector-shared helpers/rpc-helper.js. Each node already reads from its own
+//configured urls, so the preference changes which of them answers, not what a payload is built from
 const lastGoodUrls = new Map()
 //distinct url lists one process uses: one per network, and a node runs on one network
 const maxRememberedUrlLists = 16

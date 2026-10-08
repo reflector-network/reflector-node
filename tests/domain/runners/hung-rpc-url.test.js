@@ -35,7 +35,8 @@ jest.mock('@stellar/stellar-sdk', () => {
 //and the history entries) is modelled as it behaves before any url has answered: it tries the urls in configured order
 //and gives a hung url its 15 s deadline before it moves on - measured against the local reflector-shared: two chunks
 //through a hung first url finish at 15.05 s and 30.07 s. From then on it starts at the url that answered.
-//The simulations (the version read and the build) go through oracle-client instead, with the same 15 s fail-over.
+//The simulations (the version read and the build) go through reflector-shared's client instead, with the same 15 s
+//fail-over.
 jest.mock('@reflector/reflector-shared', () => {
     const actual = jest.requireActual('@reflector/reflector-shared')
     const requestThroughUrls = async (method, urls, answer) => {

@@ -68,7 +68,7 @@ class TestRunner extends RunnerBase {
  * makeTx in tests/domain/runners/runner-lifecycle.test.js builds one, so the next change to __setPendingTransaction
  * breaks this file loudly rather than silently. A hand-rolled object cannot satisfy it: the runner
  * calls tx.setAllowedSigners(signers) and treats a falsy tx.addSignature(...) as "this node is not in the cluster".
- * The flag is attached the way oracle-client 7.2.0 attaches it in getRestoreTransaction (src/rpc-helper.js): a
+ * The flag is attached the way reflector-shared attaches it in getRestoreTransaction (client/transaction-builder.js): a
  * non-enumerable own property of the sdk Transaction, which the shared wrapper holds in .transaction.
  * @param {boolean} isRestore - whether the client substituted a restore transaction
  * @returns {PendingTransactionBase}
@@ -119,7 +119,7 @@ describe('restore transaction handling', () => {
         jest.restoreAllMocks()
     })
 
-    test('the fixture flag has the oracle-client shape: set, but not enumerable', () => {
+    test('the fixture flag has the reflector-shared shape: set, but not enumerable', () => {
         const tx = pendingTx(true)
         expect(tx.transaction.isRestore).toBe(true)
         expect(Object.keys(tx.transaction)).not.toContain('isRestore')

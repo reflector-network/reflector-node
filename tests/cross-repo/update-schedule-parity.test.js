@@ -17,9 +17,10 @@ const mockChain = {sequence: '0', builds: []}
 
 jest.mock('@reflector/reflector-shared', () => ({
     ...jest.requireActual('@reflector/reflector-shared/utils/update-schedule'),
+    simulationRejectedCode: 'SIMULATION_REJECTED',
     buildUpdateTransaction: params => {
         mockChain.builds.push(params)
-        return Promise.reject(new Error('HostError: recorded, not submitted'))
+        return Promise.reject(Object.assign(new Error('recorded, not submitted'), {code: 'SIMULATION_REJECTED'}))
     },
     normalizeTimestamp: (ts, tf) => Math.floor(ts / tf) * tf,
     areAllSignaturesPresent: () => true

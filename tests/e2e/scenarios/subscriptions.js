@@ -1,5 +1,5 @@
 const {getMajority} = require('@reflector/reflector-shared')
-const {SubscriptionsClient} = require('@reflector/oracle-client')
+const {SubscriptionsClient} = require('@reflector/reflector-shared')
 const flow = require('../lib/flow')
 const {contractOf} = require('../lib/config')
 const {settings} = require('../lib/env')

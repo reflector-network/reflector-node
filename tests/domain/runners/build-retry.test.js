@@ -2,6 +2,7 @@
 const {createHash} = require('crypto')
 const {Keypair} = require('@stellar/stellar-sdk')
 const {PendingTransactionBase, PendingTransactionType} = require('@reflector/reflector-shared')
+const {simulationRejectedCode} = require('@reflector/reflector-shared')
 
 const mockSubmit = jest.fn(async () => ({envelopeXdr: 'AAAA', status: 'SUCCESS'}))
 
@@ -37,7 +38,8 @@ jest.mock('@stellar/stellar-sdk', () => {
 })
 
 const {Account} = require('@stellar/stellar-sdk')
-const {makeServerRequest, __resetUrlPreference} = require('@reflector/oracle-client/src/rpc-helper')
+const {makeServerRequest} = require('@reflector/reflector-shared/client/transaction-builder')
+const {__resetUrlPreference} = require('@reflector/reflector-shared/helpers/rpc-helper')
 const logger = require('../../../src/logger')
 const container = require('../../../src/domain/container')
 const RunnerBase = require('../../../src/domain/runners/runner-base')
@@ -71,10 +73,12 @@ class TestRunner extends RunnerBase {
     }
 }
 
-//what oracle-client throws when every rpc url failed
+//what reflector-shared's simulation throws when every rpc url failed
 const networkFailure = () => Promise.reject(new Error('Failed to make request.'))
-//what oracle-client throws when the simulation refused the transaction: the rpc's error string, unchanged
-const rejection = () => Promise.reject(new Error('HostError: Error(Contract, #5)\n\nEvent log (newest first):\n   0: [Diagnostic Event] topics:[error, Error(Contract, #5)]'))
+//what reflector-shared throws when the simulation refused the transaction: the rpc's error string, with the code
+const rejection = () => Promise.reject(Object.assign(new Error('HostError: Error(Contract, #5)\n\nEvent log (newest first):\n   0: [Diagnostic Event] topics:[error, Error(Contract, #5)]'), {code: simulationRejectedCode}))
+//a HostError text without the code: only the code marks a refusal
+const uncodedHostError = () => Promise.reject(new Error('HostError: Error(Contract, #5)'))
 const hang = () => new Promise(() => {})
 const built = () => 'built'
 
@@ -190,6 +194,43 @@ describe('a failed build is built again while its attempt lasts', () => {
         expect(logger.warn).not.toHaveBeenCalled()
     })
 
+    test('a HostError text without the rejection code is built again: the code is the signal', async () => {
+        const {builds, outcome} = startRound([uncodedHostError, built], T)
+        await jest.advanceTimersByTimeAsync(6_000)
+        const {error} = await outcome
+        expect(error).toBeUndefined()
+        expect(builds.map(b => [b.at, b.fee])).toEqual([[0, 100], [5_000, 100]])
+    })
+
+    test('with no rejection code from reflector-shared, an error without a code is still built again', async () => {
+        let isolated
+        jest.isolateModules(() => {
+            jest.doMock('@reflector/reflector-shared', () => ({...jest.requireActual('@reflector/reflector-shared'), simulationRejectedCode: undefined}))
+            isolated = require('../../../src/domain/runners/runner-base')
+        })
+        class IsolatedRunner extends isolated {
+            get __timeframe() {
+                return 60_000
+            }
+
+            __getNextTimestamp(current) {
+                return current + 60_000
+            }
+        }
+        const runner = new IsolatedRunner(contractId)
+        runner.isRunning = true
+        const builds = []
+        const build = () => {
+            builds.push(Date.now() - T)
+            return builds.length === 1 ? networkFailure() : hang()
+        }
+        runner.__buildAndSubmitTransaction(build, new Account('GDCOZYKHZXOJANHK3ASICJYEFGYUBSEP3YQKEXXLAGV3BBPLOFLGBAZX', '1'), 100, T, 0).catch(() => {})
+        await jest.advanceTimersByTimeAsync(5_001)
+        expect(builds).toEqual([0, 5_000])
+        runner.stop()
+        jest.dontMock('@reflector/reflector-shared')
+    })
+
     test('a runner stopped during the pause builds nothing more', async () => {
         const {runner, builds, outcome} = startRound([networkFailure, built], T)
         await jest.advanceTimersByTimeAsync(1_000)
@@ -207,8 +248,8 @@ describe('a failed build is built again while its attempt lasts', () => {
         let requests
 
         /**
-         * A build whose simulation goes through oracle-client's own url walk, the one every real build uses. A refused
-         * url fails at once, a hung one at the deadline oracle-client puts on the http client, and a healthy one
+         * A build whose simulation goes through reflector-shared's simulation url walk, the one every real build uses. A refused
+         * url fails at once, a hung one at the deadline reflector-shared puts on the http client, and a healthy one
          * answers after 200 ms
          * @param {{refused: Set<string>, hung: Set<string>}} urls - the urls that do not answer
          * @returns {Function} a build behaviour for startRound
@@ -227,9 +268,9 @@ describe('a failed build is built again while its attempt lasts', () => {
         }
 
         beforeEach(() => {
-            __resetUrlPreference() //module state of oracle-client, shared by every test in this process
+            __resetUrlPreference() //module state of reflector-shared, shared by every test in this process
             requests = []
-            jest.spyOn(console, 'debug').mockImplementation(() => {}) //oracle-client logs each failed url
+            jest.spyOn(console, 'debug').mockImplementation(() => {}) //the simulation walk logs each failed url
         })
 
         test('a refused first url: the same build asks the second, and nothing is built again', async () => {

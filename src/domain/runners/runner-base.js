@@ -1,6 +1,6 @@
 /*eslint-disable class-methods-use-this */
 const {Account, Transaction, xdr} = require('@stellar/stellar-sdk')
-const {normalizeTimestamp} = require('@reflector/reflector-shared')
+const {normalizeTimestamp, simulationRejectedCode} = require('@reflector/reflector-shared')
 //the submit schedule of every runner, from reflector-shared: node-orchestrator derives the cluster update hash from the
 //same module
 const {FEE_MULTIPLIER: feeMultiplier, maxSubmitAttempts, getMaxTime} = require('@reflector/reflector-shared')
@@ -126,9 +126,6 @@ const buildTimeoutMessage = 'Transaction build timed out.'
 //a failed build is built again after this pause, about one ledger, for as long as its attempt lasts: attempt 2 is the
 //last one, and a dropped connection or a briefly unavailable rpc would otherwise end the round
 const buildRetryPause = 5_000
-//the simulation answered and refused the transaction - InvalidTimestamp when the other nodes already landed the round.
-//oracle-client throws the rpc's simulation error string unchanged, and asking again gets the same answer
-const simulationRejectionPattern = /^HostError\b/
 //one budget for the reads a worker makes before it builds. They sit outside the build deadline, and makeServerRequest
 //retries 3 x N urls with a 300 ms sleep between rounds, so the 15 s per-request deadline still allows ~135 s per call
 //on three dead urls - longer than the shortest transaction envelope (60 s from syncTimestamp). Ruling 6
@@ -137,11 +134,11 @@ const simulationRejectionPattern = /^HostError\b/
 //(20 s, the same budget) and the build (15 s) take at most 20 + 20 + 15 = 55 s of it. With a hung first rpc url the
 //node abstains for the first tick rather than failing over within it: every request of that tick pays the 15 s
 //per-request deadline on the hung url first, and three pre-build requests (45 s) cannot fit in 20 s. Each rpc helper
-//(this node's makeServerRequest, reflector-shared makeRequest, oracle-client makeServerRequest) then remembers the url
+//(this node's makeServerRequest, and the one reflector-shared's reads and simulations share) then remembers the url
 //that answered for ten minutes, so later ticks start there and the node signs again while the first url is still hung;
 //every ten minutes the configured order is tried again, which can cost one more tick each time.
 //These deadlines end the wait; the shared reads and the simulations carry a 15 s per-request deadline of their own
-//in reflector-shared and oracle-client.
+//in reflector-shared.
 const preBuildTimeout = 20_000
 const preBuildTimeoutMessage = 'Pre-build contract reads timed out.'
 const txHashPattern = /^[0-9a-f]{64}$/
@@ -174,10 +171,12 @@ function isExpectedTimeout(e) {
 
 /**
  * @param {Error} e - error raised by a build
- * @returns {boolean} true when the simulation refused the transaction, so building it again cannot help
+ * @returns {boolean} true when the simulation refused the transaction - InvalidTimestamp when the other nodes already
+ * landed the round - so building it again cannot help. reflector-shared marks a refusal with simulationRejectedCode; an
+ * error without a code is never one, even where the constant is missing
  */
 function isSimulationRejection(e) {
-    return typeof e?.message === 'string' && simulationRejectionPattern.test(e.message)
+    return !!e?.code && e.code === simulationRejectedCode
 }
 
 /**
@@ -545,7 +544,7 @@ class RunnerBase {
                     throw new Error(txTimeoutMessage)
 
                 const tx = await this.__buildTransaction(buildTxFn, account, fee, maxTime, {syncTimestamp, submitAttempt})
-                //oracle-client substitutes a footprint-restore transaction when the simulation demands one. The flag is
+                //reflector-shared substitutes a footprint-restore transaction when the simulation demands one. The flag is
                 //non-enumerable and does not survive an xdr rebuild, so it is read here, before anything re-parses the tx.
                 const isRestore = !!tx?.transaction?.isRestore
                 if (isRestore)

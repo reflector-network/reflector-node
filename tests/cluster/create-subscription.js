@@ -1,6 +1,6 @@
 const fs = require('fs')
 const {Config, ContractTypes} = require('@reflector/reflector-shared')
-const {SubscriptionsClient} = require('@reflector/oracle-client')
+const {SubscriptionsClient} = require('@reflector/reflector-shared')
 const {Keypair, rpc, scValToNative} = require('@stellar/stellar-sdk')
 const axios = require('axios')
 const {encrypt, importRSAKey} = require('../../src/utils/crypto-helper')
