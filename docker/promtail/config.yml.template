@@ -1,5 +1,6 @@
 server:
-  http_listen_port: 9080
+  #any free port: the container shares the host network, where a fixed port collides with another node or service
+  http_listen_port: 0
   grpc_listen_port: 0
 
 positions:
