@@ -1,3 +1,4 @@
-# The docker entrypoint runs under bash in the image, which fails on a CRLF line ending ("bash\r"), and Git for Windows
-# checks text files out with CRLF by default (core.autocrlf=true). Pin it to LF on every checkout
-docker/startnode text eol=lf
+# The image runs these files on Linux: the entrypoint under bash, which fails on a CRLF line ending ("bash\r"), and
+# the supervisord and promtail configs. Git for Windows checks text files out with CRLF by default
+# (core.autocrlf=true), so pin everything under docker/ to LF on every checkout
+docker/** text eol=lf
