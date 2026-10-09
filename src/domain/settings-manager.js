@@ -651,11 +651,11 @@ class SettingsManager {
     }
 
     /**
-     * Returns set price heartbeat or 2 hours as default
+     * Returns set price heartbeat or 2 hours as default, also while the node holds no cluster config yet
      * @returns {Number}
      */
     getPriceHeartbeat() {
-        return this.config.priceHeartbeat || 2 * 60 * 60 * 1000 //default is 2 hours
+        return this.config?.priceHeartbeat || 2 * 60 * 60 * 1000 //default is 2 hours
     }
 
     /**

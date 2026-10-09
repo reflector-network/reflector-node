@@ -27,6 +27,11 @@ function makeManager(assets) {
     return manager
 }
 
+//the trades cache cleanup asks for it every minute, also on a node that has not received its cluster config yet
+test('a node that holds no cluster config yet gets the default heartbeat', () => {
+    expect(new SettingsManager().getPriceHeartbeat()).toBe(2 * 60 * 60 * 1000)
+})
+
 describe('SettingsManager.getAssets', () => {
     const assets = [{code: 'BTC'}, {code: 'ETH'}, {code: 'XLM'}]
 
