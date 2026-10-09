@@ -80,7 +80,8 @@ docker run -it -d --network host \
 - `30347`: WebSocket port for inter-cluster communication
 
 The node runs as the unprivileged uid 1000 with host networking, so a `port` below 1024 cannot be bound: the node fails
-with EACCES and supervisord restarts it in a loop. Keep the port at 1024 or above.
+with EACCES and supervisord restarts it in a loop. Keep the port at 1024 or above. A port that is already taken
+(EADDRINUSE), for example by another node on the same host, stops the node the same way.
 
 Inbound WebSocket connections are limited per cluster key, never per address, so peers may share an address or sit behind a proxy. A connection that does not name a key of the current cluster is closed before any challenge, and a refused socket that has not closed is destroyed after 1 s. Each cluster key may have at most 2 unanswered handshakes; a newer one closes the oldest, so the real peer always gets a slot and answers its challenge within a round trip. A validated connection replaces the peer's previous one.
 

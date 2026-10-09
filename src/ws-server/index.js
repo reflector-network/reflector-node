@@ -143,6 +143,15 @@ class WsServer {
     }
 
     __onServerError(err) {
+        //an error before the server listens means its port could not be bound (EACCES below 1024 for the image's
+        //unprivileged user, EADDRINUSE when the port is taken). A node that kept running would look healthy while no
+        //peer can reach it, so it stops and the process manager starts it again
+        if (!this.wsServer?.address()) {
+            logger.error({msg: 'Ws server cannot listen on its port; stopping the node', err: err.message})
+            //some timeout to write logs
+            setTimeout(() => process.exit(13), 3000)
+            return
+        }
         logger.error({msg: 'Ws server error', err: err.message})
     }
 
