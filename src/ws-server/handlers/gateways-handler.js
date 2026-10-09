@@ -41,8 +41,15 @@ class GatewaysGetHandler extends BaseHandler {
         }
         validateMessage(message, getDataFn)
         const {settingsManager} = container
-        const {urls, challenge} = settingsManager.gateways
-        return {urls, challenge}
+        const {urls, configuredUrls, challenge} = settingsManager.gateways
+        //report what was pushed, not the subset that passed validation; `urls` is the routing set, and the ?? keeps
+        //this working against a settingsManager stub that predates configuredUrls
+        const reply = {urls: configuredUrls ?? urls, challenge}
+        //configured but none usable: say so, so the list is not read as an ordinary one - or, after an unreadable
+        //gateways.json, as a single blank entry
+        if (Array.isArray(urls) && urls.length === 0)
+            reply.unusable = true
+        return reply
     }
 }
 

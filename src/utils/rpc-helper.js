@@ -1,6 +1,7 @@
 const {Transaction, rpc, xdr} = require('@stellar/stellar-sdk')
 const {normalizeTimestamp} = require('@reflector/reflector-shared')
 const logger = require('../logger')
+const {safeUrl} = require('./log-redaction')
 
 /**
  * @typedef {import('@stellar/stellar-sdk').Account} Account
@@ -11,6 +12,76 @@ const logger = require('../logger')
  */
 
 const txTimeoutMessage = 'Tx timed out.'
+//a soroban rpc that accepts the connection and never answers must count as a failure, so the next url is tried
+const rpcTimeout = 15000
+
+//The url that answered last, per configured url list. Without it every request walked the list in configured order, so a
+//first url that hangs cost its whole deadline on every request and the node abstained on every tick until that url
+//recovered. The same helper lives in reflector-shared helpers/rpc-helper.js. Each node already reads from its own
+//configured urls, so the preference changes which of them answers, not what a payload is built from
+const lastGoodUrls = new Map()
+//distinct url lists one process uses: one per network, and a node runs on one network
+const maxRememberedUrlLists = 16
+//a preference is dropped this long after it was set, so the configured order - the primary first - is tried again: a
+//node that failed over once would otherwise stay on a secondary that lags the primary long after the primary recovered
+const urlPreferenceTtl = 10 * 60 * 1000
+
+/**
+ * @param {string[]|Iterable<string>|string} urls - configured urls, in whatever form a caller passed them
+ * @returns {string[]} urls as an array, unchanged if it already was one
+ */
+function __toUrlList(urls) {
+    if (Array.isArray(urls))
+        return urls
+    if (typeof urls !== 'string' && typeof urls?.[Symbol.iterator] === 'function')
+        return Array.from(urls)
+    return [urls]
+}
+
+/**
+ * @param {string[]|Iterable<string>|string} urls - configured urls
+ * @returns {string[]} the url that answered last first, then the others in configured order; the configured order
+ * alone once the preference is older than urlPreferenceTtl
+ */
+function orderByLastGood(urls) {
+    urls = __toUrlList(urls)
+    const key = urls.join('\n')
+    const preferred = lastGoodUrls.get(key)
+    const index = preferred ? urls.indexOf(preferred.url) : -1
+    if (index < 0)
+        return urls
+    if (Date.now() - preferred.since >= urlPreferenceTtl) {
+        lastGoodUrls.delete(key)
+        return urls
+    }
+    //only the first occurrence moves: a url listed twice is still asked twice, so a failing request makes as many
+    //attempts as it did without the preference
+    return [urls[index], ...urls.slice(0, index), ...urls.slice(index + 1)]
+}
+
+/**
+ * @param {string[]|Iterable<string>|string} urls - configured urls
+ * @param {string} url - the url that answered
+ */
+function rememberGoodUrl(urls, url) {
+    urls = __toUrlList(urls)
+    const key = urls.join('\n')
+    const previous = lastGoodUrls.get(key)
+    //the time is kept while the same url keeps answering, so a preference still expires ten minutes after it was set
+    const since = previous && previous.url === url ? previous.since : Date.now()
+    //deleted and set again, so the first entry is always the list used longest ago
+    lastGoodUrls.delete(key)
+    lastGoodUrls.set(key, {url, since})
+    if (lastGoodUrls.size > maxRememberedUrlLists)
+        lastGoodUrls.delete(lastGoodUrls.keys().next().value)
+}
+
+/**
+ * Forgets every remembered url. A test seam: nothing in src/ calls it
+ */
+function resetUrlPreference() {
+    lastGoodUrls.clear()
+}
 
 /**
  * @param {SendTransactionResponse|GetFailedTransactionResponse} submitResult - transaction submit result
@@ -40,7 +111,9 @@ function getSubmissionError(submitResult, txXdr) {
  */
 
 /**
- * @param {string[]} sorobanRpc - urls
+ * Tries the url that answered last for the same list first (see lastGoodUrls). A request no url answers still fails
+ * after three attempts over every url, as before, so a node that cannot read still abstains
+ * @param {string[]|Iterable<string>|string} sorobanRpc - urls
  * @param {RequestFunction} requestFn - request function
  * @returns {Promise<any>}
  */
@@ -50,12 +123,17 @@ async function makeServerRequest(sorobanRpc, requestFn) {
     for (let i = 0; i < 3; i++) { //max 3 attempts
         const errAggr = []
         try {
-            for (const serverRpc of sorobanRpc) {
+            for (const serverRpc of orderByLastGood(sorobanRpc)) {
                 try {
-                    const server = new rpc.Server(serverRpc, {allowHttp: true})
-                    return await requestFn(server)
+                    const server = new rpc.Server(serverRpc, {allowHttp: true, timeout: rpcTimeout})
+                    //sdk 17.0.1 forwards only the headers from the constructor options; the deadline has to live on the http client
+                    server.httpClient.defaults.timeout = rpcTimeout
+                    const result = await requestFn(server)
+                    rememberGoodUrl(sorobanRpc, serverRpc)
+                    return result
                 } catch (e) {
-                    errAggr.push({url: serverRpc, err: e})
+                    //the url as it may be logged: a provider key can sit in its path
+                    errAggr.push({url: safeUrl(serverRpc) || 'invalid url', err: e})
                 }
             }
             throw new Error('Failed to invoke RPC method on all provided URLs', {cause: {errAggr}})
@@ -223,4 +301,12 @@ async function getAccount(account, sorobanRpc) {
     return await makeServerRequest(sorobanRpc, async (server) => await server.getAccount(account))
 }
 
-module.exports = {submitTransaction, getLastContractEvents, getAccount, getEventsLedgerInfo, txTimeoutMessage}
+module.exports = {
+    submitTransaction,
+    getLastContractEvents,
+    getAccount,
+    getEventsLedgerInfo,
+    makeServerRequest,
+    txTimeoutMessage,
+    __resetUrlPreference: resetUrlPreference
+}

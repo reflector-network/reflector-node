@@ -9,11 +9,20 @@ class SyncHandler extends BaseHandler {
 
     allowedChannelTypes = [ChannelTypes.OUTGOING, ChannelTypes.INCOMING]
 
+    allowAnonymous = false
+
     handle(ws, message) {
         const syncData = message.data
+        if (!syncData || typeof syncData !== 'object' || Array.isArray(syncData))
+            return
         switch (syncData.type) {
             case ContractTypes.SUBSCRIPTIONS: {
-                getManager(syncData.contractId).trySetRawSyncData(syncData)
+                const manager = getManager(syncData.contractId)
+                if (!manager) { //a peer may gossip about a contract this node does not run for a moment after a config change
+                    logger.debug({msg: 'Sync data for an unknown contract ignored.', contract: syncData.contractId, node: ws.pubkey})
+                    return
+                }
+                manager.trySetRawSyncData(syncData, ws.pubkey) //the pending sync-data quota is per sender
                 break
             }
             default:

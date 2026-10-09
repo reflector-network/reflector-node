@@ -11,12 +11,16 @@ const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const {addManager, getManager, removeManager} = require('../subscriptions/subscriptions-data-manager')
-const {makeRequest} = require('../../utils/requests-helper')
+const {makeRequest, loggableHost} = require('../../utils/requests-helper')
 const statisticsManager = require('../statistics-manager')
 const nodesManager = require('../nodes/nodes-manager')
 const MessageTypes = require('../../ws-server/handlers/message-types')
 const SubscriptionProcessor = require('../subscriptions/subscriptions-processor')
+const {roundSyncDelay} = require('../sync-delays')
 const RunnerBase = require('./runner-base')
+const {withPreBuildDeadline} = RunnerBase
+
+const subscriptionEventsTimeoutMessage = 'Subscription events load timed out.'
 
 /**
  * @typedef {import('../subscriptions/subscriptions-sync-data')} SubscriptionsSyncData
@@ -69,11 +73,11 @@ class SubscriptionsRunner extends RunnerBase {
         //cluster network data
         const {networkPassphrase: network, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
 
-        //get account info
-        const sourceAccount = await getAccount(admin, sorobanRpc)
-
-        //get contract state
-        const contractState = await getContractState(this.contractId, sorobanRpc)
+        //get account info and contract state under one shared budget; the array keeps them sequential
+        const [sourceAccount, contractState] = await withPreBuildDeadline((async () => [
+            await getAccount(admin, sorobanRpc),
+            await getContractState(this.contractId, sorobanRpc)
+        ])())
 
         //get contract manager
         const subscriptionsContractManager = getManager(this.contractId)
@@ -101,14 +105,18 @@ class SubscriptionsRunner extends RunnerBase {
             return true
         }
 
-        const {
-            events,
-            charges,
-            eventHexHashes,
-            syncData,
-            root,
-            rootHex
-        } = await this.__subscriptionsProcessor.getSubscriptionActions(timestamp) //get actions for the completed timeframe
+        const actions = await this.__subscriptionsProcessor.getSubscriptionActions( //get actions for the completed timeframe
+            timestamp,
+            //the event reads of a normal tick get their own pre-build budget; they write the subscriptions manager only
+            //after it resolves, so a read abandoned here cannot change the manager when it answers late. A full
+            //reload is exempt from it, and the tick that makes one builds nothing (N-1)
+            reads => withPreBuildDeadline(reads, subscriptionEventsTimeoutMessage)
+        )
+        if (!actions) {
+            logger.info({msg: 'Subscriptions reloaded from the contract; this tick builds nothing', ...this.__contractInfo, timestamp})
+            return false
+        }
+        const {events, charges, eventHexHashes, syncData, root, rootHex} = actions
 
         let chargeTimestamp = timestamp
 
@@ -132,7 +140,7 @@ class SubscriptionsRunner extends RunnerBase {
                 maxTime
             })
 
-            const txResponse = await this.__buildAndSubmitTransaction(
+            const {response: txResponse} = await this.__buildAndSubmitTransaction(
                 updateTxBuilder,
                 sourceAccount,
                 baseFee,
@@ -146,7 +154,7 @@ class SubscriptionsRunner extends RunnerBase {
             sourceAccount.incrementSequenceNumber()
 
             //set notification timestamp for processed events
-            subscriptionsContractManager.trySetSyncData(syncData)
+            subscriptionsContractManager.trySetSyncData(syncData, settingsManager.appConfig.publicKey)
 
             //broadcast sync data without waiting
             __broadcastSyncData(this.contractId, syncData)
@@ -236,10 +244,17 @@ class SubscriptionsRunner extends RunnerBase {
                 if (webhookData)
                     notifications.push(webhookData)
             }
-            if (urls && urls.length > 0)
-                this.__postNotificationsViaGateway(urls, gatewayValidationKey, notifications, events, root)
-            else
+            if (urls === null) { //no gateways configured at all - a direct post is the only route there is
                 this.__postNotifications(notifications, events, root)
+            } else if (urls.length > 0) {
+                this.__postNotificationsViaGateway(urls, gatewayValidationKey, notifications, events, root)
+            } else {
+                //gateways are configured and none of them is usable. Posting directly here would reveal the node
+                //address to the subscriber's endpoint, which is what the gateways exist to prevent, so the tick's
+                //notifications are dropped instead
+                logger.error({msg: 'Gateways are configured but none is usable; webhook notifications dropped rather than sent directly', contract: this.contractId, timestamp, notificationsCount: notifications.length})
+                return
+            }
             logger.debug({msg: 'Webhook data sent', contract: this.contractId, notificationsCount: notifications.length})
         } catch (err) {
             logger.error({err, msg: 'Failed to process trigger data', contract: this.contractId})
@@ -253,7 +268,8 @@ class SubscriptionsRunner extends RunnerBase {
 
         const unusedGateways = shuffleArray([...gateways]) //clone the gateways array to avoid mutations, and shuffle it
 
-        logger.debug({msg: 'Sending webhook data to gateways', gateways: unusedGateways, contract: this.contractId, notificationsCount: notifications.length})
+        //hosts only, here and below: a gateway url can carry a token in its path
+        logger.debug({msg: 'Sending webhook data to gateways', hosts: unusedGateways.map(loggableHost), contract: this.contractId, notificationsCount: notifications.length})
 
         const successfulGateways = []
         while (successfulGateways.length < 2 && unusedGateways.length > 0) {
@@ -270,17 +286,20 @@ class SubscriptionsRunner extends RunnerBase {
                             verifier,
                             contract
                         },
-                        timeout: 5000
+                        timeout: 5000,
+                        //resolved, checked and pinned like a subscriber webhook; config-time validation only sees the
+                        //url, not what its host resolves to
+                        validateSsrf: true
                     })
                 successfulGateways.push(currentGateway)
             } catch (e) {
-                logger.debug({msg: 'Failed to send webhook data to gateway', gateway: currentGateway, message: e.message})
+                logger.debug({msg: 'Failed to send webhook data to gateway', host: loggableHost(currentGateway), err: e.safeMessage || e.message})
             }
         }
         if (successfulGateways.length === 0)
             logger.error({msg: 'Failed to send webhook data to gateways', contract: this.contractId, notificationsCount: notifications.length})
         else
-            logger.debug({msg: 'Webhook data sent to gateways', gateways: successfulGateways, contract: this.contractId, notificationsCount: notifications.length})
+            logger.debug({msg: 'Webhook data sent to gateways', hosts: successfulGateways.map(loggableHost), contract: this.contractId, notificationsCount: notifications.length})
     }
 
     async __postNotifications(notifications, events, root) {
@@ -302,7 +321,9 @@ class SubscriptionsRunner extends RunnerBase {
                             validateSsrf: true
                         })
                 } catch (e) {
-                    logger.debug({msg: 'Failed to send webhook data', url: urls[j], err: e.message})
+                    //only the host: the url is the subscriber's and may carry credentials or a token, and a response
+                    //body is never logged
+                    logger.debug({msg: 'Failed to send webhook data', host: loggableHost(urls[j]), err: e.safeMessage || e.message})
                 }
             }
         }
@@ -312,16 +333,21 @@ class SubscriptionsRunner extends RunnerBase {
         return 60000
     }
 
+    /**
+     * The next tick, one timeframe on. A worker that overran by more than a timeframe - a full reload after boot can
+     * take minutes (N-1) - resumes at the latest tick whose start time has already passed, instead of replaying every
+     * tick it missed back to back
+     * @param {number} currentTimestamp - tick that just ran
+     * @returns {number}
+     */
     __getNextTimestamp(currentTimestamp) {
-        return currentTimestamp + this.__timeframe
+        const latestStarted = normalizeTimestamp(Date.now() - this.__delay, this.__timeframe)
+        return Math.max(currentTimestamp + this.__timeframe, latestStarted)
     }
 
     get __delay() {
-        //try to load subscriptions eyrlier than price worker, to have time to process events
-        const syncDelay = container.settingsManager.appConfig.dbSyncDelay - 2000
-        if (syncDelay >= 0)
-            return syncDelay
-        return container.settingsManager.appConfig.dbSyncDelay
+        //the oracle's delay: the trigger round's timebounds count from it, so it is the same on every node
+        return roundSyncDelay
     }
 
     stop() {

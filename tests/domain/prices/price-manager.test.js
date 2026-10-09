@@ -3,7 +3,11 @@ const {Asset, ContractTypes} = require('@reflector/reflector-shared')
 const container = require('../../../src/domain/container')
 const AssetsMap = require('../../../src/domain/prices/assets-map')
 const TradesManager = require('../../../src/domain/prices/trades-manager')
+const {stopTradesManagersAfterEach} = require('../../helpers/stop-trades-managers')
 const {getPricesForContract, getPricesForPair, getConcensusData} = require('../../../src/domain/prices/price-manager')
+const logger = require('../../../src/logger')
+
+stopTradesManagersAfterEach(TradesManager)
 
 const decimals = 14
 const minute = 60 * 1000
@@ -30,7 +34,7 @@ function normalizeTradeData(data, toString) {
 function setupContainer(pubkey) {
     const nodesMap = new Map(nodes.map(n => [n.pubkey, {pubkey: n.pubkey}]))
     container.settingsManager = {
-        appConfig: {publicKey: pubkey, dbSyncDelay: 0},
+        appConfig: {publicKey: pubkey},
         config: {
             nodes: new Set(nodes),
             decimals,
@@ -47,10 +51,10 @@ function setupContainer(pubkey) {
         },
         getBlockchainConnectorSettings: () => ({networkPassphrase: 'Test SDF Network ; September 2015'}),
         getContractConfig: (contractId) => container.settingsManager.config.contracts.get(contractId),
-        getAssets: (contractId) => {
+        getAssets: jest.fn((contractId) => {
             const contract = container.settingsManager.config.contracts.get(contractId)
             return [...contract.assets]
-        },
+        }),
         getPriceHeartbeat: () => 2 * 60 * 60 * 1000
     }
 }
@@ -59,7 +63,7 @@ function setupContainer(pubkey) {
  * Feed identical trades data from all nodes into a trades manager
  */
 function feedTradesData(key, assetsMap, timestamps, tradesFn) {
-    jest.useFakeTimers()
+    jest.useFakeTimers({now: 6 * minute})
     const tm = new TradesManager()
     container.tradesManager = tm
 
@@ -86,7 +90,7 @@ function feedTradesData(key, assetsMap, timestamps, tradesFn) {
  * Feed per-node trades data (different data per node)
  */
 function feedPerNodeTradesData(key, assetsMap, timestamps, tradesFnPerNode) {
-    jest.useFakeTimers()
+    jest.useFakeTimers({now: 6 * minute})
     const tm = new TradesManager()
     container.tradesManager = tm
 
@@ -108,6 +112,28 @@ function feedPerNodeTradesData(key, assetsMap, timestamps, tradesFnPerNode) {
     }
     return tm
 }
+
+/**
+ * One oracle on exchanges/USD makes the fixture key one this node reads, so peers register on arrival
+ */
+function listFixtureKey() {
+    container.settingsManager.config.contracts.set('oracle', {
+        type: ContractTypes.ORACLE,
+        contractId: 'oracle',
+        dataSource: 'exchanges',
+        baseAsset: new Asset(2, 'USD'),
+        assets: []
+    })
+}
+
+//addSyncData builds the key list the way production does, so the list's error branch never runs here
+beforeEach(() => {
+    logger.error.mockClear()
+})
+
+afterEach(() => {
+    expect(logger.error.mock.calls.filter(call => call[0]?.msg === 'Failed to build the local cache keys')).toHaveLength(0)
+})
 
 describe('getPricesForContract', () => {
     beforeEach(() => {
@@ -191,7 +217,7 @@ describe('getPricesForContract', () => {
         })
 
         //mock getTradesData to return empty map (bypasses TimestampSyncItem timeout)
-        jest.useFakeTimers()
+        jest.useFakeTimers({now: 6 * minute})
         const tm = new TradesManager()
         tm.getTradesData = jest.fn().mockResolvedValue(new Map())
         container.tradesManager = tm
@@ -286,15 +312,38 @@ describe('getPricesForContract', () => {
         expect(prices).toHaveLength(1)
         expect(prices[0]).toBeGreaterThan(0n)
     })
+
+    test('passes the tick timestamp to getAssets so expiry is evaluated at the agreed instant', async () => {
+        const assets = [new Asset(2, 'BTC')]
+        const baseAsset = new Asset(2, 'USD')
+        const assetsMap = new AssetsMap('exchanges', baseAsset, assets)
+        const timestamp = 5 * minute
+
+        container.settingsManager.config.contracts.set('contract1', {
+            type: ContractTypes.ORACLE,
+            contractId: 'contract1',
+            dataSource: 'exchanges',
+            baseAsset,
+            assets,
+            decimals,
+            timeframe: 2 * minute
+        })
+        feedTradesData('exchanges_USD', assetsMap, [4 * minute, 5 * minute], () => [{volume: 100n, quoteVolume: 2n, source: 'binance'}])
+
+        await getPricesForContract('contract1', timestamp)
+
+        expect(container.settingsManager.getAssets).toHaveBeenCalledWith('contract1', timestamp)
+    })
 })
 
 describe('getConcensusData', () => {
     beforeEach(() => {
         setupContainer('node1')
+        listFixtureKey()
     })
 
     test('returns empty when no data available', async () => {
-        jest.useFakeTimers()
+        jest.useFakeTimers({now: 6 * minute})
         const tm = new TradesManager()
         tm.getTradesData = jest.fn().mockResolvedValue(new Map())
         container.tradesManager = tm
@@ -377,7 +426,7 @@ describe('getConcensusData', () => {
         const assets = [new Asset(2, 'BTC')]
         const baseAsset = new Asset(2, 'USD')
 
-        jest.useFakeTimers()
+        jest.useFakeTimers({now: 6 * minute})
         const tm = new TradesManager()
         container.tradesManager = tm
 
@@ -394,10 +443,11 @@ describe('getConcensusData', () => {
 describe('getPricesForPair', () => {
     beforeEach(() => {
         setupContainer('node1')
+        listFixtureKey()
     })
 
     test('returns zero price when no data for either side', async () => {
-        jest.useFakeTimers()
+        jest.useFakeTimers({now: 6 * minute})
         const tm = new TradesManager()
         tm.getTradesData = jest.fn().mockResolvedValue(new Map())
         container.tradesManager = tm

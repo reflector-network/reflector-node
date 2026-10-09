@@ -15,3 +15,17 @@ node_modules/
 pnpm-lock.yaml
 app.config.json
 /home
+# written by tests/cluster/run-cluster.js: a cluster RSA private key, funded test seeds and a webhook inbox
+/tests/cluster/rsa.json
+/tests/cluster/token-data.json
+/tests/cluster/webhook.json
+collected-logs.json
+# contract binaries the local cluster deploys; take them from reflector-contract releases
+/tests/cluster/*.wasm
+# incident-debugging scripts, not part of the node
+/scripts/
+*.stackdump
+
+# cluster end-to-end runner output and locally built contract binaries
+/tests/e2e/reports/
+/tests/e2e/wasm/

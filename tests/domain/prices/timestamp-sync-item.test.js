@@ -9,7 +9,7 @@
 
 jest.mock('../../../src/domain/container', () => ({
     settingsManager: {
-        appConfig: {publicKey: 'self-pubkey', dbSyncDelay: 0},
+        appConfig: {publicKey: 'self-pubkey'},
         config: {nodes: new Map([['peer-A', {}], ['peer-B', {}]])}
     }
 }))
@@ -18,14 +18,14 @@ jest.mock('../../../src/domain/nodes/nodes-manager', () => ({
     getConnectedNodes: jest.fn(() => [])
 }))
 
+const {firstAttemptTimeout: FIRST_ATTEMPT_TIMEOUT} = require('@reflector/reflector-shared')
 const logger = require('../../../src/logger')
 const nodesManager = require('../../../src/domain/nodes/nodes-manager')
 const {TimestampSyncItem} = require('../../../src/domain/prices/trades-manager')
 
-//Mirrors runner-base.js constants: OracleRunner.__delay=20s + firstAttemptTimeout=30s.
+//Mirrors the oracle round: OracleRunner.__delay=20s + firstAttemptTimeout (reflector-shared).
 const ORACLE_DELAY = 20_000
-const FIRST_ATTEMPT_TIMEOUT = 30_000
-const ATTEMPT_0_MAX_TIME_MS = ORACLE_DELAY + FIRST_ATTEMPT_TIMEOUT //T + 50s
+const ATTEMPT_0_MAX_TIME_MS = ORACLE_DELAY + FIRST_ATTEMPT_TIMEOUT //T + 60s
 
 //Pre-fix and post-fix TimestampSyncItem timeouts, relative to T.
 const LEGACY_SYNC_TIMEOUT = 35_000
@@ -50,13 +50,18 @@ describe('TimestampSyncItem timing', () => {
             jest.useFakeTimers()
             jest.spyOn(logger, 'warn').mockImplementation(() => {})
             jest.spyOn(logger, 'trace').mockImplementation(() => {})
+            //the logger is the setup file's shared mock, so spyOn hands back that same jest.fn with every call earlier
+            //tests made through it, and restoreAllMocks does not clear them
+            logger.warn.mockClear()
             nodesManager.getConnectedNodes.mockReturnValue([])
         })
 
         afterEach(() => {
             jest.clearAllTimers()
-            jest.useRealTimers()
+            //restore before leaving fake timers: restoring a setTimeout spy afterwards reinstalls the fake setTimeout
+            //it wrapped
             jest.restoreAllMocks()
+            jest.useRealTimers()
         })
 
         test('warns with missing peers on timeout', async () => {
@@ -74,6 +79,35 @@ describe('TimestampSyncItem timing', () => {
             expect(payload.key).toBe('exchanges:USD')
             expect(payload.missing).toEqual(['peer-B'])
             expect(payload.waitedMs).toBeGreaterThanOrEqual(25_000)
+        })
+
+        test('an entry opened after its deadline resolves at debug, not warn', async () => {
+            jest.spyOn(logger, 'debug').mockImplementation(() => {})
+            logger.debug.mockClear()
+            const t0 = Date.now()
+            //a peer's backfill for a minute whose sync window closed a minute ago
+            const item = new TimestampSyncItem('exchanges:USD', t0 - 120_000, t0 - 60_000)
+
+            jest.advanceTimersByTime(1)
+            await item.readyPromise
+
+            expect(logger.warn).not.toHaveBeenCalled()
+            expect(logger.debug).toHaveBeenCalledWith(expect.objectContaining({msg: 'TimestampSyncItem auto-resolved by timeout', key: 'exchanges:USD'}))
+        })
+
+        test('an entry opened at its deadline waited for nothing; one opened a millisecond before it still warns', async () => {
+            jest.spyOn(logger, 'debug').mockImplementation(() => {})
+            const t0 = Date.now()
+            const atDeadline = new TimestampSyncItem('exchanges:USD', t0 - 60_000, t0)
+            const justBefore = new TimestampSyncItem('exchanges:EUR', t0 - 60_000, t0 + 1)
+            logger.debug.mockClear()
+
+            jest.advanceTimersByTime(1)
+            await Promise.all([atDeadline.readyPromise, justBefore.readyPromise])
+
+            const resolved = fn => fn.mock.calls.map(([entry]) => entry).filter(entry => entry?.msg === 'TimestampSyncItem auto-resolved by timeout')
+            expect(resolved(logger.debug).map(({key}) => key)).toEqual(['exchanges:USD'])
+            expect(resolved(logger.warn).map(({key}) => key)).toEqual(['exchanges:EUR'])
         })
 
         test('no warn when resolved normally by presented peers', async () => {
@@ -96,6 +130,43 @@ describe('TimestampSyncItem timing', () => {
             await item.readyPromise
 
             expect(logger.warn).not.toHaveBeenCalled()
+        })
+
+        test('a NaN maxTime does not collapse the timeout to 1 ms', () => {
+            jest.useFakeTimers()
+            const item = new TimestampSyncItem('exchanges_USD', 60000, NaN)
+
+            jest.advanceTimersByTime(10)
+            expect(item.isProcessed).toBe(false)
+
+            jest.advanceTimersByTime(25 * 1000)
+            expect(item.isProcessed).toBe(true)
+        })
+
+        test('a deadline already past fires at once without handing setTimeout a negative delay', () => {
+            jest.useFakeTimers({now: 10 * 60000})
+            const spy = jest.spyOn(global, 'setTimeout')
+            //a peer's backfill for a minute whose sync window closed 35 s ago
+            const item = new TimestampSyncItem('exchanges_USD', 9 * 60000, 9 * 60000 + 25_000)
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            //Node prints a TimeoutNegativeWarning for a negative delay and then uses 1 ms anyway
+            expect(spy.mock.calls[0][1]).toBe(1)
+            jest.advanceTimersByTime(1)
+            expect(item.isProcessed).toBe(true)
+        })
+
+        test('a deadline past the timer range waits the longest delay instead of 1 ms', () => {
+            jest.useFakeTimers({now: 10 * 60000})
+            const spy = jest.spyOn(global, 'setTimeout')
+            //a deadline about 24.9 days out lies past 2^31 - 1 ms
+            const item = new TimestampSyncItem('exchanges_USD', 10 * 60000, 10 * 60000 + 2 ** 31 + 1000)
+
+            expect(spy).toHaveBeenCalledTimes(1)
+            //Node prints a TimeoutOverflowWarning for a longer delay and then uses 1 ms
+            expect(spy.mock.calls[0][1]).toBe(2_147_483_647)
+            jest.advanceTimersByTime(60000)
+            expect(item.isProcessed).toBe(false)
         })
     })
 })

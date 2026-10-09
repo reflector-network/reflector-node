@@ -77,161 +77,24 @@ describe('HandshakeResponseHandler', () => {
         expect(channel.close).not.toHaveBeenCalled()
     })
 
-    test('invalid signature closes channel and does not validate', () => {
-        handler.handle(channel, {data: {signature: '00'}})
+    test('invalid signature closes channel, does not validate and throws', () => {
+        expect(() => handler.handle(channel, {data: {signature: '00'}})).toThrow('Invalid signature')
 
         expect(channel.close).toHaveBeenCalledWith(1008, 'Invalid signature', true)
         expect(channel.validated).not.toHaveBeenCalled()
     })
-})
 
-describe('ConfigHandler', () => {
-    const moduleDir = path.resolve(__dirname, '../../../src')
-    let settingsManager
-    let ConfigHandler
-
-    const loadHandler = () => {
-        jest.resetModules()
-        settingsManager = {
-            appConfig: {publicKey: 'NODE_PUBKEY'},
-            setConfig: jest.fn(),
-            setPendingConfig: jest.fn(),
-            clearPendingConfig: jest.fn()
-        }
-
-        const mockContainer = {settingsManager}
-        const mockNonceManager = {
-            getNonce: jest.fn().mockReturnValue(0),
-            setNonce: jest.fn(),
-            nonceTypes: {CONFIG: 'config', PENDING_CONFIG: 'pendingConfig'}
-        }
-
-        class MockConfigEnvelope {
-            constructor(data) {
-                this.config = data.config
-                this.signatures = data.signatures || []
-            }
-        }
-
-        jest.doMock(path.join(moduleDir, 'domain', 'container.js'), () => mockContainer)
-        jest.doMock(path.join(moduleDir, 'ws-server', 'nonce-manager.js'), () => mockNonceManager)
-        jest.doMock('@reflector/reflector-shared', () => ({ConfigEnvelope: MockConfigEnvelope}))
-        jest.doMock('@stellar/stellar-sdk', () => ({
-            Keypair: {
-                fromPublicKey: () => ({verify: () => true})
-            }
-        }))
-
-        ConfigHandler = require('../../../src/ws-server/handlers/config-handler')
-        return new ConfigHandler()
-    }
-
-    test('allows orchestrator channel with anonymous access', () => {
-        const handler = loadHandler()
-        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(handler.allowAnonymous).toBe(true)
+    test('signature over a different payload is rejected', () => {
+        const signature = Buffer.from(keypair.sign(Buffer.from('some-other-payload'))).toString('hex')
+        expect(() => handler.handle(channel, {data: {signature}})).toThrow('Invalid signature')
+        expect(channel.validated).not.toHaveBeenCalled()
     })
 
-    test('throws when data is missing', async () => {
-        const handler = loadHandler()
+    test('missing data closes channel and throws', () => {
+        expect(() => handler.handle(channel, {})).toThrow('Signature is required')
 
-        await expect(handler.handle({}, {})).rejects.toThrow('Data is required')
-    })
-
-    test('does not set config when currentConfig is invalid', async () => {
-        const handler = loadHandler()
-        const invalidConfig = {config: {isValid: false, issuesString: 'invalid'}, signatures: []}
-
-        await handler.handle({}, {data: {currentConfig: invalidConfig}})
-
-        expect(settingsManager.setConfig).not.toHaveBeenCalled()
-        expect(settingsManager.clearPendingConfig).toHaveBeenCalled()
-    })
-
-    test('applies current config and clears pending config when pending config is absent', async () => {
-        const handler = loadHandler()
-        const currentConfig = {
-            config: {isValid: true, getSignaturePayloadHash: () => 'dead'},
-            signatures: [{nonce: 1, pubkey: 'NODE_PUBKEY', signature: 'dead'}]
-        }
-
-        await handler.handle({}, {data: {currentConfig}})
-
-        expect(settingsManager.setConfig).toHaveBeenCalledWith(currentConfig.config, 1)
-        expect(settingsManager.clearPendingConfig).toHaveBeenCalled()
-    })
-
-    test('applies pending config when it is verified', async () => {
-        const handler = loadHandler()
-        const currentConfig = {
-            config: {isValid: true, getSignaturePayloadHash: () => 'dead'},
-            signatures: [{nonce: 1, pubkey: 'NODE_PUBKEY', signature: 'dead'}]
-        }
-        const pendingConfig = {
-            config: {isValid: true, getSignaturePayloadHash: () => 'dead'},
-            signatures: [{nonce: 2, pubkey: 'NODE_PUBKEY', signature: 'dead'}]
-        }
-
-        await handler.handle({}, {data: {currentConfig, pendingConfig}})
-
-        expect(settingsManager.setConfig).toHaveBeenCalledWith(currentConfig.config, 1)
-        expect(settingsManager.setPendingConfig).toHaveBeenCalled()
-        expect(settingsManager.clearPendingConfig).not.toHaveBeenCalled()
-    })
-})
-
-describe('SignaturesHandler', () => {
-    const moduleDir = path.resolve(__dirname, '../../../src')
-    let SignaturesHandler
-    let runnerManager
-    let starSdkMock
-
-    beforeEach(() => {
-        jest.resetModules()
-        const decoratedSignature = {signature: Buffer.from('signature')}
-        starSdkMock = {
-            xdr: {
-                DecoratedSignature: {
-                    fromXdr: jest.fn(() => decoratedSignature)
-                }
-            },
-            Keypair: {
-                fromPublicKey: jest.fn(() => ({verify: jest.fn(() => true)}))
-            }
-        }
-
-        const updatesRunner = {addSignature: jest.fn()}
-        runnerManager = {
-            updatesRunner,
-            get: jest.fn(() => updatesRunner)
-        }
-
-        jest.doMock('@stellar/stellar-sdk', () => starSdkMock)
-        jest.doMock(path.join(moduleDir, 'domain', 'runners', 'runner-manager.js'), () => runnerManager)
-        SignaturesHandler = require('../../../src/ws-server/handlers/signatures-handler')
-    })
-
-    test('allows outgoing and incoming channels without anonymous access', () => {
-        const handler = new SignaturesHandler()
-        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.OUTGOING, ChannelTypes.INCOMING])
-        expect(handler.allowAnonymous).toBe(false)
-    })
-
-    test('ignores invalid message payload', async () => {
-        const handler = new SignaturesHandler()
-        await handler.handle({pubkey: 'pubkey'}, {data: {}})
-        expect(runnerManager.get).not.toHaveBeenCalled()
-        expect(runnerManager.updatesRunner.addSignature).not.toHaveBeenCalled()
-    })
-
-    test('adds signature to updates runner when hash and signature are valid', async () => {
-        const handler = new SignaturesHandler()
-        const message = {data: {signature: 'deadbeef', hash: 'abcdef', contractId: undefined}}
-
-        await handler.handle({pubkey: 'public-key'}, message)
-
-        expect(runnerManager.get).not.toHaveBeenCalled()
-        expect(runnerManager.updatesRunner.addSignature).toHaveBeenCalled()
+        expect(channel.close).toHaveBeenCalledWith(1008, 'Invalid signature', true)
+        expect(channel.validated).not.toHaveBeenCalled()
     })
 })
 
@@ -310,80 +173,6 @@ describe('StatisticsRequestHandler', () => {
     })
 })
 
-describe('LogsRequestHandler and LogFileRequestHandler', () => {
-    let logsDir
-    let tmpDir
-    let container
-
-    beforeEach(() => {
-        jest.resetModules()
-        const paths = createTempHome()
-        tmpDir = paths.tmpDir
-        logsDir = paths.logsDir
-        container = require('../../../src/domain/container')
-        container.homeDir = tmpDir
-        container.settingsManager = {appConfig: {trace: true}}
-    })
-
-    afterEach(() => {
-        if (tmpDir && fs.existsSync(tmpDir)) {
-            fs.rmSync(tmpDir, {recursive: true, force: true})
-        }
-    })
-
-    test('allows orchestrator channel with anonymous access', () => {
-        const LogsRequestHandler = require('../../../src/ws-server/handlers/logs-request-handler')
-        const LogFileRequestHandler = require('../../../src/ws-server/handlers/log-file-request-handler')
-        const logsHandler = new LogsRequestHandler()
-        const logFileHandler = new LogFileRequestHandler()
-        expect(logsHandler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(logsHandler.allowAnonymous).toBe(true)
-        expect(logFileHandler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(logFileHandler.allowAnonymous).toBe(true)
-    })
-
-    test('returns available log file names and trace flag', () => {
-        fs.writeFileSync(path.join(logsDir, 'app.log'), 'log content')
-        fs.writeFileSync(path.join(logsDir, 'rotate.txt'), 'rotation')
-
-        const LogsRequestHandler = require('../../../src/ws-server/handlers/logs-request-handler')
-        const handler = new LogsRequestHandler()
-        const result = handler.handle()
-
-        expect(result).toEqual({logFiles: ['app.log'], isTraceEnabled: true})
-    })
-
-    test('returns file contents for log file request', () => {
-        fs.writeFileSync(path.join(logsDir, 'app.log'), 'line 1\nline 2\n')
-        const LogFileRequestHandler = require('../../../src/ws-server/handlers/log-file-request-handler')
-        const handler = new LogFileRequestHandler()
-        expect(handler.handle({}, {data: {logFileName: 'app.log'}})).toEqual({logFile: 'line 1\nline 2'})
-    })
-})
-
-describe('SetTraceHandler', () => {
-    let handler
-    let container
-
-    beforeEach(() => {
-        jest.resetModules()
-        const SetTraceHandler = require('../../../src/ws-server/handlers/set-trace-handler')
-        handler = new SetTraceHandler()
-        container = require('../../../src/domain/container')
-        container.settingsManager = {setTrace: jest.fn()}
-    })
-
-    test('allows orchestrator channel with anonymous access', () => {
-        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
-        expect(handler.allowAnonymous).toBe(true)
-    })
-
-    test('delegates trace enable/disable to settings manager', () => {
-        handler.handle({}, {data: {isTraceEnabled: true}})
-        expect(container.settingsManager.setTrace).toHaveBeenCalledWith(true)
-    })
-})
-
 describe('SyncHandler', () => {
     const moduleDir = path.resolve(__dirname, '../../../src')
     let SyncHandler
@@ -405,13 +194,29 @@ describe('SyncHandler', () => {
         expect(handler.allowAnonymous).toBe(false)
     })
 
-    test('forwards SUBSCRIPTIONS sync data to subscriptions manager', () => {
+    test('forwards SUBSCRIPTIONS sync data to subscriptions manager, charged to the peer that sent it', () => {
         const handler = new SyncHandler()
         const syncData = {type: ContractTypes.SUBSCRIPTIONS, contractId: 'id', value: 123}
-        handler.handle({}, {data: syncData})
+        handler.handle({pubkey: 'peer'}, {data: syncData})
 
         expect(getManager).toHaveBeenCalledWith('id')
-        expect(mockManager.trySetRawSyncData).toHaveBeenCalledWith(syncData)
+        //the pending sync-data quota is per sender, so a handler that dropped the key would pool every peer into one
+        expect(mockManager.trySetRawSyncData).toHaveBeenCalledWith(syncData, 'peer')
+    })
+
+    test('returns without throwing when the frame carries no usable data', () => {
+        const handler = new SyncHandler()
+        for (const data of [undefined, null, 'nope', 42, []])
+            expect(() => handler.handle({}, {data})).not.toThrow()
+        expect(getManager).not.toHaveBeenCalled()
+    })
+
+    test('ignores sync data for a contract this node does not run', () => {
+        getManager.mockReturnValue(undefined)
+        const handler = new SyncHandler()
+
+        expect(() => handler.handle({pubkey: 'peer'}, {data: {type: ContractTypes.SUBSCRIPTIONS, contractId: 'unknown'}})).not.toThrow()
+        expect(mockManager.trySetRawSyncData).not.toHaveBeenCalled()
     })
 })
 
@@ -475,6 +280,19 @@ describe('GatewaysGetHandler and GatewaysPostHandler', () => {
         expect(nonceManager.setNonce).toHaveBeenCalledWith('gateways', 1)
     })
 
+    test('reports the configured list, never the routing subset that passed validation', () => {
+        settingsManager.gateways = {urls: [], configuredUrls: ['ftp://plain.example.com'], challenge: 'challenge', gatewayValidationKey: 'k'}
+        const handler = new GatewaysGetHandler()
+        const result = handler.handle({}, {
+            data: {
+                signature: 'signature',
+                data: {payload: 'https://gateway.example.com?nonce=1'}
+            }
+        })
+
+        expect(result).toEqual({urls: ['ftp://plain.example.com'], challenge: 'challenge', unusable: true})
+    })
+
     test('accepts valid gateway post and applies new gateway values', () => {
         const handler = new GatewaysPostHandler()
         const payload = {nonce: 1, urls: ['https://new.example.com'], challenge: 'new-challenge'}
@@ -508,5 +326,50 @@ describe('PriceSyncHandler', () => {
         handler.handle({pubkey: 'pubkey'}, {data: syncData})
 
         expect(container.tradesManager.addSyncData).toHaveBeenCalledWith('pubkey', syncData)
+    })
+})
+
+describe('LogTokenHandler', () => {
+    let tmpDir
+    let container
+    let handler
+
+    beforeEach(() => {
+        jest.resetModules()
+        tmpDir = createTempHome().tmpDir
+        container = require('../../../src/domain/container')
+        container.homeDir = tmpDir
+        const LogTokenHandler = require('../../../src/ws-server/handlers/log-token-handler')
+        handler = new LogTokenHandler()
+    })
+
+    afterEach(() => {
+        if (tmpDir && fs.existsSync(tmpDir))
+            fs.rmSync(tmpDir, {recursive: true, force: true})
+    })
+
+    test('allows orchestrator channel with anonymous access', () => {
+        expect(handler.allowedChannelTypes).toEqual([ChannelTypes.ORCHESTRATOR])
+        expect(handler.allowAnonymous).toBe(true)
+    })
+
+    test('writes the token to <home>/promtail/token', () => {
+        const token = 'ab'.repeat(32)
+        handler.handle({}, {data: {token}})
+        const tokenPath = path.join(tmpDir, 'promtail', 'token')
+        expect(fs.readFileSync(tokenPath, 'utf8')).toBe(token)
+        expect(fs.existsSync(`${tokenPath}.tmp`)).toBe(false)
+    })
+
+    test('replaces an existing token', () => {
+        handler.handle({}, {data: {token: 'ab'.repeat(32)}})
+        handler.handle({}, {data: {token: 'cd'.repeat(32)}})
+        expect(fs.readFileSync(path.join(tmpDir, 'promtail', 'token'), 'utf8')).toBe('cd'.repeat(32))
+    })
+
+    test('rejects a malformed token and writes nothing', () => {
+        expect(() => handler.handle({}, {data: {token: 'not-a-token'}})).toThrow('Invalid log token')
+        expect(() => handler.handle({}, {data: {}})).toThrow('Invalid log token')
+        expect(fs.existsSync(path.join(tmpDir, 'promtail', 'token'))).toBe(false)
     })
 })

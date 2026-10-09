@@ -92,7 +92,7 @@ function getMedianPrice(range) {
 /**
  * @param {BigInt} oldPrice - old price
  * @param {BigInt} newPrice - new price
- * @returns {number} - unsigned diff in integer percents
+ * @returns {number} - unsigned diff in integer per-mille, the unit of beam asset thresholds and subscription thresholds
  */
 function getPriceDiff(oldPrice, newPrice) {
     //if old price is 0 and new price is 0, or both 0 - skip the diff

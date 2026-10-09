@@ -1,10 +1,13 @@
 /*eslint-disable no-undef */
-const {Asset, getMajority} = require('@reflector/reflector-shared')
+const {Asset, ContractTypes, getMajority} = require('@reflector/reflector-shared')
 const container = require('../../../src/domain/container')
 const AssetsMap = require('../../../src/domain/prices/assets-map')
 const {getConcensusData} = require('../../../src/domain/prices/price-manager')
 const TradesManager = require('../../../src/domain/prices/trades-manager')
+const {stopTradesManagersAfterEach} = require('../../helpers/stop-trades-managers')
 const logger = require('../../../src/logger')
+
+stopTradesManagersAfterEach(TradesManager)
 
 const nodes = [
     {pubkey: 'node1'},
@@ -42,12 +45,31 @@ function buildTradesData(prices, source) {
 function setupContainer(currentNodeIndex) {
     container.settingsManager = {
         appConfig: {publicKey: nodes[currentNodeIndex].pubkey},
+        //one oracle on each fixture key makes them keys this node reads, so peers register on arrival
         config: {
-            nodes: new Set(nodes)
+            nodes: new Set(nodes),
+            contracts: new Map([
+                ['oracle-pubnet', {contractId: 'oracle-pubnet', type: ContractTypes.ORACLE, dataSource: 'pubnet', baseAsset: new Asset(2, 'USDC')}],
+                ['oracle-test', {contractId: 'oracle-test', type: ContractTypes.ORACLE, dataSource: 'test', baseAsset: new Asset(2, 'BASE')}],
+                ['oracle-exchanges', {contractId: 'oracle-exchanges', type: ContractTypes.ORACLE, dataSource: 'exchanges', baseAsset: new Asset(2, 'USD')}]
+            ])
         },
-        nodes: new Map(nodes.map(node => [node.pubkey, {pubkey: node.pubkey}]))
+        nodes: new Map(nodes.map(node => [node.pubkey, {pubkey: node.pubkey}])),
+        getAssets: () => [],
+        getPriceHeartbeat: () => 2 * 60 * 60 * 1000
     }
 }
+
+//the fixture lists its key as a contract, so addSyncData builds the key list the way production does and the
+//list's error branch never runs here
+beforeEach(() => {
+    logger.error.mockClear()
+})
+
+afterEach(() => {
+    expect(logger.error.mock.calls.filter(call => call[0]?.msg === 'Failed to build the local cache keys')).toHaveLength(0)
+})
+
 
 function createTradesManager() {
     const tm = new TradesManager()
@@ -61,8 +83,9 @@ function createTradesManager() {
  * @param {AssetsMap} assetsMap
  * @param {number[]} timestamps - minute-level timestamps
  * @param {function(nodeIndex, timestamp): Array} priceDataFn - returns price data per node+timestamp
+ * @param {boolean} [overWire] - pass each node's data through JSON, as the ws layer sends and parses it
  */
-function feedAllNodes(tm, assetsMap, timestamps, priceDataFn) {
+function feedAllNodes(tm, assetsMap, timestamps, priceDataFn, overWire = false) {
     const key = `${assetsMap.source}_${assetsMap.baseAsset.code}`
     const plainMap = assetsMap.toPlainObject()
     for (let n = 0; n < nodes.length; n++) {
@@ -74,7 +97,7 @@ function feedAllNodes(tm, assetsMap, timestamps, priceDataFn) {
                 trades: normalizeTradeData(priceDataFn(n, ts), true)
             }
         }
-        tm.addSyncData(nodes[n].pubkey, nodeData)
+        tm.addSyncData(nodes[n].pubkey, overWire ? JSON.parse(JSON.stringify(nodeData)) : nodeData)
     }
 }
 
@@ -101,6 +124,19 @@ function aggregatePrices(concensusData, assetCount) {
     }
     return totalTradesData.map(v => [...v.values()])
 }
+
+let nowSpy
+
+beforeEach(() => {
+    //addSyncData bounds peer timestamps against the local clock. Pin it inside the newest fixture minute's sync
+    //window (ts + priceSyncDelay 15 s + 25 s): that item's own timer is then still 30 s out, so if peer presentation
+    //broke, the consensus tests would wait on it and fail instead of passing through a 1 ms timeout, as they do at 16 min.
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(15 * minute + 10 * 1000)
+})
+
+afterEach(() => {
+    nowSpy.mockRestore()
+})
 
 describe('getConcensusData — consensus', () => {
     const timeframe = 5 * minute
@@ -146,7 +182,7 @@ describe('getConcensusData — consensus', () => {
                 oracleTimestamp,
                 timeframe
             )
-            //5 timestamp entries
+            //5 timestamp entries; the node whose own feed reports zero for all 15 priced assets keeps none of them
             expect(result.length).toBe(i === 6 ? 0 : 5)
 
             const aggregated = aggregatePrices(result, 49)
@@ -210,6 +246,8 @@ describe('getConcensusData — consensus', () => {
             return buildTradesData(prices)
         })
 
+        //the most frequent majority group is the full node set, so the two assets one node disagrees on are dropped
+        //on every node and all seven compute the same vector
         const expected = new Array(minuteTimestamps.length).fill(null).map(() => [1n, undefined, undefined])
 
         for (let i = 0; i < nodes.length; i++) {
@@ -225,5 +263,58 @@ describe('getConcensusData — consensus', () => {
 
             expect(result.map((ts) => ts.flatMap((entry) => entry[0]?.volume))).toEqual(expected)
         }
+    })
+
+    test('every node one asset short, as a shared exchange failure leaves them, still agrees on the rest', async () => {
+        //every provider failed for A2, the map's last asset, on every node at the same minutes (the upstream is
+        //shared), so every row is one entry short; the contract reads only the assets those rows carry
+        const allAssets = [new Asset(2, 'A0'), new Asset(2, 'A1'), new Asset(2, 'A2')]
+        const map = new AssetsMap('exchanges', new Asset(2, 'USD'), allAssets)
+        setupContainer(0)
+        const tm = createTradesManager()
+        feedAllNodes(tm, map, minuteTimestamps, () => buildTradesData([1000n, 2000n], 'binance'))
+
+        for (let i = 0; i < nodes.length; i++) {
+            setupContainer(i)
+            container.tradesManager = tm
+            const result = await getConcensusData(map.source, map.baseAsset, allAssets.slice(0, 2), oracleTimestamp, timeframe)
+
+            expect(result.map(ts => ts.map(entry => entry[0]?.volume))).toEqual(Array(5).fill([1000n, 2000n]))
+        }
+    })
+
+    test('every node with the same hole mid-row, as a shared exchange failure leaves it, agrees on the rest', async () => {
+        //every provider failed for A2, which sits between assets that have data, on every node at the same minutes (the
+        //upstream is shared), so every row has a hole there, which JSON sends as null
+        const allAssets = [new Asset(2, 'A0'), new Asset(2, 'A1'), new Asset(2, 'A2'), new Asset(2, 'A3')]
+        const map = new AssetsMap('exchanges', new Asset(2, 'USD'), allAssets)
+        setupContainer(0)
+        const tm = createTradesManager()
+        feedAllNodes(tm, map, minuteTimestamps, () => {
+            const row = buildTradesData([1000n, 2000n, 0n, 4000n], 'binance')
+            delete row[2]
+            return row
+        }, true)
+
+        const read = [allAssets[0], allAssets[1], allAssets[3]]
+        for (let i = 0; i < nodes.length; i++) {
+            setupContainer(i)
+            container.tradesManager = tm
+            const result = await getConcensusData(map.source, map.baseAsset, read, oracleTimestamp, timeframe)
+
+            expect(result.map(ts => ts.map(entry => entry[0]?.volume))).toEqual(Array(5).fill([1000n, 2000n, 4000n]))
+        }
+    })
+
+    test('sync items resolve through peer presentation, not the timeout', () => {
+        const assets = [new Asset(2, 'A0')]
+        const map = new AssetsMap('pubnet', new Asset(2, 'USDC'), assets)
+        setupContainer(0)
+        const tm = createTradesManager()
+        feedAllNodes(tm, map, minuteTimestamps, () => buildTradesData([1000n]))
+
+        for (const ts of minuteTimestamps)
+            expect(tm.__timestamps.get(ts).get('pubnet_USDC').isProcessed).toBe(true)
+        expect(logger.warn.mock.calls.filter(c => c[0]?.msg === 'TimestampSyncItem auto-resolved by timeout')).toHaveLength(0)
     })
 })

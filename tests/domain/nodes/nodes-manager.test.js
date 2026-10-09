@@ -130,3 +130,44 @@ describe('NodesManager.getConnectedNodes silent-peer filtering', () => {
         expect(nodesManager.getConnectedNodes()).toEqual([])
     })
 })
+
+describe('NodesManager.addConnection', () => {
+    beforeEach(() => {
+        nodesManager.__nodes.clear()
+    })
+
+    test('refuses an unvalidated channel and keeps the current one', () => {
+        const node = new Node('peer-A')
+        const current = makeFakeChannel()
+        node.assignIncommingWebSocket(current)
+        nodesManager.__nodes.set('peer-A', node)
+        const newcomer = {pubkey: 'peer-A', isValidated: false, close: jest.fn()}
+
+        nodesManager.addConnection(newcomer)
+
+        expect(newcomer.close).toHaveBeenCalledWith(1008, 'Unauthorized', true)
+        expect(current.close).not.toHaveBeenCalled()
+        expect(node.__incommingChannel).toBe(current)
+    })
+
+    test('a validated channel replaces the current one', () => {
+        const node = new Node('peer-A')
+        const current = makeFakeChannel()
+        node.assignIncommingWebSocket(current)
+        nodesManager.__nodes.set('peer-A', node)
+        const newcomer = {pubkey: 'peer-A', isValidated: true, close: jest.fn()}
+
+        nodesManager.addConnection(newcomer)
+
+        expect(current.close).toHaveBeenCalledWith(1001, 'New connection', true)
+        expect(node.__incommingChannel).toBe(newcomer)
+    })
+
+    test('a channel for an unknown peer is refused', () => {
+        const newcomer = {pubkey: 'peer-unknown', isValidated: true, close: jest.fn()}
+
+        nodesManager.addConnection(newcomer)
+
+        expect(newcomer.close).toHaveBeenCalledWith(1008, 'Unauthorized', true)
+    })
+})

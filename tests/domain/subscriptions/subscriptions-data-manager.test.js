@@ -35,7 +35,8 @@ jest.mock('@reflector/reflector-shared', () => ({
     getSubscriptions: jest.fn(),
     getSubscriptionsContractState: jest.fn(),
     Asset: jest.fn().mockImplementation((type, code) => ({type, code, isContractId: false})),
-    AssetType: {STELLAR: 'stellar', OTHER: 'other'}
+    AssetType: {STELLAR: 'stellar', OTHER: 'other'},
+    compareStrings: (a, b) => (a < b ? -1 : (a > b ? 1 : 0))
 }))
 
 //Identity-map scValToNative so our plain-JS event topics/values flow through unchanged.
@@ -203,6 +204,29 @@ describe('getWebhook (exercised via __setSubscription)', () => {
         const mgr = new SubscriptionContractManager('c1')
         const webhook = await decryptThrough(mgr, Buffer.from([1]))
         expect(webhook).toEqual([])
+    })
+
+    test('a decrypted webhook that is not valid JSON is logged without any of its text', async () => {
+        //V8 quotes a window of the input around the error position in a JSON.parse message, and here the input is the
+        //subscriber's decrypted webhook, credentials and tokens included
+        const logger = require('../../../src/logger')
+        container.settingsManager.clusterSecretObject = {fake: 'key'}
+        const inputs = [
+            '[https://subscriber:hunter2@hooks.example/path?token=s3cret]', //V8: Unexpected token 'h', "[https://su"...
+            '[{"url":"https://subscriber:hunter2@hooks.example/path?token=s3cret"} oops'
+        ]
+        for (const secretText of inputs) {
+            logger.error.mockClear()
+            decrypt.mockResolvedValue(new TextEncoder().encode(secretText))
+            const mgr = new SubscriptionContractManager('c1')
+            const webhook = await decryptThrough(mgr, Buffer.from([1]))
+            expect(webhook).toEqual([])
+            expect(logger.error).toHaveBeenCalledTimes(1)
+            expect(logger.error.mock.calls[0][0]).toMatchObject({msg: 'Error decrypting webhook', err: 'Webhook payload is not valid JSON'})
+            const logged = JSON.stringify(logger.error.mock.calls)
+            for (const fragment of ['hunter2', 'subscriber', 'hooks.example', 'token', 's3cret', 'oops', 'https', '[h', '"['])
+                expect(logged).not.toContain(fragment)
+        }
     })
 })
 
@@ -550,8 +574,9 @@ describe('sync data', () => {
     test('trySetRawSyncData constructs, awaits calculateHash, adds signatures, delegates', async () => {
         const mgr = new SubscriptionContractManager('c1')
         const rawSyncData = {
+            //the pubkey must be a 56-character strkey, otherwise parseRawSyncData rejects the payload
             data: {syncData: {}, timestamp: Date.now()},
-            signatures: [{pubkey: 'pk1', signature: 'sig1'}]
+            signatures: [{pubkey: `G${'A'.repeat(55)}`, signature: 'sig1'}]
         }
         await mgr.trySetRawSyncData(rawSyncData)
         expect(SubscriptionsSyncData).toHaveBeenCalledWith(rawSyncData.data)
@@ -591,7 +616,7 @@ describe('module registry (addManager / getManager / removeManager / getAllSubsc
         expect(getManager('cA')).toBeUndefined()
     })
 
-    test('getAllSubscriptions sorts managers by contractId.localeCompare and flattens', () => {
+    test('getAllSubscriptions sorts managers by contractId in code-unit order and flattens', () => {
         const mgrB = addManager('cB')
         const mgrA = addManager('cA')
         mgrA.__subscriptions.set(2n, {id: 2n, tag: 'A2'})
@@ -600,5 +625,329 @@ describe('module registry (addManager / getManager / removeManager / getAllSubsc
         const all = getAllSubscriptions()
         //cA sorts before cB; within each manager, ids sort ascending.
         expect(all.map(s => s.tag)).toEqual(['A1', 'A2', 'B1'])
+    })
+
+    test('getAllSubscriptions orders contractId by code unit, not locale collation', () => {
+        //code-unit: 'B' (U+0042) sorts before 'a' (U+0061); the en locale collates case-insensitively
+        //and would reverse it, so this fixture only passes under a genuine code-unit comparator
+        expect('B'.localeCompare('a')).toBe(1)
+        const mgrLower = addManager('a1')
+        const mgrUpper = addManager('B1')
+        mgrLower.__subscriptions.set(1n, {id: 1n, tag: 'lower'})
+        mgrUpper.__subscriptions.set(1n, {id: 1n, tag: 'upper'})
+        try {
+            const all = getAllSubscriptions()
+            expect(all.map(s => s.tag)).toEqual(['upper', 'lower'])
+        } finally {
+            removeManager('a1')
+            removeManager('B1')
+        }
+    })
+})
+
+describe('trySetRawSyncData payload shape', () => {
+    //56 characters, the length parseRawSyncData requires of an ed25519 strkey
+    const signerPubkey = `G${'A'.repeat(55)}`
+
+    /**
+     * @returns {object} a well-formed raw SYNC payload
+     */
+    function goodPayload() {
+        return {
+            data: {syncData: {'7': {lastNotification: 1_700_000_000_000, lastPrice: '12345'}}, timestamp: 1_700_000_040_000},
+            signatures: [{pubkey: signerPubkey, signature: 'c2ln'}]
+        }
+    }
+
+    test('a well-formed payload reaches SubscriptionsSyncData with exactly syncData and timestamp', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const payload = goodPayload()
+        payload.data.padding = 'x'.repeat(100) //extra fields must not reach the hash
+
+        await manager.trySetRawSyncData(payload)
+
+        expect(SubscriptionsSyncData).toHaveBeenCalledTimes(1)
+        expect(SubscriptionsSyncData.mock.calls[0][0]).toEqual({
+            syncData: {'7': {lastNotification: 1_700_000_000_000, lastPrice: '12345'}},
+            timestamp: 1_700_000_040_000
+        })
+    })
+
+    const badPayloads = {
+        'no data': {signatures: []},
+        'data is an array': {data: [], signatures: []},
+        'timestamp is a string': {data: {syncData: {}, timestamp: '1700000040000'}, signatures: []},
+        'timestamp is negative': {data: {syncData: {}, timestamp: -1}, signatures: []},
+        'syncData is an array': {data: {syncData: [], timestamp: 1_700_000_040_000}, signatures: []},
+        //built through JSON.parse because that is how a SYNC frame arrives: an object literal's `'__proto__':` is the
+        //prototype setter, so it would leave syncData with no own keys at all and never reach the key check
+        'syncData key is not a subscription id': {data: JSON.parse('{"syncData":{"__proto__":{"lastNotification":1,"lastPrice":"1"}},"timestamp":1700000040000}'), signatures: []},
+        'lastPrice is not a decimal string': {data: {syncData: {'7': {lastNotification: 1, lastPrice: 1}}, timestamp: 1_700_000_040_000}, signatures: []},
+        'lastNotification is not an integer': {data: {syncData: {'7': {lastNotification: 'now', lastPrice: '1'}}, timestamp: 1_700_000_040_000}, signatures: []},
+        'entry carries an extra field': {data: {syncData: {'7': {lastNotification: 1, lastPrice: '1', extra: true}}, timestamp: 1_700_000_040_000}, signatures: []},
+        'signatures is not an array': {data: {syncData: {}, timestamp: 1_700_000_040_000}, signatures: {}},
+        'signature entry is not an object': {data: {syncData: {}, timestamp: 1_700_000_040_000}, signatures: ['nope']}
+    }
+
+    for (const [name, payload] of Object.entries(badPayloads)) {
+        test(`rejects a payload where ${name}`, async () => {
+            const manager = new SubscriptionContractManager('contract-1')
+
+            await expect(manager.trySetRawSyncData(payload)).resolves.toBeUndefined()
+
+            expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+            //__lastSyncData is initialised to null (the field declaration in SubscriptionContractManager) and the getter returns it
+            //verbatim, so toBeUndefined() would fail against a correct implementation
+            expect(manager.lastSyncData).toBeNull()
+        })
+    }
+
+    test('rebuilds signature entries so a peer cannot smuggle extra fields into the broadcast', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const payload = goodPayload()
+        payload.signatures = [{pubkey: signerPubkey, signature: 'c2ln', extra: 'x'}]
+
+        await manager.trySetRawSyncData(payload)
+
+        expect(SubscriptionsSyncData).toHaveBeenCalledTimes(1)
+        //the suite's SubscriptionsSyncData mock returns an object literal, so mock.results[0].value is the instance
+        const instance = SubscriptionsSyncData.mock.results[0].value
+        expect(instance.tryAddSignature).toHaveBeenCalledWith([{pubkey: signerPubkey, signature: 'c2ln'}])
+    })
+
+    test('rejects a signature entry whose pubkey is the wrong length', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const payload = goodPayload()
+        payload.signatures = [{pubkey: 'G'.repeat(57), signature: 'c2ln'}]
+
+        await manager.trySetRawSyncData(payload)
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+    })
+
+    test('rejects a signature string longer than the bound', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const payload = goodPayload()
+        payload.signatures = [{pubkey: signerPubkey, signature: 'c'.repeat(129)}]
+
+        await manager.trySetRawSyncData(payload)
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+    })
+
+    /**
+     * @param {string} lastPrice - lastPrice of the only entry
+     * @returns {object} a well-formed raw SYNC payload carrying that price
+     */
+    function payloadWithPrice(lastPrice) {
+        const payload = goodPayload()
+        payload.data.syncData['7'].lastPrice = lastPrice
+        return payload
+    }
+
+    test.each([
+        //getVWAP(10^100, 10^20, 14): a public subscriber can make honest volumes this long on pubnet
+        ['a 95-digit price', 95],
+        ['a 120-digit price', 120],
+        //the volume bound is 1000 digits; getVWAP and calcCrossPrice each scale by 10^decimals on top of it
+        ['a price of 1028 digits, the largest volume the price sync accepts restated twice at 14 decimals', 1028],
+        ['a price at the 1100-digit bound', 1100]
+    ])('accepts %s', async (_, digits) => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const lastPrice = '9'.repeat(digits)
+
+        await manager.trySetRawSyncData(payloadWithPrice(lastPrice))
+
+        expect(SubscriptionsSyncData).toHaveBeenCalledTimes(1)
+        expect(SubscriptionsSyncData.mock.calls[0][0].syncData['7'].lastPrice).toBe(lastPrice)
+    })
+
+    test('rejects a price one digit past the 1100-digit bound', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+
+        await manager.trySetRawSyncData(payloadWithPrice('9'.repeat(1101)))
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+        expect(manager.lastSyncData).toBeNull()
+    })
+
+    test('keeps subscription ids to 40 digits while prices may run longer', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const payload = goodPayload()
+        payload.data.syncData = {['1'.repeat(41)]: {lastNotification: 1, lastPrice: '1'}}
+
+        await manager.trySetRawSyncData(payload)
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+    })
+
+    /**
+     * @param {number} count - number of entries to build
+     * @returns {Object.<string, {lastNotification: number, lastPrice: string}>} a syncData map of that size
+     */
+    function syncDataOfSize(count) {
+        const syncData = {}
+        for (let i = 0; i < count; i++)
+            syncData[String(i)] = {lastNotification: 1, lastPrice: '1'}
+        return syncData
+    }
+
+    /**
+     * Stands in for a majority-signed SubscriptionsSyncData the manager already holds. The real class derives `size`
+     * from Object.keys(__data.syncData).length — pinned by 'size counts the entries the item holds' in the sync-data
+     * suite — and this file mocks that class away, so the stub carries only what the cap derivation reads.
+     * @param {number} size - number of entries the cluster has already agreed on
+     * @returns {{size: number, timestamp: number}}
+     */
+    function agreedSyncData(size) {
+        return {size, timestamp: 1_700_000_000_000}
+    }
+
+    test('a cold contract accepts a payload at the floor', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        //nothing agreed and nothing live, so the cap is the floor: minSyncDataEntries
+
+        await manager.trySetRawSyncData({data: {syncData: syncDataOfSize(4096), timestamp: 1_700_000_040_000}, signatures: []})
+
+        expect(SubscriptionsSyncData).toHaveBeenCalledTimes(1)
+    })
+
+    test('a cold contract rejects a payload one entry above the floor', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+
+        await manager.trySetRawSyncData({data: {syncData: syncDataOfSize(4097), timestamp: 1_700_000_040_000}, signatures: []})
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+    })
+
+    test('a churned contract accepts the agreed set plus one tick of live triggers', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        //5000 subscriptions have ever triggered, only 10 are still live. A cap read off the live count would sit at the
+        //floor and reject this payload forever, freezing sync and firing every subscription by heartbeat every tick
+        manager.__lastSyncData = agreedSyncData(5000)
+        for (let i = 0; i < 10; i++)
+            manager.__subscriptions.set(BigInt(i), {id: BigInt(i), webhook: []})
+
+        await manager.trySetRawSyncData({data: {syncData: syncDataOfSize(5005), timestamp: 1_700_000_040_000}, signatures: []})
+
+        expect(SubscriptionsSyncData).toHaveBeenCalledTimes(1)
+    })
+
+    test('a churned contract still refuses a payload above the derived cap', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        //the cap is 5000 agreed + 10 live, and no honest peer can produce a 5011th entry in a single tick
+        manager.__lastSyncData = agreedSyncData(5000)
+        for (let i = 0; i < 10; i++)
+            manager.__subscriptions.set(BigInt(i), {id: BigInt(i), webhook: []})
+
+        await manager.trySetRawSyncData({data: {syncData: syncDataOfSize(5011), timestamp: 1_700_000_040_000}, signatures: []})
+
+        expect(SubscriptionsSyncData).not.toHaveBeenCalled()
+    })
+})
+
+describe('trySetSyncData timestamp window', () => {
+    let nowSpy
+
+    beforeEach(() => {
+        nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+    })
+
+    afterEach(() => {
+        nowSpy.mockRestore()
+    })
+
+    /**
+     * @param {number} timestamp - payload timestamp
+     * @returns {object} a verified sync-data stub
+     */
+    function syncItem(timestamp) {
+        return {timestamp, isVerified: true, hashBase64: `hash-${timestamp}`, __signatures: [], merge: jest.fn()}
+    }
+
+    test('adopts a payload timestamped within one timeframe of the local clock', () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const item = syncItem(1_700_000_000_000)
+
+        manager.trySetSyncData(item)
+
+        //__lastSyncData starts as null, which toBeDefined() also accepts, so only identity proves the item was adopted
+        expect(manager.lastSyncData).toBe(item)
+    })
+
+    test('refuses a payload dated further ahead than one timeframe, so it cannot pin the state', () => {
+        const manager = new SubscriptionContractManager('contract-1')
+
+        manager.trySetSyncData(syncItem(9_999_999_999_999))
+
+        //__lastSyncData is initialised to null (subscriptions-data-manager.js:228), never undefined
+        expect(manager.lastSyncData).toBeNull()
+    })
+
+    test('still adopts an older payload, so a restarted node can recover state from its peers', () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const item = syncItem(1_700_000_000_000 - 6 * 60 * 60 * 1000)
+
+        manager.trySetSyncData(item)
+
+        expect(manager.lastSyncData).toBe(item)
+    })
+
+    test('the window closes exactly one timeframe ahead, and a refused payload never reaches the cache', () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const atEdge = syncItem(1_700_000_000_000 + 60 * 1000)
+        //newer than atEdge, so only the window can stop it replacing atEdge
+        const beyond = syncItem(1_700_000_000_000 + 60 * 1000 + 1)
+        //a majority-signed item never stays in the pending cache, so only the calls to it show that the refused
+        //payload was stopped before the cache rather than dropped by it
+        const pushSpy = jest.spyOn(manager.__pendingSyncData, 'push')
+
+        manager.trySetSyncData(atEdge)
+        manager.trySetSyncData(beyond)
+
+        expect(manager.lastSyncData).toBe(atEdge)
+        expect(pushSpy).toHaveBeenCalledTimes(1)
+        expect(pushSpy.mock.calls[0][0]).toBe(atEdge)
+    })
+})
+
+describe('rejected SYNC frames are rate-limited per sender', () => {
+    const logger = require('../../../src/logger')
+    const malformed = {data: [], signatures: []}
+
+    beforeEach(() => {
+        logger.warn.mockClear()
+        logger.debug.mockClear()
+    })
+
+    test('one member sending malformed frames warns once per ten minutes, the rest at debug', async () => {
+        const manager = new SubscriptionContractManager('contract-1')
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+        try {
+            for (let i = 0; i < 100; i++)
+                await manager.trySetRawSyncData(malformed, 'GPEERA')
+            const rejected = entries => entries.mock.calls.filter(([entry]) => entry.msg === 'Rejected raw sync data')
+            expect(rejected(logger.warn)).toHaveLength(1)
+            expect(rejected(logger.warn)[0][0]).toMatchObject({node: 'GPEERA', contract: 'contract-1'})
+            expect(rejected(logger.debug)).toHaveLength(99)
+
+            //another member has its own allowance
+            await manager.trySetRawSyncData(malformed, 'GPEERB')
+            expect(rejected(logger.warn)).toHaveLength(2)
+
+            //one millisecond short of ten minutes the first member is still at debug; ten minutes later it warns again
+            now.mockReturnValue(1_700_000_000_000 + 10 * 60 * 1000 - 1)
+            await manager.trySetRawSyncData(malformed, 'GPEERA')
+            expect(rejected(logger.warn)).toHaveLength(2)
+            now.mockReturnValue(1_700_000_000_000 + 10 * 60 * 1000)
+            await manager.trySetRawSyncData(malformed, 'GPEERA')
+            expect(rejected(logger.warn)).toHaveLength(3)
+            //and the next ten minutes are counted from that warning
+            now.mockReturnValue(1_700_000_000_000 + 20 * 60 * 1000 - 1)
+            await manager.trySetRawSyncData(malformed, 'GPEERA')
+            expect(rejected(logger.warn)).toHaveLength(3)
+        } finally {
+            now.mockRestore()
+        }
     })
 })

@@ -1,7 +1,8 @@
-const {ContractTypes, getMajority} = require('@reflector/reflector-shared')
+const {ContractTypes, getMajority, compareStrings} = require('@reflector/reflector-shared')
 const {getMedianPrice, getVWAP, getPreciseValue, calcCrossPrice} = require('../../utils/price-utils')
 const logger = require('../../logger')
 const container = require('../container')
+const {dissentLog} = require('./dissent-log')
 
 /**
  * @typedef {import('./trades-manager').AssetTradeData} AssetTradeData
@@ -41,7 +42,7 @@ async function getPricesForContract(contractId, timestamp) {
         throw new Error(`Contract ${contractId} is not an oracle contract`)
 
     //get assets for the contract
-    const assets = settingsManager.getAssets(contract.contractId)
+    const assets = settingsManager.getAssets(contract.contractId, timestamp)
 
     //get trades data
     const concensusData = await getConcensusData(
@@ -53,8 +54,11 @@ async function getPricesForContract(contractId, timestamp) {
     )
     //aggregate trades data
     const tradesData = aggrTradesData(assets.length, concensusData)
-    if (!tradesData.some(v => v.length !== 0)) //if all volumes are empty
-        throw new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
+    if (!tradesData.some(v => v.length !== 0)) { //if all volumes are empty
+        const error = new Error(`Trades data not found for contract ${contractId} for timestamp ${timestamp}`)
+        error.code = 'TRADES_DATA_NOT_FOUND' //RunnerBase.tradesDataNotFoundCode
+        throw error
+    }
 
     //compute price
     const prices = calcPrice(tradesData, settingsManager.getDecimals(contractId))
@@ -134,6 +138,21 @@ async function getPricesForPair(baseSource, baseAsset, quoteSource, quoteAsset, 
 }
 
 /**
+ * One bit per node, in the order the caller passes them - getConcensusData passes the cluster node set sorted by
+ * pubkey, so the bit a node gets is a pure function of the node set. Bitwise operators coerce to signed 32-bit
+ * integers, so index 32 would alias onto index 0 in a cluster that large; BigInt keeps every node distinct.
+ * @param {Iterable<{pubkey: string}>} nodes - cluster nodes, already ordered by the caller
+ * @returns {{pubkey: string, mask: BigInt}[]}
+ */
+function buildNodeMasks(nodes) {
+    return [...nodes].map(({pubkey}, index) => ({pubkey, mask: 1n << BigInt(index)}))
+}
+
+/**
+ * Consensus trades data for the minutes of one timeframe. This node's own rows are its source of truth: a sample of its
+ * own is kept when a majority of the node set reported the same volumes for the same asset and trade source. The
+ * agreement set of every kept non-zero sample is tallied over the window, and only samples whose agreement set covers
+ * the most frequent one are returned, so every node of that group returns the same data for the whole window.
  * @param {string} source - source of the data
  * @param {Asset} base - base asset
  * @param {Asset[]} assets - assets to get data for
@@ -147,22 +166,27 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
     const majorityCount = getMajority(settingsManager.nodes.size)
     const currentPubkey = settingsManager.appConfig.publicKey
 
-    const nodes = [...settingsManager.nodes.values()].map(({pubkey}, index) => ({
-        pubkey,
-        mask: 1 << index
-    }))
+    //every node enumerates the same nodes in the same order: sorted by pubkey, never by Map insertion order
+    const nodes = buildNodeMasks(
+        [...settingsManager.nodes.values()]
+            .map(({pubkey}) => ({pubkey}))
+            .sort((a, b) => compareStrings(a.pubkey, b.pubkey))
+    )
 
-    logger.trace({msg: 'Getting concensus data', source, base: base.toString(), assets: assets.filter(a => a).map(a => a.toString()), expired: assets.filter(a => !a).length, timestamp, timeframe, nodes})
+    logger.trace({msg: 'Getting concensus data', source, base: base.toString(), assets: assets.filter(a => a).map(a => a.toString()), expired: assets.filter(a => !a).length, timestamp, timeframe, nodes: nodes.map(n => n.pubkey)})
 
-    const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask
+    const currentNodeMask = nodes.find(n => n.pubkey === currentPubkey)?.mask ?? 0n
 
     const isSameData = (a, b) =>
         a.volume === b.volume &&
         a.quoteVolume === b.quoteVolume
 
     let currentTimestamp = timestamp - timeframe
+    /**@type {Map<BigInt, {occurrences: number, nodes: Set<string>}>} */
     const masks = new Map()
-    const nodeMasks = new Map()
+    //log only: members that did not hold a sample this node kept, told apart by whether they reported that trade source
+    const missing = new Set()
+    const mismatched = new Set()
     const candidate = []
 
     //get trades data for the current timestamp
@@ -176,9 +200,16 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             currentTimestamp
         )
 
+        //count the cluster members that actually hold a row for this minute - Trades.getTradesData returns an entry
+        //for every node that ever pushed anything, and its value is null when that node has nothing for this minute
+        let presentCount = 0
+        for (const {pubkey} of nodes)
+            if (tradesData.get(pubkey))
+                presentCount++
+
         //skip if majority is not possible
-        if (tradesData.size < majorityCount) {
-            logger.debug({msg: 'No majority for trades data', timestamp: currentTimestamp, source, base: base.code})
+        if (presentCount < majorityCount) {
+            logger.debug({msg: 'No majority for trades data', timestamp: currentTimestamp, source, base: base.code, present: presentCount, required: majorityCount})
             continue
         }
 
@@ -189,39 +220,30 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
             continue
         }
 
-        const normalizePriceData = (data) => {
-            if (!data)
-                return null
-            return {
-                volume: (data.volume ? data.volume.toString() : undefined),
-                quoteVolume: (data.quoteVolume ? data.quoteVolume.toString() : undefined)
-            }
-        }
-
-        //iterate over the current node data and check if it matches with the other nodes
-        for (const assetData of currentNodeData) {
+        //check every sample of the current node against the other nodes; the cached rows are never modified
+        const timestampData = currentNodeData.map(() => [])
+        for (let assetIndex = 0; assetIndex < currentNodeData.length; assetIndex++) {
+            const assetData = currentNodeData[assetIndex] || []
+            //last source first, as main walks them: the order agreement sets are first seen in breaks ties below
             for (let sourceIndex = assetData.length - 1; sourceIndex >= 0; sourceIndex--) {
                 const sourceData = assetData[sourceIndex]
-                sourceData.nodes = currentNodeMask
-                sourceData.rawNodes = new Set([currentPubkey])
-
-                let matchingNodesCount = 1
+                let sampleMask = currentNodeMask
+                const sampleNodes = new Set([currentPubkey])
                 for (const {pubkey, mask} of nodes) {
                     if (pubkey === currentPubkey)
                         continue
 
-                    const nodeData = tradesData
-                        .get(pubkey)?.[currentNodeData.indexOf(assetData)]
-                        ?.find(d => d.source === sourceData.source)
+                    const nodeData = tradesData.get(pubkey)?.[assetIndex]?.find(d => d.source === sourceData.source)
 
                     //skip if no data for the node or if the data doesn't match
                     if (!nodeData || !isSameData(nodeData, sourceData)) {
+                        (nodeData ? mismatched : missing).add(pubkey)
                         logger.debug({
                             msg: 'Node data mismatch',
                             timestamp: currentTimestamp,
                             source,
                             base: base.code,
-                            asset: currentNodeData.indexOf(assetData),
+                            asset: assetIndex,
                             node: pubkey,
                             sourceData: normalizePriceData(sourceData),
                             nodeData: normalizePriceData(nodeData)
@@ -229,58 +251,76 @@ async function getConcensusData(source, base, assets, timestamp, timeframe) {
                         continue
                     }
 
-                    //add the node mask to the source data nodes
-                    sourceData.nodes |= mask
-                    sourceData.rawNodes = new Set([...(sourceData.rawNodes), pubkey])
-                    //increment the matching nodes count
-                    matchingNodesCount++
+                    //add the node mask to the sample's agreement set
+                    sampleMask |= mask
+                    sampleNodes.add(pubkey)
                 }
 
-                //skip if the majority is not reached and remove the asset data
-                if (matchingNodesCount < majorityCount) {
-                    assetData.splice(sourceIndex, 1)
+                //skip the sample if the majority is not reached
+                if (sampleNodes.size < majorityCount)
                     continue
-                }
 
-                //increment the mask count for the source data nodes (skip zero prices — they trivially agree across all nodes)
-                const hasValue = sourceData.volume > 0n
-                if (hasValue) {
-                    masks.set(sourceData.nodes, (masks.get(sourceData.nodes) ?? 0) + 1)
-                    nodeMasks.set(sourceData.nodes, sourceData.rawNodes)
+                timestampData[assetIndex].unshift({sample: sourceData, mask: sampleMask})
+
+                //increment the mask count for the sample's agreement set (skip zero prices - they trivially agree
+                //across all nodes)
+                if (sourceData.volume > 0n) {
+                    let maskStats = masks.get(sampleMask)
+                    if (!maskStats) {
+                        maskStats = {occurrences: 0, nodes: sampleNodes}
+                        masks.set(sampleMask, maskStats)
+                    }
+                    maskStats.occurrences++
                 }
             }
         }
         //push the current node data to the candidate list
-        candidate.push(currentNodeData)
+        candidate.push(timestampData)
     }
 
+    //log only
+    dissentLog.report({
+        source,
+        base: base.code,
+        missing: [...missing].sort(compareStrings),
+        mismatched: [...mismatched].sort(compareStrings),
+        self: currentPubkey
+    })
     if (masks.size === 0) {
         logger.debug({msg: 'No matching nodes found', source, base: base.code})
         return []
     }
-    const [bestMask] = [...masks.entries()].sort((a, b) => b[1] - a[1])[0]
+    //the most frequent agreement set; among equally frequent ones the first seen wins
+    let bestMask = null
+    for (const [mask, {occurrences}] of masks)
+        if (bestMask === null || occurrences > masks.get(bestMask).occurrences)
+            bestMask = mask
 
-    for (const assetList of candidate) {
-        for (const assetData of assetList) {
-            for (let i = assetData.length - 1; i >= 0; i--) {
-                const currentAssetData = assetData[i]
-                //remove the asset data if the nodes don't match with the best mask
-                if ((currentAssetData.nodes & bestMask) !== bestMask)
-                    assetData.splice(i, 1)
-                else {
-                    delete currentAssetData.nodes
-                    delete currentAssetData.rawNodes
-                }
-            }
-        }
+    //keep only the samples whose agreement set covers the best mask
+    const result = candidate.map(timestampData => timestampData.map(assetData => assetData
+        .filter(({mask}) => (mask & bestMask) === bestMask)
+        .map(({sample}) => sample)))
+    logger.debug({msg: 'Best matching mask found', source, base: base.code, bestMask: bestMask.toString(16), occurrences: masks.get(bestMask).occurrences, nodes: [...masks.get(bestMask).nodes].join(', ')})
+    return result
+}
+
+/**
+ * @param {{volume: BigInt, quoteVolume: BigInt}} [data] - one trades sample
+ * @returns {{volume: string, quoteVolume: string}|null}
+ */
+function normalizePriceData(data) {
+    if (!data)
+        return null
+    return {
+        volume: (data.volume ? data.volume.toString() : undefined),
+        quoteVolume: (data.quoteVolume ? data.quoteVolume.toString() : undefined)
     }
-    logger.debug({msg: 'Best matching mask found', source, base: base.code, bestMask: bestMask.toString(16), occurrences: masks.get(bestMask), nodes: [...nodeMasks.get(bestMask)].join(', ')})
-    return candidate
 }
 
 
 module.exports = {
     getPricesForContract,
     getPricesForPair,
-    getConcensusData
+    getConcensusData,
+    buildNodeMasks
 }

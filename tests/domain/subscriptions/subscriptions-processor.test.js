@@ -36,6 +36,20 @@ describe('SubscriptionProcessor', () => {
         getPricesForPair.mockReset()
     })
 
+    it('hands the bound it is given to the event processing unchanged (N-2)', async () => {
+        const bound = reads => reads
+        await processor.getSubscriptionActions(timestamp, bound)
+        expect(subscriptionManagerMock.processLastEvents).toHaveBeenCalledTimes(1)
+        expect(subscriptionManagerMock.processLastEvents.mock.calls[0][0]).toBe(bound)
+    })
+
+    it('returns no actions on a tick that made the full reload (N-1)', async () => {
+        subscriptionManagerMock.processLastEvents.mockResolvedValue(true)
+        subscriptionManagerMock.subscriptions = [{id: 1n, status: 0, lastCharge: 0}]
+        await expect(processor.getSubscriptionActions(timestamp)).resolves.toBe(null)
+        expect(getPricesForPair).not.toHaveBeenCalled()
+    })
+
     it('should process no subscriptions if none are active', async () => {
         subscriptionManagerMock.subscriptions = [
             {status: 1}, //inactive

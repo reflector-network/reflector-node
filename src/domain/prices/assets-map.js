@@ -53,10 +53,12 @@ class AssetsMap {
      * @return {{asset: Asset, index: number}}
      */
     getAssetInfo(code) {
-        const asset = this.assets.find(a => a.code === code)
-        if (!asset)
+        if (!Array.isArray(this.assets)) //a cached entry may carry anything a peer sent before it was validated
             return undefined
-        return {asset, index: this.assets.indexOf(asset)}
+        const index = this.assets.findIndex(a => a && a.code === code)
+        if (index < 0)
+            return undefined
+        return {asset: this.assets[index], index}
     }
 
     toPlainObject() {

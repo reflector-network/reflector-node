@@ -19,6 +19,7 @@ const MessageTypes = {
     LOG_FILE_REQUEST: 24,
     GATEWAYS_GET: 25,
     GATEWAYS_POST: 26,
+    LOG_TOKEN: 27,
     OK: 200,
     getName(type) {
         switch (type) {
@@ -52,6 +53,8 @@ const MessageTypes = {
                 return 'GATEWAYS_GET'
             case MessageTypes.GATEWAYS_POST:
                 return 'GATEWAYS_POST'
+            case MessageTypes.LOG_TOKEN:
+                return 'LOG_TOKEN'
             case MessageTypes.OK:
                 return 'OK'
             default:

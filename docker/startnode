@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+# The entrypoint hands the mounted home to the node user and supervisord then drops to that user, so it must start as
+# root. Started with --user over a home that user already owns, every home step below would succeed and the script
+# would die later with a bare "Permission denied"
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: the entrypoint must start as root: it hands the mounted home to the node user (uid 1000) and then runs the node as that user. Do not start the container with --user" >&2
+    exit 1
+fi
 
 MOUNT_DIR="/reflector-node/app/home"
 CONFIG_FILE="$MOUNT_DIR/app.config.json"
@@ -12,18 +21,30 @@ if ! mountpoint -q "$MOUNT_DIR"; then
     exit 1
 fi
 
+# Under set -e a failure on the mounted home would stop the container with no word of why, so each step says what the
+# home needs (see the release notes)
+home_error() {
+    echo "ERROR: $1. The mounted home $MOUNT_DIR must be writable and chown-able by root: a read-only mount, a root-squashed network share or a container started with --user cannot run this release (see the release notes)" >&2
+    exit 1
+}
+
 # Ensure necessary directories exist
-mkdir -p "$MOUNT_DIR/logs"
-mkdir -p "$MOUNT_DIR/promtail"
+mkdir -p "$MOUNT_DIR/logs" "$MOUNT_DIR/promtail" || home_error "cannot create the logs and promtail directories"
+
+# The node and promtail run as the unprivileged node user (supervisord.conf), so the mounted home becomes theirs. It holds
+# the node seed and the cluster RSA key, so it is closed to every other user
+chown -R node:node "$MOUNT_DIR" || home_error "cannot give the home to the node user (uid 1000)"
+chmod 700 "$MOUNT_DIR" || home_error "cannot close the home to other users"
 
 # Assign orchestrator URL
 ORCHESTRATOR_URL=""
-SECRET_KEY=""
 if [ -f "$CONFIG_FILE" ]; then
     # Read the orchestrator URL from the JSON config file using jq
     # Assumes the URL is in a key named "orchestratorUrl". Adjust the key name as needed.
-    ORCHESTRATOR_URL=$(jq -r '.orchestratorUrl' "$CONFIG_FILE")
-    SECRET_KEY=$(jq -r '.secret' "$CONFIG_FILE")
+    ORCHESTRATOR_URL=$(jq -r '.orchestratorUrl' "$CONFIG_FILE") || {
+        echo "ERROR: $CONFIG_FILE is not a valid JSON object" >&2
+        exit 1
+    }
 fi
 
 if [ -z "$ORCHESTRATOR_URL" ] || [ "$ORCHESTRATOR_URL" == "null" ]; then
@@ -34,13 +55,22 @@ fi
 # Log the orchestrator URL being used
 echo "Orchestrator URL: $ORCHESTRATOR_URL"
 
-# Get public key
-PUBLIC_KEY=$(node /reflector-node/app/utils/get-pubkey.js "$SECRET_KEY")
+# Get public key. get-pubkey.js reads the seed from the file itself: a seed on a command line is visible to every
+# process in the container
+PUBLIC_KEY=$(node /reflector-node/app/utils/get-pubkey.js "$CONFIG_FILE") || {
+    echo "ERROR: cannot derive the node public key from $CONFIG_FILE; it must exist and hold the node secret" >&2
+    exit 1
+}
 
 echo "Public Key: $PUBLIC_KEY"
 
+# promtail pushes to <orchestrator>/loki-proxy over http(s); orchestratorUrl may be wss:// or ws://, which promtail
+# cannot push to, so the scheme is mapped, in any letter case as the node reads it. A path in orchestratorUrl is kept, so
+# https:// with no path is recommended
+LOKI_BASE_URL=$(printf '%s' "$ORCHESTRATOR_URL" | sed -e 's|^[Ww][Ss][Ss]://|https://|' -e 's|^[Ww][Ss]://|http://|')
+
 # Replace the placeholder in the template and create the final config file
-sed "s|__ORCHESTRATOR_URL__|${ORCHESTRATOR_URL}|g" "$PROMTAIL_TEMPLATE" | sed "s|__PUBLIC_KEY__|${PUBLIC_KEY}|g" > "$PROMTAIL_CONFIG"
+sed "s|__ORCHESTRATOR_URL__|${LOKI_BASE_URL}|g" "$PROMTAIL_TEMPLATE" | sed "s|__PUBLIC_KEY__|${PUBLIC_KEY}|g" > "$PROMTAIL_CONFIG"
 
 SUPERVISORD_CONFIG="/etc/supervisor/conf.d/supervisord.conf"
 

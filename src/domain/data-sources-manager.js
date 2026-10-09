@@ -44,9 +44,26 @@ const __connections = new Map([
     [exchangesDataSourceName, {
         type: DataSourceTypes.API,
         name: exchangesDataSourceName,
-        provider: getProviderByName(exchangesDataSourceName)
+        //`instance`, the key every reader uses: under the old `provider` key a node that did not list exchanges in its
+        //app config threw on the gateway hand-off, on price fetches and on dispose
+        instance: getProviderByName(exchangesDataSourceName)
     }]
 ]) //exchanges does not require any configuration, so it is added by default
+
+/**
+ * Maps the node's three gateway states onto the connector's. The connector reads `[]` as "no gateways configured"
+ * (the node synthesises exactly that on first boot), so configured-but-none-usable goes over as a list whose only
+ * entry is unusable, which the connector refuses to route instead of going direct
+ * @param {string[]|null} urls - validated gateway urls: null none configured, [] none usable
+ * @returns {Array<string|null>|null}
+ */
+function toConnectorGateways(urls) {
+    if (!urls)
+        return null
+    if (urls.length === 0)
+        return [null]
+    return urls
+}
 
 /**
  * @param {any} dataSourceConfig
@@ -109,11 +126,17 @@ class DataSourcesManager extends IssuesContainer {
     }
 
     /**
-     * @param {{urls: string[], gatewayValidationKey: string}} gateways - gateways list
+     * @param {{urls: ?Array<string>, gatewayValidationKey: string}} gateways - gateways list
      */
     setGateways(gateways) {
         const {urls, gatewayValidationKey} = gateways || {}
-        this.get(exchangesDataSourceName).instance.setGateway(urls, gatewayValidationKey)
+        const exchanges = this.get(exchangesDataSourceName)
+        if (!exchanges?.instance?.setGateway) {
+            //a backstop only: the default entry above always carries an instance, so reaching this is a defect
+            logger.error({msg: 'Exchanges data source has no gateway-capable instance; the gateway list was not applied'})
+            return
+        }
+        exchanges.instance.setGateway(toConnectorGateways(urls), gatewayValidationKey)
     }
 
     /**

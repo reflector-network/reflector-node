@@ -115,11 +115,13 @@ class SubscriptionProcessor {
 
     /**
      * @param {number} timestamp - timestamp
-     * @returns {Promise<EventsContainer>}
+     * @param {Function} [bound] - bounds the rpc reads behind the event processing
+     * @returns {Promise<EventsContainer|null>} null on a tick that had to reload every subscription: it builds nothing
      */
-    async getSubscriptionActions(timestamp) {
-        //process last events
-        await this.__subscriptionManager.processLastEvents()
+    async getSubscriptionActions(timestamp, bound) {
+        //process last events; a tick that made the full reload abstains, because its reads were not bounded (N-1)
+        if (await this.__subscriptionManager.processLastEvents(bound))
+            return null
 
         //get subscriptions
         const subscriptions = this.__subscriptionManager?.subscriptions || []

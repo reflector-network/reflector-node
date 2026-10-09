@@ -30,14 +30,17 @@ const SubscriptionsSyncData = require('../../../src/domain/subscriptions/subscri
 
 /**
  * Helper to build a fresh instance with a known hash so verify-path tests
- * can be deterministic.
+ * can be deterministic. Signatures only count when their pubkey is a current
+ * cluster member, so the fixture registers A..E as nodes.
  * @param {number} clusterSize - number of nodes in the cluster (majority math)
+ * @param {string[]} [members] - pubkeys registered as cluster members
  * @returns {SubscriptionsSyncData}
  */
-function makeItem(clusterSize = 3) {
-    container.settingsManager.config.nodes = new Map(
-        Array.from({length: clusterSize}, (_, i) => [`node-${i}`, {}])
-    )
+function makeItem(clusterSize = 3, members = ['A', 'B', 'C', 'D', 'E']) {
+    const nodes = new Map(members.slice(0, clusterSize).map(pubkey => [pubkey, {pubkey}]))
+    while (nodes.size < clusterSize)
+        nodes.set(`filler-${nodes.size}`, {pubkey: `filler-${nodes.size}`})
+    container.settingsManager.config.nodes = nodes
     const item = new SubscriptionsSyncData({syncData: {}, timestamp: 1_000_000})
     item.hash = Buffer.from('deadbeef', 'hex')
     item.hashBase64 = item.hash.toString('base64')
@@ -128,14 +131,15 @@ describe('SubscriptionsSyncData.tryAddSignature', () => {
         })
 
         test('skips invalid signature but keeps going with later valid ones', () => {
-            //First verify returns false (bad), second returns true (good).
-            mockVerify.mockImplementation((pubkey) => pubkey !== 'bad')
+            //First verify returns false (B), second returns true (C).
+            //both signers must be cluster members, otherwise the membership gate skips them first
+            mockVerify.mockImplementation((pubkey) => pubkey !== 'B')
             const item = makeItem()
 
-            item.tryAddSignature([sig('bad'), sig('good')])
+            item.tryAddSignature([sig('B'), sig('C')])
 
             const pubkeys = item.toPlainObject().signatures.map(s => s.pubkey)
-            expect(pubkeys).toEqual(['good'])
+            expect(pubkeys).toEqual(['C'])
         })
     })
 
@@ -170,5 +174,52 @@ describe('SubscriptionsSyncData.tryAddSignature', () => {
             expect(a.toPlainObject().signatures.map(s => s.pubkey).sort()).toEqual(['A', 'B', 'C'])
             expect(a.isVerified).toBe(true)
         })
+    })
+
+    describe('cluster membership', () => {
+        test('a signer outside the current node set is skipped even when verified is true', () => {
+            const item = makeItem(3)
+            item.tryAddSignature([{pubkey: 'outsider', signature: 'c2ln'}], true)
+
+            expect(item.toPlainObject().signatures).toEqual([])
+            expect(item.isVerified).toBe(false)
+        })
+
+        test('signatures from keys outside the node set do not count in a three-node cluster', () => {
+            mockVerify.mockReturnValue(true)
+            const item = makeItem(3)
+
+            item.tryAddSignature([sig('outsider-1'), sig('outsider-2')])
+
+            expect(item.isVerified).toBe(false)
+            expect(mockVerify).not.toHaveBeenCalled() //membership is checked before the signature is verified
+        })
+
+        test('in-cluster signers still reach majority alongside a skipped outsider', () => {
+            mockVerify.mockReturnValue(true)
+            const item = makeItem(3)
+
+            item.tryAddSignature([sig('A'), sig('outsider'), sig('B')])
+
+            expect(item.toPlainObject().signatures.map(s => s.pubkey)).toEqual(['A', 'B'])
+            expect(item.isVerified).toBe(true)
+        })
+    })
+})
+
+describe('SubscriptionsSyncData.size', () => {
+    //the sync-data cap in SubscriptionContractManager.trySetRawSyncData is derived from this getter, and the manager
+    //suite mocks this class away, so this is the only place the count itself is pinned
+    test('counts the entries the item holds', () => {
+        const item = new SubscriptionsSyncData({
+            syncData: {'1': {lastNotification: 1, lastPrice: '1'}, '2': {lastNotification: 2, lastPrice: '2'}},
+            timestamp: 1_000_000
+        })
+
+        expect(item.size).toBe(2)
+    })
+
+    test('is zero for an item with no entries', () => {
+        expect(makeItem().size).toBe(0)
     })
 })

@@ -9,6 +9,7 @@ const mockStellarInits = []
 const mockForexInits = []
 const mockExchangesInits = []
 const mockMkdirCalls = []
+const mockSetGatewayCalls = []
 
 jest.mock('fs', () => ({
     mkdirSync: jest.fn((...args) => {
@@ -34,6 +35,11 @@ jest.mock('@reflector/reflector-exchanges-connector', () => (
     class FakeExchangesProvider {
         async init(opts) {
             mockExchangesInits.push(opts)
+        }
+
+        //eslint-disable-next-line class-methods-use-this
+        setGateway(...args) {
+            mockSetGatewayCalls.push(args)
         }
     }
 ))
@@ -133,5 +139,44 @@ describe('DataSourcesManager.setDataSources', () => {
         expect(fs.mkdirSync).toHaveBeenCalledWith('/empty/home/cache', {recursive: true})
         expect(mockStellarInits).toHaveLength(0)
         expect(mockForexInits).toHaveLength(0)
+    })
+})
+
+describe('DataSourcesManager.setGateways', () => {
+    beforeEach(async () => {
+        mockSetGatewayCalls.length = 0
+        await dataSourcesManager.setDataSources([makeSource('exchanges', undefined)], '/h')
+    })
+
+    test('no gateways configured reaches the connector as null, the one state that may go direct', () => {
+        dataSourcesManager.setGateways({urls: null, gatewayValidationKey: 'k'})
+        expect(mockSetGatewayCalls).toEqual([[null, 'k']])
+    })
+
+    test('usable gateways reach the connector unchanged', () => {
+        dataSourcesManager.setGateways({urls: ['https://gw-a.example', 'https://gw-b.example'], gatewayValidationKey: 'k'})
+        expect(mockSetGatewayCalls).toEqual([[['https://gw-a.example', 'https://gw-b.example'], 'k']])
+    })
+
+    test('configured but none usable reaches the connector as [null], never as []', () => {
+        //[] is "no gateways configured" on the connector side and would send price fetches direct, exposing the
+        //node address to every exchange; [null] is a configured list with no usable entry, which fails closed
+        dataSourcesManager.setGateways({urls: [], gatewayValidationKey: 'k'})
+        expect(mockSetGatewayCalls).toEqual([[[null], 'k']])
+    })
+})
+
+describe('DataSourcesManager default exchanges entry', () => {
+    test('a node whose app config does not list exchanges still hands the gateways to the default connector', () => {
+        mockSetGatewayCalls.length = 0
+        jest.isolateModules(() => {
+            //a fresh manager: setDataSources has never run, so only the default entry exists
+            const freshManager = require('../../src/domain/data-sources-manager')
+            freshManager.setGateways({urls: [], gatewayValidationKey: 'k'})
+            //the default entry is stored under the same key a registered source uses, so every reader finds it
+            expect(typeof freshManager.get('exchanges').instance.setGateway).toBe('function')
+            expect(freshManager.get('exchanges').provider).toBe(undefined)
+        })
+        expect(mockSetGatewayCalls).toEqual([[[null], 'k']])
     })
 })

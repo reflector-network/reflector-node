@@ -43,23 +43,31 @@ class SubscriptionsSyncData {
     }
 
     /**
+     * Adds every signature of the batch that a current cluster member produced. A signer outside the node set is
+     * skipped before its signature is verified.
      * @param {{pubkey: string, signature: string}[]} signaturesData - signatures data
      * @param {boolean} [verified] - are signatures verified
      */
     tryAddSignature(signaturesData, verified = false) {
+        const {nodes} = container.settingsManager.config
         for (const signatureData of signaturesData) {
             const {signature, pubkey} = signatureData
+            if (!nodes.has(pubkey)) { //only current cluster members count toward the majority
+                logger.debug({msg: 'Sync data signature from a key outside the cluster', timestamp: this.timestamp, pubkey})
+                continue
+            }
             if (this.__signatures.findIndex(s => s.pubkey === pubkey) >= 0) //prevent duplicate signatures
                 continue
-            if (!verified && !Keypair.fromPublicKey(pubkey).verify(this.hash, Buffer.from(signature, 'base64'))) {
-                logger.debug({msg: 'Invalid signature for timestamp', timestamp: this.__timestamp, pubkey})
+            if (!verified && (typeof signature !== 'string'
+                || !Keypair.fromPublicKey(pubkey).verify(this.hash, Buffer.from(signature, 'base64')))) {
+                logger.debug({msg: 'Invalid signature for timestamp', timestamp: this.timestamp, pubkey})
                 continue
             }
             //add valid signature
             this.__signatures.push(signatureData)
 
             //check if verified
-            this.__isVerified = this.__isVerified || hasMajority(container.settingsManager.config.nodes.size, this.__signatures.length)
+            this.__isVerified = this.__isVerified || hasMajority(nodes.size, this.__signatures.length)
         }
     }
 
@@ -91,6 +99,15 @@ class SubscriptionsSyncData {
             data: this.__data,
             signatures: this.__signatures
         }
+    }
+
+    /**
+     * Number of subscriptions this sync data holds an entry for. Once the item is verified the cluster has agreed on
+     * exactly these entries, so it is the only peer-independent measure of how large an honest payload may be.
+     * @returns {number}
+     */
+    get size() {
+        return Object.keys(this.__data.syncData).length
     }
 
     /**

@@ -13,7 +13,7 @@ transaction won't make it into the ledger. This way Reflector utilizes Stellar p
 uncomplicated yet robust consensus, which guarantees reliability, fault tolerance and regular price feed updates.
 
 For on-chain Stellar assets price feed data retrieval Reflector relies on a quorum of nodes connected to Stellar validators.
-Each node fetches trades information directly from the Stellar Core database. Price feeds for generic tokens get updated in a
+Each node reads Stellar trades and liquidity pool reserves from Soroban RPC. Price feeds for generic tokens get updated in a
 similar fashion, but nodes have to agree on information pulled from external sources (CEX/DEX API, price aggregators,
 stock exchanges, derivative platforms, etc.)
 
@@ -30,8 +30,8 @@ Check [examples](https://github.com/reflector-network/reflector-contract#usage-e
   Fetches prices, maintains p2p communication with other nodes, and publishes price updates signed by the quorum
 - **[Oracle smart contract](https://github.com/reflector-network/reflector-contract)**  
   Contract implementation that incorporates consumer-facing interface with admin functionality
-- **[Contract JavaScript bindings](https://github.com/reflector-network/oracle-client)**  
-  Provides convenient JS wrappers for interaction with the contract from JS runtime  
+- **[Shared library and contract JavaScript bindings](https://github.com/reflector-network/reflector-shared)**  
+  Cluster config models, transaction builders and the JS wrappers for the Reflector contracts, used by the nodes and the orchestrator  
 - **[Stellar Core Stellar connector](https://github.com/reflector-network/reflector-stellar-connector)**  
   Stellar connector library responsible for retrieving and parsing data from Stellar Core
 - **[Admin dashboard](https://github.com/reflector-network/admin-dashboard)**  

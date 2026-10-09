@@ -171,3 +171,78 @@ describe('ChannelBase keepalive after incident 2026-04-20', () => {
         })
     })
 })
+
+describe('ChannelBase pending requests', () => {
+    const container = require('../../src/domain/container')
+    const MessageTypes = require('../../src/ws-server/handlers/message-types')
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+    })
+
+    afterEach(() => {
+        jest.clearAllTimers()
+        jest.useRealTimers()
+        container.handlersManager.handle = jest.fn(() => Promise.resolve({type: 1}))
+    })
+
+    test('rejects the pending request when the response handler throws', async () => {
+        container.handlersManager.handle = jest.fn(() => {
+            throw new Error('Invalid signature')
+        })
+        const ws = new FakeWs()
+        const channel = new TestChannel('peer-A', ws)
+
+        const pending = channel.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {payload: 'reflector-node-x'}})
+        const {requestId} = JSON.parse(ws.send.mock.calls[0][0])
+        await channel.__onMessage(JSON.stringify({type: MessageTypes.HANDSHAKE_RESPONSE, responseId: requestId, data: {signature: '00'}}))
+
+        await expect(pending).rejects.toThrow('Invalid signature')
+        expect(channel.isValidated).toBe(false)
+    })
+
+    test('resolves the pending request when the response handler succeeds', async () => {
+        container.handlersManager.handle = jest.fn((channel) => {
+            channel.validated()
+        })
+        const ws = new FakeWs()
+        const channel = new TestChannel('peer-A', ws)
+
+        const pending = channel.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {payload: 'reflector-node-x'}})
+        const {requestId} = JSON.parse(ws.send.mock.calls[0][0])
+        await channel.__onMessage(JSON.stringify({type: MessageTypes.HANDSHAKE_RESPONSE, responseId: requestId, data: {signature: 'aa'}}))
+
+        await expect(pending).resolves.toBeUndefined()
+        expect(channel.isValidated).toBe(true)
+    })
+
+    test('a timed-out request on one channel does not leave another channel\'s entry behind', async () => {
+        const channel1 = new TestChannel('peer-A', new FakeWs())
+        const channel2 = new TestChannel('peer-B', new FakeWs())
+        const message = {type: MessageTypes.SIGNATURE, data: {}} //the same object, as broadcast() passes it
+
+        const pending1 = channel1.send(message)
+        const pending2 = channel2.send(message)
+        pending1.catch(() => {})
+        pending2.catch(() => {})
+
+        jest.advanceTimersByTime(5000)
+
+        await expect(pending1).rejects.toThrow('timed out')
+        await expect(pending2).rejects.toThrow('timed out')
+        expect(Object.keys(channel1.__requests)).toHaveLength(0)
+        expect(Object.keys(channel2.__requests)).toHaveLength(0)
+    })
+
+    test('send honours an explicit timeout', async () => {
+        const channel = new TestChannel('peer-A', new FakeWs())
+
+        const pending = channel.send({type: MessageTypes.HANDSHAKE_REQUEST, data: {}}, 100)
+        pending.catch(() => {})
+        jest.advanceTimersByTime(99)
+        expect(Object.keys(channel.__requests)).toHaveLength(1)
+        jest.advanceTimersByTime(1)
+
+        await expect(pending).rejects.toThrow('Request timed out after 100')
+    })
+})

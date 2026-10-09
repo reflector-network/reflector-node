@@ -1,4 +1,5 @@
 const container = require('../container')
+const {priceSyncDelay} = require('../sync-delays')
 const RunnerBase = require('./runner-base')
 
 const timeframe = 1000 * 60 //1 minute
@@ -6,7 +7,7 @@ const timeframe = 1000 * 60 //1 minute
 class PriceRunner extends RunnerBase {
     async __workerFn(timestamp) {
         const {tradesManager} = container
-        tradesManager.loadTradesData() //load last completed timeframe
+        tradesManager.loadTradesData(timestamp) //load last completed timeframe
         return false
     }
 
@@ -19,7 +20,7 @@ class PriceRunner extends RunnerBase {
     }
 
     get __delay() {
-        return container.settingsManager.appConfig.dbSyncDelay
+        return priceSyncDelay
     }
 
     get delay() {

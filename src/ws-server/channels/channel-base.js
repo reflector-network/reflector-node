@@ -65,20 +65,22 @@ class ChannelBase {
 
     /**
      * @param {any} message - message to send
+     * @param {number} [timeout] - response deadline in ms; defaults to 5 s (1 h when debugging)
      * @returns {Promise<any>}
      */
-    send(message) {
+    send(message, timeout = null) {
         return new Promise((resolve, reject) => {
             if (!message.responseId) {
-                message.requestId = uuidv4()
-                const timeout = isDebugging() ? 60 * 1000 * 60 : 5000
+                const requestId = uuidv4()
+                message.requestId = requestId
+                const requestTimeout = timeout || (isDebugging() ? 60 * 1000 * 60 : 5000)
                 const responseTimeout = setTimeout(() => {
-                    delete this.__requests[message.requestId]
-                    const error = new Error(`Request timed out after ${timeout}. Message: ${message.type}. ${this.__getConnectionInfo(true)}`)
+                    delete this.__requests[requestId]
+                    const error = new Error(`Request timed out after ${requestTimeout}. Message: ${message.type}. ${this.__getConnectionInfo(true)}`)
                     error.timeout = true
                     reject(error)
-                }, timeout)
-                this.__requests[message.requestId] = {
+                }, requestTimeout)
+                this.__requests[requestId] = {
                     resolve,
                     reject,
                     responseTimeout
@@ -254,6 +256,8 @@ class ChannelBase {
                     clearTimeout(request.responseTimeout)
                     if (message.type === MessageTypes.ERROR)
                         request.reject(new Error(message.error))
+                    else if (result.type === MessageTypes.ERROR) //the handler for the response frame threw
+                        request.reject(new Error(result.error))
                     else
                         request.resolve(result.data) //resolve the promise with the result
                 }

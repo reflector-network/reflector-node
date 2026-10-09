@@ -1,7 +1,7 @@
 const {mapToPlainObject, ContractTypes} = require('@reflector/reflector-shared')
 const nodesManager = require('../domain/nodes/nodes-manager')
 const logger = require('../logger')
-const {makeRequest} = require('../utils/requests-helper')
+const {makeRequest, loggableHost} = require('../utils/requests-helper')
 const container = require('./container')
 
 class ContractStatistics {
@@ -120,29 +120,32 @@ class StatisticsManager {
 
     async __metricsWorker() {
         try {
-            const {urls, gatewayValidationKey} = container?.settingsManager?.gateways || {urls: [], gatewayValidationKey: ''}
+            const {urls, gatewayValidationKey} = container?.settingsManager?.gateways || {}
+            const gatewayUrls = urls || [] //urls is null when no gateways are configured; this path never goes direct
 
             const metrics = []
             const requests = []
-            for (let i = 0; i < urls.length; i++) {
-                const currentGateway = urls[i]
+            for (let i = 0; i < gatewayUrls.length; i++) {
+                const currentGateway = gatewayUrls[i]
                 requests[i] =
                         makeRequest(`${currentGateway}/metrics`,
                             {
                                 headers: {'x-gateway-validation': gatewayValidationKey},
-                                timeout: 5000
+                                timeout: 5000,
+                                validateSsrf: true
                             })
                             .then(response => {
                                 metrics[i] = response.data
                             })
                             .catch(e => {
                                 metrics[i] = 'n/a'
-                                logger.warn({msg: 'Failed to send metrics data', gateway: currentGateway, err: e.message})
+                                //the host only: a gateway url can carry a token in its path
+                                logger.warn({msg: 'Failed to send metrics data', host: loggableHost(currentGateway), err: e.safeMessage || e.message})
                             })
             }
             await Promise.all(requests)
             const gatewaysMetrics = {
-                gatewaysCount: urls.length,
+                gatewaysCount: gatewayUrls.length,
                 from: this.__lastGatewayMetricsDate,
                 to: this.__lastGatewayMetricsDate = new Date().toISOString(),
                 metrics
@@ -151,7 +154,10 @@ class StatisticsManager {
         } catch (err) {
             logger.error({err, msg: 'Metrics worker error'})
         } finally {
-            setTimeout(() => this.__metricsWorker(), 60000)
+            //unref: a running node is kept alive by its servers and sockets, not by this housekeeping timer, and an
+            //armed ref'd timer only stops a test process from exiting
+            this.__metricsTimeout = setTimeout(() => this.__metricsWorker(), 60000)
+            this.__metricsTimeout.unref()
         }
     }
 

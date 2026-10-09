@@ -5,6 +5,7 @@ const container = require('../../../src/domain/container')
 const AssetMap = require('../../../src/domain/prices/assets-map')
 const {getConcensusData} = require('../../../src/domain/prices/price-manager')
 const TradesManager = require('../../../src/domain/prices/trades-manager')
+const {stopTradesManagersAfterEach} = require('../../helpers/stop-trades-managers')
 const logger = require('../../../src/logger')
 const nodes = [
     {pubkey: 'node1'},
@@ -15,6 +16,8 @@ const nodes = [
     {pubkey: 'node6'},
     {pubkey: 'node7'}
 ]
+
+stopTradesManagersAfterEach(TradesManager)
 
 
 function getPrices(pricesCount, sourcesCount) {

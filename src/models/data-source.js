@@ -57,8 +57,15 @@ class DataSource {
     }
 
     __setProviders(providers) {
-        if (!Array.isArray(providers) || providers.length === 0)
-            logger.warn({msg: 'No providers are defined for data source', source: this.name})
+        //absent means the connector's own defaults; an array (exchanges) or an object keyed by provider (forex, the
+        //Stellar pool providers) reaches the connector as its sources
+        if (providers !== undefined && providers !== null) {
+            const isArray = Array.isArray(providers)
+            if (!isArray && typeof providers !== 'object')
+                throw new Error('DataSource providers must be an array or an object')
+            if ((isArray ? providers.length : Object.keys(providers).length) === 0)
+                logger.warn({msg: 'No providers are defined for data source', source: this.name})
+        }
         this.providers = providers
     }
 }

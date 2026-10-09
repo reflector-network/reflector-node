@@ -4,6 +4,7 @@ const container = require('../container')
 const logger = require('../../logger')
 const {getAccount} = require('../../utils')
 const RunnerBase = require('./runner-base')
+const {withPreBuildDeadline} = RunnerBase
 
 /**
  * @typedef {import('@reflector/reflector-shared').DAOConfig} DAOConfig
@@ -29,10 +30,11 @@ class DAORunner extends RunnerBase {
         //cluster network data
         const {networkPassphrase: network, sorobanRpc} = settingsManager.getBlockchainConnectorSettings()
 
-        //get account info
-        const sourceAccount = await getAccount(admin, sorobanRpc)
-
-        const contractState = await getContractState(this.contractId, sorobanRpc)
+        //get account info and contract state under one shared budget; the array keeps them sequential
+        const [sourceAccount, contractState] = await withPreBuildDeadline((async () => [
+            await getAccount(admin, sorobanRpc),
+            await getContractState(this.contractId, sorobanRpc)
+        ])())
 
         logger.trace({msg: 'Contract state', lastBallotId: Number(contractState.lastBallotId), lastUnlock: Number(contractState.lastUnlock), initialized: contractState.isInitialized, ...this.__contractInfo})
         statisticsManager.setLastDAOData(

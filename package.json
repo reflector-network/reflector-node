@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.12.9",
+  "version": "0.13.0",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
@@ -14,7 +14,9 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "jest": {
-    "setupFiles": ["./tests/setup.js"]
+    "setupFiles": [
+      "./tests/setup.js"
+    ]
   },
   "author": "team@stellar.expert",
   "license": "MIT",
@@ -28,11 +30,10 @@
     "jest": "^30.4.2"
   },
   "dependencies": {
-    "@reflector/oracle-client": "github:reflector-network/oracle-client#v7.1.2",
-    "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v2.0.1",
-    "@reflector/reflector-fx-connector": "github:reflector-network/reflector-fx-connector#v3.0.1",
-    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v7.1.4",
-    "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v4.1.7",
+    "@reflector/reflector-exchanges-connector": "github:reflector-network/reflector-exchanges-connector#v2.1.0",
+    "@reflector/reflector-fx-connector": "github:reflector-network/reflector-fx-connector#v3.1.0",
+    "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v7.2.0",
+    "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v4.3.0",
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
     "@stellar/stellar-sdk": "17.0.1",
     "bufferutil": "4.1.0",
@@ -40,6 +41,6 @@
     "rotating-file-stream": "3.2.7",
     "utf-8-validate": "6.0.6",
     "uuid": "11.1.0",
-    "ws": "8.18.3"
+    "ws": "8.21.3"
   }
 }

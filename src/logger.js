@@ -1,10 +1,10 @@
 const fs = require('fs')
-const path = require('path')
 const pino = require('pino')
 const rfs = require('rotating-file-stream')
 const container = require('./domain/container')
 const {isDebugging} = require('./utils/utils')
 const {storage} = require('./async-storage')
+const {redactString, safeUrl} = require('./utils/log-redaction')
 
 const traceLevel = 'trace'
 const infoLevel = 'info'
@@ -14,9 +14,36 @@ const MAX_LOG_FILE_SIZE = '2M'
 const LOG_RETENTION_DAYS = '7d'
 const MAX_FILES = 20
 
-const basePath = path.resolve(path.resolve(process.cwd()), '..') + path.sep
-
 const circularRefTag = 'circular-ref-tag'
+
+//keys whose value is a secret wherever it appears in a logged object, down to the depth a config item is logged at
+const secretKeys = ['secret', 'clusterSecret', 'apiKey', 'gatewayValidationKey']
+const secretPaths = secretKeys.flatMap(key => [key, `*.${key}`, `*.*.${key}`, `*.*.*.${key}`])
+
+/**
+ * Replaces an axios-shaped error with a small one: pino's error serializer copies every enumerable property, and an
+ * axios error carries the request headers (a gateway's x-gateway-validation token among them), the body and the full url
+ * @param {any} err - error to filter
+ * @returns {any} the same value when it is not axios-shaped
+ */
+function filterError(err) {
+    if (!err || typeof err !== 'object')
+        return err
+    if (!err.isAxiosError && !err.config && !err.request && !err.response)
+        return err
+    const filtered = new Error(err.message)
+    filtered.name = err.name
+    filtered.stack = err.stack
+    if (err.code !== undefined)
+        filtered.code = err.code
+    const status = err.response && err.response.status !== undefined ? err.response.status : err.status
+    if (status !== undefined)
+        filtered.status = status
+    const url = safeUrl(err.config && err.config.url)
+    if (url !== undefined)
+        filtered.url = url
+    return filtered
+}
 
 const originalConsoleError = console.error
 const originalConsoleWarn = console.warn
@@ -93,15 +120,12 @@ const cleanup = (data, seen) => {
     if (typeof data !== 'string') {
         return data
     }
-    return data
-        .replaceAll(basePath, './')
-        .replaceAll(/(\d+)\.(\d+)\.(\d+)\.(\d+)/g, '$1.***.***.$4')
-        .replaceAll('\\', '/')
+    return redactString(data)
 }
 
 const errorSerializer = err => {
     if (err) {
-        err = cleanup(err)
+        err = cleanup(filterError(err))
     }
     return pino.stdSerializers.err(err)
 }
@@ -117,6 +141,7 @@ const baseLogOptions = {
     level: traceLevel,
     timestamp: () => `,"time":"${new Date().toISOString()}"`,
     serializers: {err: errorSerializer, msg: msgSerializer},
+    redact: {paths: secretPaths, censor: '[redacted]'},
     formatters: {
         level(label) {
             return {level: label}
