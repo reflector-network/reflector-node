@@ -1,6 +1,6 @@
 {
   "name": "@reflector/reflector-node",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "private": true,
   "description": "Node server for Reflector, decentralized Stellar price feed oracle",
   "main": "src/index.js",
@@ -35,7 +35,7 @@
     "@reflector/reflector-shared": "github:reflector-network/reflector-shared#v7.2.0",
     "@reflector/reflector-stellar-connector": "github:reflector-network/reflector-stellar-connector#v4.3.0",
     "@reflector/reflector-subscription-encryption": "github:reflector-network/reflector-subscription-encryption#v1.0.1",
-    "@stellar/stellar-sdk": "17.0.1",
+    "@stellar/stellar-sdk": "17.4.0",
     "bufferutil": "4.1.0",
     "pino": "9.9.0",
     "rotating-file-stream": "3.2.7",
