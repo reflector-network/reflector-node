@@ -33,7 +33,8 @@ Where:
   owner only (`chmod 600`); the node never rewrites it, and closes its home directory to other users (`chmod 700`) at start
 - `dataSources` (settings[]) - price data sources configuration; a source's optional `providers` block chooses its
   providers and their settings (for a Stellar source, its pool providers: see the stellar-connector README "Pool
-  providers"), and must be the same on every node
+  providers"), and must be the same on every node, except while operators remove an exchange for a while (see
+  [Removing an exchange](#removing-an-exchange))
 - `dbSyncDelay` - no longer read: the sync delays are the same for every node (trades gossip 15 s after each minute,
   oracle and subscriptions rounds 20 s after their tick). A node whose config still has it logs a warning at boot.
 - `port` (number) - [optional] TCP port for inbound connections (30347); 1024 or above in the Docker image, see
@@ -156,6 +157,35 @@ private. The list lives in `gateways.json` in the home directory and is pushed f
   problem by position and host, never a whole URL. It exits 1 when the list is unusable or any entry is refused, and
   when the file does not exist unless `--missing-ok` is given for a node that has none; even then the home directory
   must exist, so a mistyped home still fails. It checks IP literals only, not what a hostname resolves to.
+
+## Removing an exchange
+
+When an exchange is down or sends bad data, the operators can agree to leave it out of the exchanges price feed for a
+while. Put it back once the exchange has recovered.
+
+1. Open `app.config.json` in the node's home directory. With Docker, that is the folder mounted at
+   `/reflector-node/app/home`.
+2. In `dataSources`, set the `providers` of the `exchanges` entry to the exchanges to keep. Without a `providers` list
+   the node uses `binance`, `bybit`, `coinbase`, `kraken` and `okx`. For example, to leave out Kraken:
+   ```json
+   "exchanges": {
+     "type": "api",
+     "name": "exchanges",
+     "providers": ["binance", "bybit", "coinbase", "okx"]
+   }
+   ```
+   If the entry already has a `providers` list, remove the exchange from it. Leave the rest of the file unchanged.
+3. Restart the node, because the file is read only at start. With Docker:
+   ```bash
+   docker restart reflector-node
+   ```
+   Use your own container name.
+
+Operators can make the change at different times. A node that leaves an exchange out still uses the exchange data that
+most of the cluster agreed on, so it builds the same transactions as the other nodes. The change takes full effect once
+most nodes have made it.
+
+To put the exchange back, restore the previous `providers` list (or remove it) and restart the node.
 
 ## Admin Dashboard
 
