@@ -19,8 +19,9 @@ const {validatePriceSyncItem, getSyncWindow, getMaxSyncTimestamps, maxSyncKeys} 
 const cacheSize = 15
 const minute = 60 * 1000
 //outer budget for one connector call. Each connector bounds a single provider request (3 tries of 10 s plus
-//back-off), but not the whole call, and __loadDataForAssetMap only queues the next tick behind a pending request - so a
-//promise that never settles would stop this source for good
+//back-off); only reflector-exchanges-connector (2.1.1 and later) also bounds the whole call, at 45 s by default. A
+//connector call may still outlast its own limits, and __loadDataForAssetMap only queues the next tick behind a pending
+//request - so a promise that never settles would stop this source for good
 const minPriceFetchTimeout = 90 * 1000
 const priceFetchMargin = 45 * 1000
 //connector calls abandoned at that budget, keyed by source and base asset, with when each started and its budget.
@@ -140,8 +141,8 @@ async function loadPriceData(dataSource, baseAsset, assets, from, count) {
     const requestOptions = normalizePriceDataFetchOptions(dataSource, baseAsset, assets, from, minute / 1000, count)
     //the node's own batching options, not the connector's defaults, decide how long a healthy fetch takes.
     //reflector-exchanges-connector merges them over its defaults ({...defaultFetchOptions, ...options}, src/index.js
-    //in 2.1.0), so its batchSize 10 / batchDelay 2000 (src/index.js:43) never apply to this node,
-    //and its getPairs (src/index.js:65-72) builds exactly one pair per requested asset
+    //in 2.1.1), so its batchSize 10 / batchDelay 2000 (src/index.js:48) never apply to this node, while its 45 s
+    //deadline does, and its getPairs (src/index.js:70-77) builds exactly one pair per requested asset
     const {batchSize, batchDelay} = requestOptions.options
     const priceFetchTimeout = getPriceFetchTimeout(requestOptions.assets.length, batchSize, batchDelay)
     //an answer after the budget is discarded by withDeadline: the caller has already failed this source for the tick,
